@@ -17,91 +17,66 @@ namespace FileExplorerr
         public ImageViewerForm(string path)
         {
             imagePath = path;
-            InitializeComponents();
+            SetupComponents();
             LoadImage();
         }
 
-        private void InitializeComponents()
+        private void SetupComponents()
         {
-            this.Text = $"Visor de imágenes - {Path.GetFileName(imagePath)}";
+            this.Text = $"Visor de imágenes — {Path.GetFileName(imagePath)}";
             this.Size = new Size(1000, 800);
-            this.BackColor = Color.FromArgb(240, 240, 240);
+            this.BackColor = Color.FromArgb(10, 14, 20);
+            this.ForeColor = Color.FromArgb(220, 232, 248);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.MinimumSize = new Size(600, 400);
             this.KeyPreview = true;
-            this.KeyDown += ImageViewerForm_KeyDown;
+            this.KeyDown += OnKeyDown;
 
-            // Panel superior con información
             topPanel = new Panel
             {
-                Height = 80,
+                Height = 52,
                 Dock = DockStyle.Top,
-                BackColor = Color.FromArgb(250, 250, 250),
-                Padding = new Padding(15)
+                BackColor = Color.FromArgb(17, 23, 33),
+                Padding = new Padding(14, 0, 0, 0)
             };
+            topPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)),
+                    0, topPanel.Height - 1, topPanel.Width, topPanel.Height - 1);
 
             imageInfoLabel = new Label
             {
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9F),
-                ForeColor = Color.FromArgb(60, 60, 60),
+                ForeColor = Color.FromArgb(110, 140, 180),
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
-            // Botones de zoom
-            Button zoomInButton = new Button
-            {
-                Text = "+",
-                Size = new Size(40, 30),
-                Location = new Point(topPanel.Width - 100, 10),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                BackColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 14F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            zoomInButton.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
-            zoomInButton.Click += (s, e) => Zoom(1.2f);
+            Button btnZoomIn = MakeBtn("+", 14F, FontStyle.Bold);
+            Button btnZoomOut = MakeBtn("−", 14F, FontStyle.Bold);
+            Button btnReset = MakeBtn("1:1", 8F, FontStyle.Regular);
 
-            Button zoomOutButton = new Button
-            {
-                Text = "-",
-                Size = new Size(40, 30),
-                Location = new Point(topPanel.Width - 55, 10),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                BackColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 14F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            zoomOutButton.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
-            zoomOutButton.Click += (s, e) => Zoom(0.8f);
+            btnZoomIn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnZoomOut.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnReset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
-            Button resetButton = new Button
-            {
-                Text = "1:1",
-                Size = new Size(40, 30),
-                Location = new Point(topPanel.Width - 10, 10),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                BackColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8F),
-                Cursor = Cursors.Hand
-            };
-            resetButton.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
-            resetButton.Click += (s, e) => ResetZoom();
+            btnZoomIn.Location = new Point(topPanel.Width - 138, 11);
+            btnZoomOut.Location = new Point(topPanel.Width - 92, 11);
+            btnReset.Location = new Point(topPanel.Width - 46, 11);
+
+            btnZoomIn.Click += (s, e) => Zoom(1.2f);
+            btnZoomOut.Click += (s, e) => Zoom(0.8f);
+            btnReset.Click += (s, e) => ResetZoom();
 
             topPanel.Controls.Add(imageInfoLabel);
-            topPanel.Controls.Add(zoomInButton);
-            topPanel.Controls.Add(zoomOutButton);
-            topPanel.Controls.Add(resetButton);
+            topPanel.Controls.Add(btnZoomIn);
+            topPanel.Controls.Add(btnZoomOut);
+            topPanel.Controls.Add(btnReset);
 
-            // Panel para la imagen con scroll
             Panel imagePanel = new Panel
             {
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
-                BackColor = Color.FromArgb(45, 45, 45)
+                BackColor = Color.FromArgb(8, 11, 16)
             };
 
             pictureBox = new PictureBox
@@ -112,9 +87,24 @@ namespace FileExplorerr
             };
 
             imagePanel.Controls.Add(pictureBox);
-
             this.Controls.Add(imagePanel);
             this.Controls.Add(topPanel);
+        }
+
+        private Button MakeBtn(string text, float size, FontStyle style)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Size = new Size(38, 30),
+                BackColor = Color.FromArgb(24, 32, 46),
+                ForeColor = Color.FromArgb(220, 232, 248),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", size, style),
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderColor = Color.FromArgb(38, 50, 70);
+            return btn;
         }
 
         private void LoadImage()
@@ -123,13 +113,7 @@ namespace FileExplorerr
             {
                 currentImage = Image.FromFile(imagePath);
                 pictureBox.Image = currentImage;
-
-                FileInfo fileInfo = new FileInfo(imagePath);
-                imageInfoLabel.Text = $"Archivo: {fileInfo.Name}\n" +
-                                    $"Dimensiones: {currentImage.Width} x {currentImage.Height} px | " +
-                                    $"Tamaño: {FormatFileSize(fileInfo.Length)} | " +
-                                    $"Formato: {currentImage.RawFormat} | " +
-                                    $"Zoom: {zoomFactor:P0}";
+                UpdateInfo();
             }
             catch (Exception ex)
             {
@@ -141,11 +125,7 @@ namespace FileExplorerr
 
         private void Zoom(float factor)
         {
-            zoomFactor *= factor;
-
-            if (zoomFactor < 0.1f) zoomFactor = 0.1f;
-            if (zoomFactor > 10f) zoomFactor = 10f;
-
+            zoomFactor = Math.Max(0.1f, Math.Min(10f, zoomFactor * factor));
             UpdateImageSize();
             UpdateInfo();
         }
@@ -161,15 +141,13 @@ namespace FileExplorerr
         private void UpdateImageSize()
         {
             if (currentImage == null) return;
-
             pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-            int newWidth = (int)(currentImage.Width * zoomFactor);
-            int newHeight = (int)(currentImage.Height * zoomFactor);
-
             if (zoomFactor != 1.0f)
             {
                 pictureBox.Dock = DockStyle.None;
-                pictureBox.Size = new Size(newWidth, newHeight);
+                pictureBox.Size = new Size(
+                    (int)(currentImage.Width * zoomFactor),
+                    (int)(currentImage.Height * zoomFactor));
             }
             else
             {
@@ -179,61 +157,38 @@ namespace FileExplorerr
 
         private void UpdateInfo()
         {
-            if (currentImage != null)
-            {
-                FileInfo fileInfo = new FileInfo(imagePath);
-                imageInfoLabel.Text = $"Archivo: {fileInfo.Name}\n" +
-                                    $"Dimensiones: {currentImage.Width} x {currentImage.Height} px | " +
-                                    $"Tamaño: {FormatFileSize(fileInfo.Length)} | " +
-                                    $"Formato: {currentImage.RawFormat} | " +
-                                    $"Zoom: {zoomFactor:P0}";
-            }
+            if (currentImage == null) return;
+            var fi = new FileInfo(imagePath);
+            imageInfoLabel.Text =
+                $"  {fi.Name}   ·   {currentImage.Width} × {currentImage.Height} px   ·   " +
+                $"{FormatSize(fi.Length)}   ·   Zoom {zoomFactor:P0}";
         }
 
-        private void ImageViewerForm_KeyDown(object sender, KeyEventArgs e)
+        private void OnKeyDown(object sender, KeyEventArgs e)
         {
             switch (e.KeyCode)
             {
                 case Keys.Add:
-                case Keys.Oemplus:
-                    Zoom(1.2f);
-                    break;
+                case Keys.Oemplus: Zoom(1.2f); break;
                 case Keys.Subtract:
-                case Keys.OemMinus:
-                    Zoom(0.8f);
-                    break;
+                case Keys.OemMinus: Zoom(0.8f); break;
                 case Keys.D0:
-                case Keys.NumPad0:
-                    if (e.Control)
-                        ResetZoom();
-                    break;
-                case Keys.Escape:
-                    this.Close();
-                    break;
+                case Keys.NumPad0: if (e.Control) ResetZoom(); break;
+                case Keys.Escape: this.Close(); break;
             }
         }
 
-        private string FormatFileSize(long bytes)
+        private string FormatSize(long bytes)
         {
-            string[] sizes = { "B", "KB", "MB", "GB" };
-            double len = bytes;
-            int order = 0;
-
-            while (len >= 1024 && order < sizes.Length - 1)
-            {
-                order++;
-                len = len / 1024;
-            }
-
-            return $"{len:0.##} {sizes[order]}";
+            string[] u = { "B", "KB", "MB", "GB" };
+            double v = bytes; int i = 0;
+            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+            return $"{v:0.##} {u[i]}";
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                currentImage?.Dispose();
-            }
+            if (disposing) currentImage?.Dispose();
             base.Dispose(disposing);
         }
     }

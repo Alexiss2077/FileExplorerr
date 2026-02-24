@@ -17,58 +17,58 @@ namespace FileExplorerr
         public FileViewerForm(string path)
         {
             filePath = path;
-            InitializeComponents();
+            SetupComponents();
             LoadFile();
         }
 
-        private void InitializeComponents()
+        private void SetupComponents()
         {
-            this.Text = $"Visor - {Path.GetFileName(filePath)}";
+            this.Text = $"Visor — {Path.GetFileName(filePath)}";
             this.Size = new Size(900, 700);
-            this.BackColor = Color.FromArgb(240, 240, 240);
+            this.BackColor = Color.FromArgb(10, 14, 20);
+            this.ForeColor = Color.FromArgb(220, 232, 248);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.MinimumSize = new Size(600, 400);
 
-            // Panel superior con información del archivo
             topPanel = new Panel
             {
-                Height = 50,
+                Height = 48,
                 Dock = DockStyle.Top,
-                BackColor = Color.FromArgb(250, 250, 250),
-                Padding = new Padding(15)
+                BackColor = Color.FromArgb(17, 23, 33),
+                Padding = new Padding(14, 0, 0, 0)
             };
+            topPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)),
+                    0, topPanel.Height - 1, topPanel.Width, topPanel.Height - 1);
 
             fileInfoLabel = new Label
             {
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9F),
-                ForeColor = Color.FromArgb(60, 60, 60),
-                TextAlign = ContentAlignment.MiddleLeft
+                ForeColor = Color.FromArgb(110, 140, 180),
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
             };
 
             topPanel.Controls.Add(fileInfoLabel);
 
-            // TextBox para mostrar el contenido
             textBox = new TextBox
             {
                 Dock = DockStyle.Fill,
                 Multiline = true,
                 ScrollBars = ScrollBars.Both,
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                Font = new Font("Consolas", 10F),
+                BackColor = Color.FromArgb(13, 18, 26),
+                ForeColor = Color.FromArgb(200, 220, 245),
+                Font = new Font("Cascadia Code", 10F),
                 BorderStyle = BorderStyle.None,
                 ReadOnly = true,
-                WordWrap = false,
-                Padding = new Padding(10)
+                WordWrap = false
             };
 
-            // Panel para el TextBox con borde
             Panel textPanel = new Panel
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
-                BackColor = Color.FromArgb(240, 240, 240)
+                BackColor = Color.FromArgb(10, 14, 20)
             };
             textPanel.Controls.Add(textBox);
 
@@ -76,35 +76,24 @@ namespace FileExplorerr
             this.Controls.Add(topPanel);
         }
 
-        
         private void LoadFile()
         {
             try
             {
-                FileInfo fileInfo = new FileInfo(filePath);
-                string extension = fileInfo.Extension.ToLower();
+                var fi = new FileInfo(filePath);
+                string ext = fi.Extension.ToLower();
 
-                fileInfoLabel.Text = $"Archivo: {fileInfo.Name} | Tamaño: {FormatFileSize(fileInfo.Length)} | " +
-                                   $"Modificado: {fileInfo.LastWriteTime:dd/MM/yyyy HH:mm}";
+                fileInfoLabel.Text =
+                    $"  {fi.Name}   ·   {FormatSize(fi.Length)}   ·   {fi.LastWriteTime:dd/MM/yyyy HH:mm}";
 
                 string content = File.ReadAllText(filePath);
-
-                // Formatear según el tipo de archivo
-                switch (extension)
+                textBox.Text = ext switch
                 {
-                    case ".json":
-                        textBox.Text = FormatJson(content);
-                        break;
-                    case ".xml":
-                        textBox.Text = FormatXml(content);
-                        break;
-                    case ".csv":
-                        textBox.Text = FormatCsv(content);
-                        break;
-                    default:
-                        textBox.Text = content;
-                        break;
-                }
+                    ".json" => FormatJson(content),
+                    ".xml" => FormatXml(content),
+                    ".csv" => FormatCsv(content),
+                    _ => content
+                };
             }
             catch (Exception ex)
             {
@@ -118,80 +107,47 @@ namespace FileExplorerr
         {
             try
             {
-                using (JsonDocument doc = JsonDocument.Parse(json))
-                {
-                    return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions
-                    {
-                        WriteIndented = true
-                    });
-                }
+                using var doc = JsonDocument.Parse(json);
+                return JsonSerializer.Serialize(doc.RootElement,
+                    new JsonSerializerOptions { WriteIndented = true });
             }
-            catch
-            {
-                return json; // Si no se puede parsear, devolver el original
-            }
+            catch { return json; }
         }
 
         private string FormatXml(string xml)
         {
             try
             {
-                XmlDocument doc = new XmlDocument();
-                doc.LoadXml(xml);
-
-                using (StringWriter stringWriter = new StringWriter())
-                using (XmlTextWriter xmlTextWriter = new XmlTextWriter(stringWriter))
-                {
-                    xmlTextWriter.Formatting = Formatting.Indented;
-                    xmlTextWriter.Indentation = 2;
-                    doc.Save(xmlTextWriter);
-                    return stringWriter.ToString();
-                }
+                var doc = new XmlDocument(); doc.LoadXml(xml);
+                using var sw = new System.IO.StringWriter();
+                using var xw = new XmlTextWriter(sw) { Formatting = Formatting.Indented, Indentation = 2 };
+                doc.Save(xw);
+                return sw.ToString();
             }
-            catch
-            {
-                return xml; // Si no se puede parsear, devolver el original
-            }
+            catch { return xml; }
         }
 
         private string FormatCsv(string csv)
         {
             try
             {
-                string[] lines = csv.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-                System.Text.StringBuilder formatted = new System.Text.StringBuilder();
-
-                foreach (string line in lines)
+                var sb = new System.Text.StringBuilder();
+                foreach (string line in csv.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None))
                 {
-                    string[] cells = line.Split(',');
-                    foreach (string cell in cells)
-                    {
-                        formatted.Append(cell.PadRight(25));
-                    }
-                    formatted.AppendLine();
+                    foreach (string cell in line.Split(',')) sb.Append(cell.PadRight(25));
+                    sb.AppendLine();
                 }
-
-                return formatted.ToString();
+                return sb.ToString();
             }
-            catch
-            {
-                return csv;
-            }
+            catch { return csv; }
         }
 
-        private string FormatFileSize(long bytes)
+        private string FormatSize(long bytes)
         {
-            string[] sizes = { "B", "KB", "MB", "GB" };
-            double len = bytes;
-            int order = 0;
-
-            while (len >= 1024 && order < sizes.Length - 1)
-            {
-                order++;
-                len = len / 1024;
-            }
-
-            return $"{len:0.##} {sizes[order]}";
+            string[] u = { "B", "KB", "MB", "GB" };
+            double v = bytes; int i = 0;
+            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+            return $"{v:0.##} {u[i]}";
         }
     }
 }
