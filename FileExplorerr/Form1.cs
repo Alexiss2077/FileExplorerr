@@ -11,12 +11,11 @@ using System.Windows.Forms;
 namespace FileExplorerr
 {
     // ════════════════════════════════════════════════════════════════════════
-    //  PALETA DE COLORES — Negro y Azul claro
     // ════════════════════════════════════════════════════════════════════════
     internal static class Theme
     {
         // Fondos
-        public static readonly Color BgDeep = Color.FromArgb(10, 14, 20);   // fondo principal (casi negro)
+        public static readonly Color BgDeep = Color.FromArgb(10, 14, 20);   
         public static readonly Color BgSurface = Color.FromArgb(17, 23, 33);   // paneles, ListView
         public static readonly Color BgRaised = Color.FromArgb(24, 32, 46);   // controles elevados
 
@@ -49,7 +48,7 @@ namespace FileExplorerr
         private int sortColumn = -1;
         private PictureBox recycleIconBox;
 
-        // ── P/Invoke: icono de Shell ─────────────────────────────────────────
+        // ── P/Invoke: icono de Shell 
         [DllImport("shell32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
 
@@ -66,7 +65,7 @@ namespace FileExplorerr
             return SystemIcons.WinLogo;
         }
 
-        // ── Papelera (P/Invoke) ──────────────────────────────────────────────
+        // ── Papelera (P/Invoke) 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct SHFILEOPSTRUCT
         {
@@ -103,9 +102,6 @@ namespace FileExplorerr
             catch { return false; }
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        //  CONSTRUCTOR
-        // ════════════════════════════════════════════════════════════════════
         public Form1()
         {
             InitializeComponent();
@@ -130,7 +126,7 @@ namespace FileExplorerr
             imageList.Images.Add("video", MakeVideoIcon());
             imageList.Images.Add("text", MakeTextIcon());
 
-            // ── Botón Atrás ──────────────────────────────────────────────────
+            // ── Botón Atrás 
             backButton = new Button
             {
                 Text = "◄",
@@ -145,7 +141,7 @@ namespace FileExplorerr
             backButton.FlatAppearance.BorderColor = Theme.Border;
             backButton.Click += (s, e) => GoBack();
 
-            // ── Botón Subir ──────────────────────────────────────────────────
+            // ── Botón Subir 
             upButton = new Button
             {
                 Text = "▲",
@@ -160,7 +156,7 @@ namespace FileExplorerr
             upButton.FlatAppearance.BorderColor = Theme.Border;
             upButton.Click += (s, e) => GoUp();
 
-            // ── Barra de dirección ───────────────────────────────────────────
+            // ── Barra de dirección 
             addressBar = new TextBox
             {
                 Location = new Point(92, 13),
@@ -173,7 +169,7 @@ namespace FileExplorerr
             };
             addressBar.KeyDown += AddressBar_KeyDown;
 
-            // ── Botón Nueva Carpeta ──────────────────────────────────────────
+            // ── Botón Nueva Carpeta 
             newFolderButton = new Button
             {
                 Text = "📁  Nueva carpeta",
@@ -189,7 +185,7 @@ namespace FileExplorerr
             newFolderButton.FlatAppearance.BorderColor = Theme.AccentBlue;
             newFolderButton.Click += (s, e) => CreateFolder();
 
-            // ── Panel superior ───────────────────────────────────────────────
+            // ── Panel superior 
             Panel topPanel = new Panel
             {
                 Height = 55,
@@ -208,8 +204,8 @@ namespace FileExplorerr
             topPanel.Controls.Add(addressBar);
             topPanel.Controls.Add(newFolderButton);
 
-            // ── ListView ─────────────────────────────────────────────────────
-            listView = new ListView
+            // ── ListView 
+            listView = new DarkListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
@@ -229,6 +225,45 @@ namespace FileExplorerr
             listView.Columns.Add("Información", 250);
             listView.Columns.Add("Fecha modificación", 150);
 
+            // ── Header personalizado 
+            listView.OwnerDraw = true;
+            listView.DrawColumnHeader += (s, e) =>
+            {
+                // Fondo del header
+                using var bgBrush = new SolidBrush(Color.FromArgb(17, 23, 33));
+                e.Graphics.FillRectangle(bgBrush, e.Bounds);
+
+                // Línea inferior del header
+                using var linePen = new Pen(Color.FromArgb(56, 139, 253), 1);
+                e.Graphics.DrawLine(linePen,
+                    e.Bounds.Left, e.Bounds.Bottom - 1,
+                    e.Bounds.Right, e.Bounds.Bottom - 1);
+
+                // Separador vertical entre columnas
+                using var sepPen = new Pen(Color.FromArgb(38, 50, 70), 1);
+                e.Graphics.DrawLine(sepPen,
+                    e.Bounds.Right - 1, e.Bounds.Top + 4,
+                    e.Bounds.Right - 1, e.Bounds.Bottom - 4);
+
+                // Texto de la columna
+                string text = e.Header.Text;
+                using var sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center,
+                    Trimming = StringTrimming.EllipsisCharacter
+                };
+                var textRect = new Rectangle(
+                    e.Bounds.Left + 10, e.Bounds.Top,
+                    e.Bounds.Width - 14, e.Bounds.Height);
+                using var textBrush = new SolidBrush(Color.FromArgb(110, 160, 210));
+                e.Graphics.DrawString(text,
+                    new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                    textBrush, textRect, sf);
+            };
+            listView.DrawItem += (s, e) => e.DrawDefault = true;
+            listView.DrawSubItem += (s, e) => e.DrawDefault = true;
+
             listView.DoubleClick += (s, e) => { if (listView.SelectedItems.Count > 0) OpenEntry(listView.SelectedItems[0].Tag.ToString()); };
             listView.ColumnClick += ListView_ColumnClick;
             listView.ItemDrag += ListView_ItemDrag;
@@ -238,11 +273,11 @@ namespace FileExplorerr
             listView.DragLeave += (s, e) => ClearDragHighlight();
             listView.MouseClick += ListView_MouseClick;
 
-            // ── Menú contextual ───────────────────────────────────────────────
+            // ── Menú contextual 
             BuildContextMenu();
             listView.ContextMenuStrip = contextMenu;
 
-            // ── Label estado ─────────────────────────────────────────────────
+            // ── Label estado 
             statusLabel = new Label
             {
                 Dock = DockStyle.Fill,
@@ -252,7 +287,7 @@ namespace FileExplorerr
                 Font = new Font("Segoe UI", 8.5F)
             };
 
-            // ── Icono de papelera ─────────────────────────────────────────────
+            // ── Icono de papelera 
             recycleIconBox = new PictureBox
             {
                 Size = new Size(48, 48),
@@ -268,7 +303,7 @@ namespace FileExplorerr
             recycleIconBox.DragLeave += (s, e) => RecycleDragLeave();
             recycleIconBox.DragDrop += (s, e) => RecycleDragDrop(e);
 
-            // ── Label papelera ────────────────────────────────────────────────
+            // ── Label papelera 
             recyclePanelLabel = new Label
             {
                 Text = "Arrastrar para eliminar",
@@ -283,7 +318,7 @@ namespace FileExplorerr
             recyclePanelLabel.DragLeave += (s, e) => RecycleDragLeave();
             recyclePanelLabel.DragDrop += (s, e) => RecycleDragDrop(e);
 
-            // ── Panel papelera ────────────────────────────────────────────────
+            // ── Panel papelera 
             recycleDropPanel = new Panel
             {
                 Width = 230,
@@ -304,7 +339,7 @@ namespace FileExplorerr
                 e.Graphics.DrawLine(new Pen(Theme.Border, 1), 0, 0, 0, recycleDropPanel.Height);
             };
 
-            // ── Panel inferior ────────────────────────────────────────────────
+            // ── Panel inferior 
             Panel bottomPanel = new Panel
             {
                 Height = 48,
@@ -1007,6 +1042,93 @@ namespace FileExplorerr
         public override Color ImageMarginGradientBegin => Color.FromArgb(17, 23, 33);
         public override Color ImageMarginGradientMiddle => Color.FromArgb(17, 23, 33);
         public override Color ImageMarginGradientEnd => Color.FromArgb(17, 23, 33);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  LISTVIEW CON HEADER OSCURO
+    // ════════════════════════════════════════════════════════════════════════
+    internal class DarkListView : ListView
+    {
+        private HeaderNativeWindow _header;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+        private const int LVM_GETHEADER = 0x101F;
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            IntPtr hHeader = SendMessage(this.Handle, LVM_GETHEADER, IntPtr.Zero, IntPtr.Zero);
+            if (hHeader != IntPtr.Zero)
+            {
+                _header?.ReleaseHandle();
+                _header = new HeaderNativeWindow(this);
+                _header.AssignHandle(hHeader);
+            }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            _header?.ReleaseHandle();
+            base.OnHandleDestroyed(e);
+        }
+
+        private class HeaderNativeWindow : NativeWindow
+        {
+            private const int WM_PAINT = 0x000F;
+            private const int WM_ERASEBKGND = 0x0014;
+            private readonly DarkListView _owner;
+
+            [DllImport("user32.dll")]
+            private static extern bool GetClientRect(IntPtr hWnd, out RECT r);
+            [DllImport("user32.dll")]
+            private static extern IntPtr GetDC(IntPtr hWnd);
+            [DllImport("user32.dll")]
+            private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+            [System.Runtime.InteropServices.StructLayout(
+                System.Runtime.InteropServices.LayoutKind.Sequential)]
+            private struct RECT { public int Left, Top, Right, Bottom; }
+
+            public HeaderNativeWindow(DarkListView owner) { _owner = owner; }
+
+            protected override void WndProc(ref Message m)
+            {
+                base.WndProc(ref m);
+
+                if (m.Msg == WM_PAINT)
+                {
+                    // Calcular ancho total de columnas
+                    int colsWidth = 0;
+                    foreach (ColumnHeader col in _owner.Columns)
+                        colsWidth += col.Width;
+
+                    GetClientRect(this.Handle, out RECT rc);
+                    int clientWidth = rc.Right - rc.Left;
+
+                    if (colsWidth >= clientWidth) return;
+
+                    IntPtr hdc = GetDC(this.Handle);
+                    if (hdc == IntPtr.Zero) return;
+                    try
+                    {
+                        using var g = Graphics.FromHdc(hdc);
+                        int headerHeight = rc.Bottom - rc.Top;
+
+                        var emptyRect = new Rectangle(colsWidth, 0,
+                            clientWidth - colsWidth, headerHeight);
+                        using var bg = new SolidBrush(Color.FromArgb(17, 23, 33));
+                        g.FillRectangle(bg, emptyRect);
+
+                        using var accent = new Pen(Color.FromArgb(56, 139, 253), 1);
+                        g.DrawLine(accent,
+                            colsWidth, headerHeight - 1,
+                            clientWidth, headerHeight - 1);
+                    }
+                    finally { ReleaseDC(this.Handle, hdc); }
+                }
+            }
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════
