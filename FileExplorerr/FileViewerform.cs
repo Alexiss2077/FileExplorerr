@@ -76,6 +76,7 @@ namespace FileExplorerr
             this.Controls.Add(topPanel);
         }
 
+        
         private void LoadFile()
         {
             try
