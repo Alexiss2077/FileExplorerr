@@ -48,7 +48,7 @@ namespace FileExplorerr
         private int sortColumn = -1;
         private PictureBox recycleIconBox;
 
-        // ── P/Invoke: icono de Shell 
+        // ── P/Invoke: icono de Shell para la papelera
         [DllImport("shell32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
 
