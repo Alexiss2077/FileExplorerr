@@ -10,7 +10,6 @@ using System.Windows.Forms;
 
 namespace FileExplorerr
 {
-    // ════════════════════════════════════════════════════════════════════════
     //  TEMA
     // ════════════════════════════════════════════════════════════════════════
     internal static class Theme
