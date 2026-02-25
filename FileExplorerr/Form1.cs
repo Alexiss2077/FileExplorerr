@@ -38,16 +38,15 @@ namespace FileExplorerr
 
     public partial class Form1 : Form
     {
-        // ── Estado ──────────────────────────────────────────────────────────
+        // ── Estado 
         private string currentPath = "";
         private Stack<string> navigationHistory = new();
         private ListViewItem? dragHighlightedItem;
         private int sortColumn = -1;
         private PictureBox recycleIconBox = null!;
 
-        // refreshButton y exportCsvButton se declaran en Form1.Designer.cs;
 
-        // ── P/Invoke ─────────────────────────────────────────────────────────
+        // ── P/Invoke 
         [DllImport("shell32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
 
@@ -118,7 +117,7 @@ namespace FileExplorerr
         {
             this.BackColor = Theme.BgDeep;
 
-            // ── ImageList ────────────────────────────────────────────────────
+            // ── ImageList 
             imageList = new ImageList { ImageSize = new Size(32, 32), ColorDepth = ColorDepth.Depth32Bit };
             imageList.Images.Add("folder", MakeFolderIcon());
             imageList.Images.Add("file", MakeFileIcon());
@@ -127,7 +126,7 @@ namespace FileExplorerr
             imageList.Images.Add("video", MakeVideoIcon());
             imageList.Images.Add("text", MakeTextIcon());
 
-            // ── Botón Atrás ──────────────────────────────────────────────────
+            // ── Botón Atrás 
             backButton = new Button
             {
                 Text = "◄",
@@ -142,7 +141,7 @@ namespace FileExplorerr
             backButton.FlatAppearance.BorderColor = Theme.Border;
             backButton.Click += (s, e) => GoBack();
 
-            // ── Botón Subir ──────────────────────────────────────────────────
+            // ── Botón Subir 
             upButton = new Button
             {
                 Text = "▲",
@@ -157,7 +156,7 @@ namespace FileExplorerr
             upButton.FlatAppearance.BorderColor = Theme.Border;
             upButton.Click += (s, e) => GoUp();
 
-            // ── Barra de dirección ───────────────────────────────────────────
+            // ── Barra de dirección 
             addressBar = new TextBox
             {
                 Location = new Point(92, 13),
@@ -170,7 +169,7 @@ namespace FileExplorerr
             };
             addressBar.KeyDown += AddressBar_KeyDown;
 
-            // ── Panel superior ───────────────────────────────────────────────
+            // ── Panel superior 
             Panel topPanel = new Panel
             {
                 Height = 55,
@@ -193,7 +192,7 @@ namespace FileExplorerr
                 Padding = new Padding(0, 12, 10, 0)
             };
 
-            // ── Botón Nueva Carpeta ──────────────────────────────────────────
+            // ── Botón Nueva Carpeta 
             newFolderButton = new Button
             {
                 Text = "📁  Nueva carpeta",
@@ -208,7 +207,7 @@ namespace FileExplorerr
             newFolderButton.FlatAppearance.BorderColor = Theme.AccentBlue;
             newFolderButton.Click += (s, e) => CreateFolder();
 
-            // ── Botón Refresh ────────────────────────────────────────────────
+            // ── Botón Refresh 
             refreshButton = new Button
             {
                 Text = "⟳",
@@ -224,7 +223,7 @@ namespace FileExplorerr
             refreshButton.Click += (s, e) => RefreshView();
             new ToolTip().SetToolTip(refreshButton, "Actualizar directorio (F5)");
 
-            // ── Botón Exportar CSV ───────────────────────────────────────────
+            // ── Botón Exportar CSV 
             exportCsvButton = new Button
             {
                 Text = "📊  Exportar CSV",
@@ -267,7 +266,7 @@ namespace FileExplorerr
             topPanel.Controls.Add(leftPanel);
             topPanel.Controls.Add(rightPanel);
 
-            // ── ListView ─────────────────────────────────────────────────────
+            // ── ListView 
             listView = new DarkListView
             {
                 Dock = DockStyle.Fill,
@@ -336,11 +335,11 @@ namespace FileExplorerr
             this.KeyPreview = true;
             this.KeyDown += (s, e) => { if (e.KeyCode == Keys.F5) RefreshView(); };
 
-            // ── Menú contextual ───────────────────────────────────────────────
+            // ── Menú contextual 
             BuildContextMenu();
             listView.ContextMenuStrip = contextMenu;
 
-            // ── Label estado ──────────────────────────────────────────────────
+            // ── Label estado 
             statusLabel = new Label
             {
                 Dock = DockStyle.Fill,
@@ -350,7 +349,7 @@ namespace FileExplorerr
                 Font = new Font("Segoe UI", 8.5F)
             };
 
-            // ── Panel papelera ────────────────────────────────────────────────
+            // ── Panel papelera 
             recycleIconBox = new PictureBox
             {
                 Size = new Size(48, 48),
@@ -833,7 +832,7 @@ namespace FileExplorerr
                       .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
                       .OrderBy(f => f.Name).ToList());
 
-                // ── Carpetas ─────────────────────────────────────────────────
+                // ── Carpetas 
                 foreach (var d in dirs)
                 {
                     // Info de carpeta con conteo por tipo (async para no bloquear)
@@ -851,7 +850,7 @@ namespace FileExplorerr
                     listView.Items.Add(item);
                 }
 
-                // ── Archivos ─────────────────────────────────────────────────
+                // ── Archivos 
                 foreach (var f in files)
                 {
                     var item = new ListViewItem(f.Name)
@@ -866,7 +865,7 @@ namespace FileExplorerr
                     listView.Items.Add(item);
                 }
 
-                // ── Barra de estado con desglose por tipo ─────────────────────
+                // ── Barra de estado con desglose por tipo 
                 var stats = CsvIndexer.ClassifyFiles(files.ToArray());
                 statusLabel.Text = "  " + stats.ToStatusString(dirs.Count);
             }
@@ -880,7 +879,7 @@ namespace FileExplorerr
             }
         }
 
-        // ── Info detallada de carpeta (conteo por tipo) ─────────────────────
+        // ── Info detallada de carpeta (conteo por tipo) 
         private string DirInfoDetailed(string path)
         {
             try
