@@ -4,16 +4,25 @@
     {
         private System.ComponentModel.IContainer components = null;
 
-        private System.Windows.Forms.Button backButton;
-        private System.Windows.Forms.Button upButton;
-        private System.Windows.Forms.Button newFolderButton;
-        private System.Windows.Forms.TextBox addressBar;
-        private System.Windows.Forms.ListView listView;
-        private System.Windows.Forms.ImageList imageList;
-        private System.Windows.Forms.Label statusLabel;
-        private System.Windows.Forms.Panel recycleDropPanel;
-        private System.Windows.Forms.Label recyclePanelLabel;
-        private System.Windows.Forms.ContextMenuStrip contextMenu;
+        // ── Controles de navegación ──────────────────────────────────────────
+        private System.Windows.Forms.Button backButton = null!;
+        private System.Windows.Forms.Button upButton = null!;
+        private System.Windows.Forms.Button newFolderButton = null!;
+        private System.Windows.Forms.Button refreshButton = null!;
+        private System.Windows.Forms.Button exportCsvButton = null!;
+        private System.Windows.Forms.TextBox addressBar = null!;
+
+        // ── Lista principal ──────────────────────────────────────────────────
+        private System.Windows.Forms.ListView listView = null!;
+        private System.Windows.Forms.ImageList imageList = null!;
+        private System.Windows.Forms.Label statusLabel = null!;
+
+        // ── Panel papelera ────────────────────────────────────────────────────
+        private System.Windows.Forms.Panel recycleDropPanel = null!;
+        private System.Windows.Forms.Label recyclePanelLabel = null!;
+
+        // ── Menú contextual ───────────────────────────────────────────────────
+        private System.Windows.Forms.ContextMenuStrip contextMenu = null!;
 
         protected override void Dispose(bool disposing)
         {
@@ -29,7 +38,7 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1100, 700);
-            this.MinimumSize = new System.Drawing.Size(800, 500);
+            this.MinimumSize = new System.Drawing.Size(900, 500);
             this.Name = "Form1";
             this.Text = "Explorador de Archivos";
             this.BackColor = System.Drawing.Color.FromArgb(10, 14, 20);
