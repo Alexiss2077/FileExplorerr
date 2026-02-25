@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace FileExplorerr
-{
+{           /////////////////////////////7
     // ════════════════════════════════════════════════════════════════════════
     // ════════════════════════════════════════════════════════════════════════
     internal static class Theme
