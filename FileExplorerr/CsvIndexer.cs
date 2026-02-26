@@ -45,7 +45,7 @@ namespace FileExplorerr
             });
         }
 
-        // ── Procesamiento recursivo 
+        //Procesamiento recursivo 
         private static void ProcessDirectory(string path, StringBuilder sb, IProgress<string>? progress)
         {
             try
@@ -79,7 +79,7 @@ namespace FileExplorerr
             catch { /* Sin acceso al directorio raíz — ignorar */ }
         }
 
-        // ── Clasificación de archivos 
+        //Clasificación de archivos 
         internal static FileStats ClassifyFiles(FileInfo[] files)
         {
             int img = 0, aud = 0, vid = 0, txt = 0;
@@ -123,7 +123,7 @@ namespace FileExplorerr
             };
         }
 
-        // ── Helper: escapar comillas en CSV 
+        //Helper: escapar comillas en CSV 
         private static string Esc(string s) => s.Replace("\"", "\"\"");
     }
 
