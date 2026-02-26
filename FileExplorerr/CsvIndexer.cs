@@ -127,7 +127,7 @@ namespace FileExplorerr
         private static string Esc(string s) => s.Replace("\"", "\"\"");
     }
 
-    // ── DTO de estadísticas ──────────────────────────────────────────────────
+    //            DTO de estadísticas 
     internal struct FileStats
     {
         public int Images, Audio, Video, Text, Other;
