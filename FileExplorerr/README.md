@@ -1,74 +1,125 @@
 # FileExplorerr
 
-Explorador de archivos de escritorio construido con **Windows Forms** y **.NET 8**, con tema oscuro en paleta negro/azul y soporte completo de drag & drop.
+Explorador de archivos de escritorio construido con **Windows Forms** y **.NET 8**, con tema oscuro en paleta negro/azul, soporte completo de drag & drop, panel lateral interactivo y exportación de índice CSV.
 
 ---
+
 
 ## Características
 
 ### Navegación
-- Barra de dirección editable — escribe una ruta y presiona `Enter` para navegar
-- Botón **Atrás** con historial de navegación
-- Botón **Subir** para ir al directorio padre
+- Barra de dirección editable — escribe una ruta y presiona `Enter`
+- Botón **◄ Atrás** con historial de navegación
+- Botón **▲ Subir** para ir al directorio padre
 - Doble clic en carpetas para entrar, doble clic en archivos para abrirlos
 
 ### Gestión de archivos
-- **Crear carpeta** — botón en la barra superior o menú contextual, con validación de nombre
+- **📁 Nueva carpeta** — con validación de nombre
 - **Renombrar** — desde el menú contextual (clic derecho)
-- **Eliminar** — envía a la Papelera de Reciclaje de Windows (recuperable), desde el menú contextual o arrastrando al panel inferior
+- **Eliminar** — envía a la Papelera de Reciclaje de Windows (recuperable)
+
+### Refresh
+- Botón **⟳** en la barra superior para recargar el directorio actual
+- Atajo de teclado `F5`
+- Disponible también desde el menú contextual
 
 ### Drag & Drop
-- Arrastra archivos o carpetas **sobre otra carpeta** del listado para moverlos al instante — la carpeta destino se resalta en azul al pasar encima
-- Arrastra archivos o carpetas al **panel de la papelera** (esquina inferior derecha) para eliminarlos — el icono cambia a papelera llena al hacer hover
-- Manejo de conflictos de nombres al mover (sobreescribir / saltar / cancelar)
+- Arrastra archivos o carpetas **sobre otra carpeta** para moverlos — la carpeta destino se resalta en azul
+- Arrastra al **panel de papelera** (esquina inferior derecha) para eliminar — el icono cambia al hacer hover
+- Manejo de conflictos de nombres (sobreescribir / saltar / cancelar)
 - Protección contra mover una carpeta dentro de sí misma
 
-### Visualizadores integrados
-| Tipo | Extensiones | Visor |
-|---|---|---|
-| Texto | `.txt` `.log` `.ini` `.config` | Editor de solo lectura con fuente monoespaciada |
-| JSON | `.json` | Formateado con indentación automática |
-| XML | `.xml` | Formateado con indentación automática |
-| CSV | `.csv` | Columnas alineadas |
-| Imágenes | `.jpg` `.jpeg` `.png` `.gif` `.bmp` | Visor con zoom (`+` / `−` / `1:1`) y atajos de teclado |
-| Audio / Video | `.mp3` `.wav` `.mp4` `.avi` `.mkv` … | Abre con la aplicación predeterminada del sistema |
-
-### Listado de archivos
-- Columnas: **Nombre · Tipo · Tamaño · Información · Fecha de modificación**
-- Clic en cualquier columna para ordenar ascendente/descendente
-- Archivos y carpetas ocultos se excluyen automáticamente
-- La columna *Información* muestra el conteo de subcarpetas y archivos de cada directorio
-- Iconos por categoría: carpeta, archivo genérico, imagen, audio, video, texto
+### Estadísticas en barra de estado
+Al entrar a cualquier carpeta la barra inferior muestra el desglose completo:
+```
+📁 4 carpetas  ·  📄 30 archivos  ·  🖼️ 12  ·  🎵 3  ·  🎬 5  ·  📝 8  ·  📦 2
+```
+La columna **Contenido / Info** de cada carpeta también muestra un resumen: `3 sub, 12 img, 5 txt`
 
 ---
 
-## Requisitos
+## Panel lateral derecho
 
-| Componente | Versión mínima |
-|---|---|
-| Sistema operativo | Windows 10 / 11 |
-| .NET | 8.0 |
-| SDK | .NET 8 SDK (para compilar) |
+El panel de la derecha tiene dos modos:
 
----
+### Modo normal — vista del directorio actual
+Al navegar a una carpeta el panel muestra su contenido organizado en un **TreeView expandible**:
 
-## Compilar y ejecutar
+```
+📁 Carpetas  (3)
+  📁 Fotos
+  📁 Música
+  📁 Proyectos
 
-```bash
-# Clonar el repositorio
-git clone <url-del-repo>
-cd FileExplorerr
+🖼️ Imágenes  (6)
+  * logo.png
+  * banner.jpg
 
-# Compilar
-dotnet build
+🎵 Audio  (5)
+  * cancion1.mp3
+  * cancion2.flac
 
-# Ejecutar
-dotnet run --project FileExplorerr/FileExplorerr.csproj
+📝 Texto/Código  (4)
+  * notas.txt
+  * config.json
 ```
 
-O abre `FileExplorerr.slnx` directamente en **Visual Studio 2022 o 2026 y presiona `F5`.
+Cada carpeta tiene el botón **[+]** para expandirla y ver sus subcarpetas y archivos sin necesidad de navegar.
+
+### Modo búsqueda
+Escribe en la barra de búsqueda y presiona `Enter` o el botón **Buscar**:
+
+- Busca en todo el directorio actual de forma recursiva
+- Muestra **carpetas** y **archivos** que coincidan con el texto
+- Cada carpeta encontrada es expandible para ver su contenido completo
+- Al vaciar el campo y buscar de nuevo vuelve al modo normal
+
+**Ejemplo:** buscas `"música"` y aparecen todas las carpetas con ese nombre. Expandes una y ves todos sus archivos organizados por categoría sin salir del panel.
+
+### Colores del TreeView
+| Color | Tipo |
+|---|---|
+| 🔵 Azul | Headers de grupo (`📁 Carpetas`, `🖼️ Imágenes`…) |
+| 🔵 Azul claro | Categorías de archivos |
+| 🟡 Amarillo | Carpetas individuales |
+| ⚪ Blanco | Archivos |
+| 🔘 Gris | Mensajes de estado (vacía, sin acceso…) |
+
+**Doble clic** en una carpeta del panel navega a ella. **Doble clic** en un archivo lo abre.
 
 ---
+
+## Exportación de índice CSV
+
+El botón **📊 Exportar CSV** recorre el directorio actual y todos sus subdirectorios y genera un `.csv` con una fila por carpeta:
+
+```csv
+"Ruta Completa","Nombre Carpeta","Carpetas","Archivos Total","Último Acceso"
+"C:\Users\juan\Fotos","Fotos",3,120,"15/02/2026 10:30"
+"C:\Users\juan\Fotos\Vacaciones","Vacaciones",0,47,"10/01/2026 18:22"
+"C:\Users\juan\Música","Música",2,88,"20/02/2026 09:15"
+```
+
+- La generación es **asíncrona** — la barra de estado muestra la carpeta en proceso
+- El botón se bloquea durante la generación para evitar doble clic
+- Al terminar pregunta si deseas abrir el archivo
+
+---
+
+## Visualizadores integrados
+
+| Tipo | Extensiones | Visor |
+|---|---|---|
+| Texto | `.txt` `.log` `.ini` `.config` | Solo lectura, fuente monoespaciada |
+| JSON | `.json` | Indentación automática |
+| XML | `.xml` | Indentación automática |
+| CSV | `.csv` | Columnas alineadas |
+| Imágenes | `.jpg` `.jpeg` `.png` `.gif` `.bmp` | Zoom `+` / `−` / `1:1` |
+| Audio / Video | `.mp3` `.wav` `.mp4` `.avi` `.mkv` … | Abre con la app predeterminada |
+
+
+---
+
 
 ## Estructura del proyecto
 
@@ -78,12 +129,12 @@ FileExplorerr/
 ├── Program.cs                 # Punto de entrada
 ├── Form1.cs                   # Ventana principal — lógica y UI
 ├── Form1.Designer.cs          # Declaración de controles
+├── CsvIndexer.cs              # Generador de índice CSV + estadísticas
 ├── FileViewerform.cs          # Visor de archivos de texto
 ├── ImageViewerform.cs         # Visor de imágenes con zoom
 └── Form1.resx                 # Recursos del formulario
 FileExplorerr.slnx             # Solución
 ```
-
 
 ---
 
@@ -91,10 +142,19 @@ FileExplorerr.slnx             # Solución
 
 | Atajo | Acción |
 |---|---|
-| `Enter` (barra de dirección) | Navegar a la ruta escrita |
-| `+` / `−` (visor de imágenes) | Zoom in / out |
-| `Ctrl + 0` (visor de imágenes) | Restablecer zoom 1:1 |
-| `Escape` (visor de imágenes) | Cerrar el visor |
+| `Enter` en barra de dirección | Navegar a la ruta escrita |
+| `Enter` en barra de búsqueda | Buscar en el panel lateral |
+| `F5` | Actualizar directorio |
+| `+` / `−` | Zoom in / out (visor de imágenes) |
+| `Ctrl + 0` | Restablecer zoom 1:1 (visor de imágenes) |
+| `Escape` | Cerrar visor de imágenes |
 
 ---
 
+## Tecnologías
+
+- **C# / .NET 8**
+- **Windows Forms**
+- P/Invoke para integración con la Papelera de Reciclaje de Windows (`SHFileOperation`)
+- `async/await` para carga de directorios y exportación CSV sin bloquear la UI
+- `TreeView` con `OwnerDrawAll` para coloreo personalizado de nodos

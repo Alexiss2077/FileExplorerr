@@ -22,6 +22,13 @@
         private System.Windows.Forms.Label recyclePanelLabel = null!;
 
         // ── Menú contextual ───────────────────────────────────────────────────
+        // ── Panel derecho ─────────────────────────────────────────────────────
+        private System.Windows.Forms.Panel rightInfoPanel = null!;
+        private System.Windows.Forms.TextBox searchBox = null!;
+        private System.Windows.Forms.TreeView infoTree = null!;
+        private System.Windows.Forms.Label folderNameLabel = null!;
+
+        // ── Menú contextual ───────────────────────────────────────────────────
         private System.Windows.Forms.ContextMenuStrip contextMenu = null!;
 
         protected override void Dispose(bool disposing)

@@ -7,9 +7,13 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Font = System.Drawing.Font;
+using Color = System.Drawing.Color;
+using Image = System.Drawing.Image;
 
 namespace FileExplorerr
 {
+    // ════════════════════════════════════════════════════════════════════════
     //  TEMA
     // ════════════════════════════════════════════════════════════════════════
     internal static class Theme
@@ -38,15 +42,17 @@ namespace FileExplorerr
 
     public partial class Form1 : Form
     {
-        // ── Estado 
+        // ── Estado ──────────────────────────────────────────────────────────
         private string currentPath = "";
         private Stack<string> navigationHistory = new();
         private ListViewItem? dragHighlightedItem;
         private int sortColumn = -1;
         private PictureBox recycleIconBox = null!;
 
+        // refreshButton y exportCsvButton se declaran en Form1.Designer.cs
 
-        // ── P/Invoke 
+
+        // ── P/Invoke ─────────────────────────────────────────────────────────
         [DllImport("shell32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
 
@@ -117,7 +123,7 @@ namespace FileExplorerr
         {
             this.BackColor = Theme.BgDeep;
 
-            // ── ImageList 
+            // ── ImageList ────────────────────────────────────────────────────
             imageList = new ImageList { ImageSize = new Size(32, 32), ColorDepth = ColorDepth.Depth32Bit };
             imageList.Images.Add("folder", MakeFolderIcon());
             imageList.Images.Add("file", MakeFileIcon());
@@ -126,7 +132,7 @@ namespace FileExplorerr
             imageList.Images.Add("video", MakeVideoIcon());
             imageList.Images.Add("text", MakeTextIcon());
 
-            // ── Botón Atrás 
+            // ── Botón Atrás ──────────────────────────────────────────────────
             backButton = new Button
             {
                 Text = "◄",
@@ -141,7 +147,7 @@ namespace FileExplorerr
             backButton.FlatAppearance.BorderColor = Theme.Border;
             backButton.Click += (s, e) => GoBack();
 
-            // ── Botón Subir 
+            // ── Botón Subir ──────────────────────────────────────────────────
             upButton = new Button
             {
                 Text = "▲",
@@ -156,7 +162,7 @@ namespace FileExplorerr
             upButton.FlatAppearance.BorderColor = Theme.Border;
             upButton.Click += (s, e) => GoUp();
 
-            // ── Barra de dirección 
+            // ── Barra de dirección ───────────────────────────────────────────
             addressBar = new TextBox
             {
                 Location = new Point(92, 13),
@@ -169,7 +175,7 @@ namespace FileExplorerr
             };
             addressBar.KeyDown += AddressBar_KeyDown;
 
-            // ── Panel superior 
+            // ── Panel superior ───────────────────────────────────────────────
             Panel topPanel = new Panel
             {
                 Height = 55,
@@ -192,7 +198,7 @@ namespace FileExplorerr
                 Padding = new Padding(0, 12, 10, 0)
             };
 
-            // ── Botón Nueva Carpeta 
+            // ── Botón Nueva Carpeta ──────────────────────────────────────────
             newFolderButton = new Button
             {
                 Text = "📁  Nueva carpeta",
@@ -207,7 +213,7 @@ namespace FileExplorerr
             newFolderButton.FlatAppearance.BorderColor = Theme.AccentBlue;
             newFolderButton.Click += (s, e) => CreateFolder();
 
-            // ── Botón Refresh 
+            // ── Botón Refresh ────────────────────────────────────────────────
             refreshButton = new Button
             {
                 Text = "⟳",
@@ -223,7 +229,7 @@ namespace FileExplorerr
             refreshButton.Click += (s, e) => RefreshView();
             new ToolTip().SetToolTip(refreshButton, "Actualizar directorio (F5)");
 
-            // ── Botón Exportar CSV 
+            // ── Botón Exportar CSV ───────────────────────────────────────────
             exportCsvButton = new Button
             {
                 Text = "📊  Exportar CSV",
@@ -266,7 +272,7 @@ namespace FileExplorerr
             topPanel.Controls.Add(leftPanel);
             topPanel.Controls.Add(rightPanel);
 
-            // ── ListView 
+            // ── ListView ─────────────────────────────────────────────────────
             listView = new DarkListView
             {
                 Dock = DockStyle.Fill,
@@ -335,21 +341,21 @@ namespace FileExplorerr
             this.KeyPreview = true;
             this.KeyDown += (s, e) => { if (e.KeyCode == Keys.F5) RefreshView(); };
 
-            // ── Menú contextual 
+            // ── Menú contextual ───────────────────────────────────────────────
             BuildContextMenu();
             listView.ContextMenuStrip = contextMenu;
 
-            // ── Label estado 
+            // ── Label estado ──────────────────────────────────────────────────
             statusLabel = new Label
             {
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
-                ForeColor = Theme.TextSecondary,
+                ForeColor = Color.FromArgb(190, 210, 240),
                 Padding = new Padding(12, 0, 0, 0),
-                Font = new Font("Segoe UI", 8.5F)
+                Font = new Font("Segoe UI Emoji", 11F)
             };
 
-            // ── Panel papelera 
+            // ── Panel papelera ────────────────────────────────────────────────
             recycleIconBox = new PictureBox
             {
                 Size = new Size(48, 48),
@@ -398,7 +404,7 @@ namespace FileExplorerr
 
             Panel bottomPanel = new Panel
             {
-                Height = 48,
+                Height = 54,
                 Dock = DockStyle.Bottom,
                 BackColor = Theme.BgSurface
             };
@@ -407,10 +413,401 @@ namespace FileExplorerr
             bottomPanel.Controls.Add(statusLabel);
             bottomPanel.Controls.Add(recycleDropPanel);
 
+            // ── Panel derecho: Buscar Carpeta ────────────────────────────────
+            rightInfoPanel = new Panel
+            {
+                Width = 320,
+                Dock = DockStyle.Right,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(0)
+            };
+            rightInfoPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Theme.Border, 1), 0, 0, 0, rightInfoPanel.Height);
+
+            // Header del panel derecho
+            var rightHeader = new Panel
+            {
+                Height = 48,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgRaised,
+                Padding = new Padding(12, 0, 0, 0)
+            };
+            rightHeader.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Theme.Border, 1),
+                    0, rightHeader.Height - 1, rightHeader.Width, rightHeader.Height - 1);
+
+            folderNameLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "Buscar Carpeta",
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.AccentBlue,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(4, 0, 0, 0)
+            };
+            rightHeader.Controls.Add(folderNameLabel);
+
+            // Barra de búsqueda
+            var searchPanel = new Panel
+            {
+                Height = 42,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(8, 6, 8, 6)
+            };
+            searchPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Theme.Border, 1),
+                    0, searchPanel.Height - 1, searchPanel.Width, searchPanel.Height - 1);
+
+            searchBox = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.BgRaised,
+                ForeColor = Theme.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 9F),
+                PlaceholderText = "Buscar en carpetas..."
+            };
+
+            var searchBtn = new Button
+            {
+                Text = "Buscar",
+                Dock = DockStyle.Right,
+                Width = 70,
+                BackColor = Theme.AccentBlueDark,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F),
+                Cursor = Cursors.Hand
+            };
+            searchBtn.FlatAppearance.BorderColor = Theme.AccentBlue;
+            searchBtn.Click += (s, e) => SearchInPanel(searchBox.Text);
+            searchBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) SearchInPanel(searchBox.Text); };
+
+            searchPanel.Controls.Add(searchBox);
+            searchPanel.Controls.Add(searchBtn);
+
+            // Área de contenido — TreeView expandible
+            infoTree = new TreeView
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.BgSurface,
+                ForeColor = Theme.TextPrimary,
+                Font = new Font("Segoe UI", 9F),
+                BorderStyle = BorderStyle.None,
+                ShowLines = true,
+                ShowPlusMinus = true,
+                ShowRootLines = true,
+                FullRowSelect = true,
+                HotTracking = true,
+                Scrollable = true,
+                Indent = 16,
+                ItemHeight = 22
+            };
+            infoTree.BeforeExpand += InfoTree_BeforeExpand;
+            infoTree.NodeMouseDoubleClick += InfoTree_NodeDoubleClick;
+            infoTree.DrawMode = TreeViewDrawMode.OwnerDrawAll;
+            infoTree.DrawNode += InfoTree_DrawNode;
+
+            rightInfoPanel.Controls.Add(infoTree);
+            rightInfoPanel.Controls.Add(searchPanel);
+            rightInfoPanel.Controls.Add(rightHeader);
+
             this.Controls.Add(listView);
+            this.Controls.Add(rightInfoPanel);
             this.Controls.Add(topPanel);
             this.Controls.Add(bottomPanel);
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  PANEL DERECHO — TREEVIEW EXPANDIBLE
+        // ════════════════════════════════════════════════════════════════════
+
+        // Categorías de archivos
+        private static readonly (string Label, string[] Exts, string Emoji)[] FileGroups =
+        {
+            ("Imágenes",     new[]{".jpg",".jpeg",".png",".gif",".bmp",".ico",".webp",".tiff"}, "🖼️"),
+            ("Audio",        new[]{".mp3",".wav",".wma",".m4a",".flac",".aac",".ogg"},          "🎵"),
+            ("Video",        new[]{".mp4",".avi",".mkv",".mov",".wmv",".flv",".webm"},          "🎬"),
+            ("Texto/Código", new[]{".txt",".json",".xml",".csv",".log",".ini",".md",
+                                   ".cs",".py",".js",".ts",".html",".css",".config"},           "📝"),
+            ("Documentos",   new[]{".doc",".docx",".xls",".xlsx",".ppt",".pptx",".pdf"},       "📄"),
+            ("Otros",        Array.Empty<string>(),                                             "📦"),
+        };
+
+        // ── Actualizar panel con contenido del directorio actual ─────────────
+        private void UpdateRightPanel(string path)
+        {
+            if (infoTree == null) return;
+            infoTree.BeginUpdate();
+            infoTree.Nodes.Clear();
+            folderNameLabel.Text = new DirectoryInfo(path).Name;
+            try
+            {
+                var di = new DirectoryInfo(path);
+                var subdirs = di.GetDirectories()
+                                .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
+                                .OrderBy(d => d.Name).ToArray();
+                var files = di.GetFiles()
+                                .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
+                                .ToArray();
+
+                // Nodo carpetas
+                if (subdirs.Length > 0)
+                {
+                    var foldersNode = MakeGroupNode("📁 Carpetas", subdirs.Length, NodeKind.Header);
+                    foreach (var d in subdirs)
+                    {
+                        var dn = MakeFolderNode(d.Name, d.FullName);
+                        PopulateFolderNodeDummy(dn, d.FullName);
+                        foldersNode.Nodes.Add(dn);
+                    }
+                    foldersNode.Expand();
+                    infoTree.Nodes.Add(foldersNode);
+                }
+
+                // Nodos por categoría
+                var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (label, exts, emoji) in FileGroups)
+                {
+                    FileInfo[] matched = exts.Length == 0
+                        ? files.Where(f => !used.Contains(f.FullName)).ToArray()
+                        : files.Where(f => exts.Contains(f.Extension.ToLower()) && !used.Contains(f.FullName)).ToArray();
+
+                    if (matched.Length == 0) continue;
+                    foreach (var f in matched) used.Add(f.FullName);
+
+                    var grp = MakeGroupNode(emoji + " " + label, matched.Length, NodeKind.Category);
+                    foreach (var f in matched.OrderBy(x => x.Name))
+                        grp.Nodes.Add(MakeFileNode(f.Name, f.FullName));
+                    infoTree.Nodes.Add(grp);
+                }
+
+                if (infoTree.Nodes.Count == 0)
+                    infoTree.Nodes.Add(MakeDimNode("(carpeta vacía)"));
+            }
+            catch
+            {
+                infoTree.Nodes.Add(MakeDimNode("Sin acceso"));
+            }
+            infoTree.EndUpdate();
+        }
+
+        // ── Búsqueda expandible ──────────────────────────────────────────────
+        private void SearchInPanel(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) { UpdateRightPanel(currentPath); return; }
+            infoTree.BeginUpdate();
+            infoTree.Nodes.Clear();
+            query = query.Trim();
+            folderNameLabel.Text = "\"" + query + "\"";
+            try
+            {
+                var di = new DirectoryInfo(currentPath);
+                var dirs = di.GetDirectories("*", SearchOption.AllDirectories)
+                             .Where(d => (d.Attributes & FileAttributes.Hidden) == 0 &&
+                                    d.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                             .OrderBy(d => d.Name).ToArray();
+                var files = di.GetFiles("*", SearchOption.AllDirectories)
+                              .Where(f => (f.Attributes & FileAttributes.Hidden) == 0 &&
+                                     f.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                              .OrderBy(f => f.Name).ToArray();
+
+                if (dirs.Length == 0 && files.Length == 0)
+                {
+                    infoTree.Nodes.Add(MakeDimNode("Sin resultados"));
+                    infoTree.EndUpdate();
+                    return;
+                }
+
+                // Carpetas encontradas — cada una es expandible para ver su contenido
+                if (dirs.Length > 0)
+                {
+                    var rootNode = MakeGroupNode("📁 Carpetas encontradas", dirs.Length, NodeKind.Header);
+                    foreach (var d in dirs)
+                    {
+                        string rel = d.FullName.Length > currentPath.Length
+                            ? d.FullName.Substring(currentPath.Length).TrimStart(Path.DirectorySeparatorChar)
+                            : d.Name;
+                        var dn = MakeFolderNode(rel, d.FullName);
+                        PopulateFolderNodeDummy(dn, d.FullName);
+                        rootNode.Nodes.Add(dn);
+                    }
+                    rootNode.Expand();
+                    infoTree.Nodes.Add(rootNode);
+                }
+
+                // Archivos encontrados
+                if (files.Length > 0)
+                {
+                    var rootNode = MakeGroupNode("📄 Archivos encontrados", files.Length, NodeKind.Header);
+                    foreach (var f in files)
+                    {
+                        string rel = f.FullName.Length > currentPath.Length
+                            ? f.FullName.Substring(currentPath.Length).TrimStart(Path.DirectorySeparatorChar)
+                            : f.Name;
+                        rootNode.Nodes.Add(MakeFileNode(rel, f.FullName));
+                    }
+                    rootNode.Expand();
+                    infoTree.Nodes.Add(rootNode);
+                }
+            }
+            catch (Exception ex)
+            {
+                infoTree.Nodes.Add(MakeDimNode("Error: " + ex.Message));
+            }
+            infoTree.EndUpdate();
+        }
+
+        // ── Lazy-load: agregar dummy para que aparezca el [+] ────────────────
+        private void PopulateFolderNodeDummy(TreeNode node, string folderPath)
+        {
+            try
+            {
+                var di = new DirectoryInfo(folderPath);
+                bool hasChildren =
+                    di.GetDirectories().Any(d => (d.Attributes & FileAttributes.Hidden) == 0) ||
+                    di.GetFiles().Any(f => (f.Attributes & FileAttributes.Hidden) == 0);
+                if (hasChildren)
+                    node.Nodes.Add(new TreeNode("__dummy__") { Tag = new NodeTag(NodeKind.Dim, "__dummy__") });
+            }
+            catch { }
+        }
+
+        // ── Expandir nodo carpeta con contenido real ─────────────────────────
+        private void InfoTree_BeforeExpand(object? sender, TreeViewCancelEventArgs e)
+        {
+            var node = e.Node;
+            if (node?.Tag is not NodeTag nt || nt.Kind != NodeKind.Folder || nt.Path == null) return;
+            string folderPath = nt.Path;
+            if (node.Nodes.Count == 1 && node.Nodes[0].Tag is NodeTag dt && dt.Path == "__dummy__")
+            {
+                infoTree.BeginUpdate();
+                node.Nodes.Clear();
+                try
+                {
+                    var di = new DirectoryInfo(folderPath);
+                    var subdirs = di.GetDirectories()
+                                    .Where(x => (x.Attributes & FileAttributes.Hidden) == 0)
+                                    .OrderBy(x => x.Name).ToArray();
+                    var files = di.GetFiles()
+                                    .Where(x => (x.Attributes & FileAttributes.Hidden) == 0)
+                                    .OrderBy(x => x.Name).ToArray();
+
+                    // Subcarpetas
+                    foreach (var sub in subdirs)
+                    {
+                        var sn = MakeFolderNode(sub.Name, sub.FullName);
+                        PopulateFolderNodeDummy(sn, sub.FullName);
+                        node.Nodes.Add(sn);
+                    }
+
+                    // Archivos por categoría
+                    var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var (label, exts, emoji) in FileGroups)
+                    {
+                        FileInfo[] matched = exts.Length == 0
+                            ? files.Where(f => !used.Contains(f.FullName)).ToArray()
+                            : files.Where(f => exts.Contains(f.Extension.ToLower()) && !used.Contains(f.FullName)).ToArray();
+                        if (matched.Length == 0) continue;
+                        foreach (var f in matched) used.Add(f.FullName);
+                        var grp = MakeGroupNode(emoji + " " + label, matched.Length, NodeKind.Category);
+                        foreach (var f in matched)
+                            grp.Nodes.Add(MakeFileNode(f.Name, f.FullName));
+                        node.Nodes.Add(grp);
+                    }
+
+                    if (node.Nodes.Count == 0)
+                        node.Nodes.Add(MakeDimNode("(vacía)"));
+                }
+                catch { node.Nodes.Add(MakeDimNode("Sin acceso")); }
+                infoTree.EndUpdate();
+            }
+        }
+
+        // ── Doble clic: navegar a carpeta o abrir archivo ────────────────────
+        private void InfoTree_NodeDoubleClick(object? sender, TreeNodeMouseClickEventArgs e)
+        {
+            if (e.Node?.Tag is NodeTag nt && nt.Path != null && nt.Path != "__dummy__")
+            {
+                if (Directory.Exists(nt.Path)) NavigateToPath(nt.Path);
+                else if (File.Exists(nt.Path)) OpenEntry(nt.Path);
+            }
+        }
+
+        // ── Tag compuesto: tipo + ruta ───────────────────────────────────────
+        private enum NodeKind { Header, Category, Folder, File, Dim }
+
+        private record NodeTag(NodeKind Kind, string? Path = null);
+
+        // ── OwnerDraw: colorear nodos según tipo ─────────────────────────────
+        private void InfoTree_DrawNode(object? sender, DrawTreeNodeEventArgs e)
+        {
+            if (e.Node == null) return;
+
+            NodeKind kind = e.Node.Tag is NodeTag nt ? nt.Kind : NodeKind.Dim;
+
+            Color fg = kind switch
+            {
+                NodeKind.Header => Color.FromArgb(56, 139, 253),   // azul acento
+                NodeKind.Category => Color.FromArgb(140, 180, 255),   // azul claro
+                NodeKind.Folder => Color.FromArgb(255, 210, 80),    // amarillo
+                NodeKind.File => Color.FromArgb(220, 232, 248),   // blanco suave
+                _ => Color.FromArgb(110, 140, 180)    // gris
+            };
+
+            bool selected = (e.State & TreeNodeStates.Selected) != 0;
+
+            // Fondo de toda la fila
+            Rectangle rowRect = new Rectangle(0, e.Bounds.Top, infoTree.Width, e.Bounds.Height);
+            using var bgBrush = new SolidBrush(selected ? Color.FromArgb(31, 90, 180) : Color.FromArgb(17, 23, 33));
+            e.Graphics.FillRectangle(bgBrush, rowRect);
+
+            // Dibujar líneas de conexión del TreeView
+            e.DrawDefault = false;
+
+            // Calcular indent
+            int indent = (e.Node.Level + 1) * infoTree.Indent;
+            int textX = indent + 4;
+            int textY = e.Bounds.Top + (e.Bounds.Height - 15) / 2;
+
+            // Botón +/- si tiene hijos
+            if (e.Node.Nodes.Count > 0 || (e.Node.Tag is NodeTag nt2 && nt2.Kind == NodeKind.Folder))
+            {
+                int btnX = indent - 14;
+                int btnY = e.Bounds.Top + (e.Bounds.Height - 10) / 2;
+                Rectangle btnRect = new Rectangle(btnX, btnY, 10, 10);
+                using var btnPen = new Pen(Color.FromArgb(56, 139, 253));
+                e.Graphics.DrawRectangle(btnPen, btnRect);
+                using var signBrush = new SolidBrush(Color.FromArgb(56, 139, 253));
+                // línea horizontal siempre
+                e.Graphics.FillRectangle(signBrush, btnX + 2, btnY + 4, 6, 1);
+                // línea vertical solo si collapsed
+                if (!e.Node.IsExpanded)
+                    e.Graphics.FillRectangle(signBrush, btnX + 4, btnY + 2, 1, 6);
+            }
+
+            FontStyle fs = kind == NodeKind.Header ? FontStyle.Bold : FontStyle.Regular;
+            using var font = new Font("Segoe UI", 8.5F, fs);
+            using var brush = new SolidBrush(fg);
+            e.Graphics.DrawString(e.Node.Text, font, brush, textX, textY);
+        }
+
+        // ── Helpers para crear nodos ─────────────────────────────────────────
+        private static TreeNode MakeGroupNode(string label, int count, NodeKind kind)
+        {
+            string txt = count > 0 ? $"{label}  ({count})" : label;
+            return new TreeNode(txt) { Tag = new NodeTag(kind) };
+        }
+
+        private static TreeNode MakeFolderNode(string name, string fullPath) =>
+            new TreeNode("📁 " + name) { Tag = new NodeTag(NodeKind.Folder, fullPath) };
+
+        private static TreeNode MakeFileNode(string name, string fullPath) =>
+            new TreeNode("  * " + name) { Tag = new NodeTag(NodeKind.File, fullPath) };
+
+        private static TreeNode MakeDimNode(string text) =>
+            new TreeNode("  " + text) { Tag = new NodeTag(NodeKind.Dim) };
 
         // ════════════════════════════════════════════════════════════════════
         //  REFRESH
@@ -832,7 +1229,7 @@ namespace FileExplorerr
                       .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
                       .OrderBy(f => f.Name).ToList());
 
-                // ── Carpetas 
+                // ── Carpetas ─────────────────────────────────────────────────
                 foreach (var d in dirs)
                 {
                     // Info de carpeta con conteo por tipo (async para no bloquear)
@@ -850,7 +1247,7 @@ namespace FileExplorerr
                     listView.Items.Add(item);
                 }
 
-                // ── Archivos 
+                // ── Archivos ─────────────────────────────────────────────────
                 foreach (var f in files)
                 {
                     var item = new ListViewItem(f.Name)
@@ -865,9 +1262,10 @@ namespace FileExplorerr
                     listView.Items.Add(item);
                 }
 
-                // ── Barra de estado con desglose por tipo 
+                // ── Barra de estado con desglose por tipo ─────────────────────
                 var stats = CsvIndexer.ClassifyFiles(files.ToArray());
                 statusLabel.Text = "  " + stats.ToStatusString(dirs.Count);
+                UpdateRightPanel(path);
             }
             catch (Exception ex)
             {
@@ -879,7 +1277,7 @@ namespace FileExplorerr
             }
         }
 
-        // ── Info detallada de carpeta (conteo por tipo) 
+        // ── Info detallada de carpeta (conteo por tipo) ─────────────────────
         private string DirInfoDetailed(string path)
         {
             try
@@ -1286,6 +1684,7 @@ namespace FileExplorerr
         private readonly int col;
         private readonly SortOrder order;
         public LvComparer(int col, SortOrder order) { this.col = col; this.order = order; }
+
         public int Compare(object? x, object? y)
         {
             int r = string.Compare(
