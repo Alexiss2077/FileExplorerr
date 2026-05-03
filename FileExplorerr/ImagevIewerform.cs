@@ -25,6 +25,17 @@ namespace FileExplorerr
         private Panel bottomBar = null!;
         private Label infoLabel = null!;
 
+        // ── Panel GPS / Mapa ─────────────────────────────────────────────────
+        private Panel gpsPanel = null!;
+        private Label gpsLatLabel = null!;
+        private Label gpsLonLabel = null!;
+        private Label gpsAltLabel = null!;
+        private Label gpsCameraLabel = null!;
+        private Label gpsDateLabel = null!;
+        private System.Windows.Forms.WebBrowser mapBrowser = null!;
+        private Button btnToggleGps = null!;
+        private bool gpsVisible = false;
+
         // Grupos de botones en toolbar izquierdo
         private Button btnCrop = null!, btnDraw = null!, btnErase = null!,
                        btnText = null!, btnPicker = null!;
@@ -129,6 +140,24 @@ namespace FileExplorerr
             // Grupo: Edición
             AddTopBtn(ref tx, "↩ Deshacer", () => Undo(), Color.FromArgb(80, 50, 10), Color.FromArgb(200, 130, 30));
             AddTopBtn(ref tx, "♻ Restaurar", () => RestoreOriginal(), Color.FromArgb(60, 20, 20), Color.FromArgb(200, 60, 60));
+            AddTopSep(ref tx);
+            btnToggleGps = new Button
+            {
+                Text = "📍 GPS",
+                Location = new Point(tx, 10),
+                Height = 30,
+                AutoSize = true,
+                MinimumSize = new Size(60, 30),
+                Padding = new Padding(6, 0, 6, 0),
+                BackColor = Color.FromArgb(20, 60, 30),
+                ForeColor = Color.FromArgb(80, 220, 120),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnToggleGps.FlatAppearance.BorderColor = Color.FromArgb(40, 160, 80);
+            btnToggleGps.Click += (s, e) => ToggleGpsPanel();
+            topToolbar.Controls.Add(btnToggleGps);
 
             // ── Left toolbar ────────────────────────────────────────────────
             leftToolbar = new Panel
@@ -235,7 +264,98 @@ namespace FileExplorerr
             };
             bottomBar.Controls.Add(infoLabel);
 
+            // ── GPS Panel (derecho, oculto por defecto) ──────────────────────
+            gpsPanel = new Panel
+            {
+                Width = 320,
+                Dock = DockStyle.Right,
+                BackColor = Color.FromArgb(12, 18, 28),
+                Visible = false
+            };
+            gpsPanel.Paint += PaintBorder(gpsPanel, right: false);
+
+            // Header GPS
+            var gpsHeader = new Panel
+            {
+                Height = 44,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(17, 26, 38)
+            };
+            gpsHeader.Paint += (s, e) =>
+            {
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, gpsHeader.Height - 1, gpsHeader.Width, gpsHeader.Height - 1);
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, 0, 0, gpsHeader.Height);
+            };
+            var gpsTitle = new Label
+            {
+                Text = "📍  Ubicación GPS",
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(80, 210, 120),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            gpsHeader.Controls.Add(gpsTitle);
+
+            // Info labels
+            var infoPanel = new Panel
+            {
+                Height = 160,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(14, 22, 34),
+                Padding = new Padding(14, 10, 14, 10)
+            };
+            infoPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, infoPanel.Height - 1, infoPanel.Width, infoPanel.Height - 1);
+
+            gpsLatLabel = MakeGpsLabel("Latitud:   —");
+            gpsLonLabel = MakeGpsLabel("Longitud: —");
+            gpsAltLabel = MakeGpsLabel("Altitud:   —");
+            gpsCameraLabel = MakeGpsLabel("Cámara:  —");
+            gpsDateLabel = MakeGpsLabel("Fecha:     —");
+
+            gpsLatLabel.Top = 10;
+            gpsLonLabel.Top = 38;
+            gpsAltLabel.Top = 66;
+            gpsCameraLabel.Top = 94;
+            gpsDateLabel.Top = 122;
+            foreach (var lbl in new[] { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel })
+            {
+                lbl.Left = 14; lbl.Width = 286;
+                infoPanel.Controls.Add(lbl);
+            }
+
+            // Botón abrir en navegador
+            var openMapBtn = new Button
+            {
+                Text = "🌐  Abrir en navegador",
+                Dock = DockStyle.Bottom,
+                Height = 34,
+                BackColor = Color.FromArgb(20, 55, 100),
+                ForeColor = Color.FromArgb(100, 180, 255),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F),
+                Cursor = Cursors.Hand
+            };
+            openMapBtn.FlatAppearance.BorderColor = Color.FromArgb(38, 80, 140);
+            openMapBtn.Click += (s, e) => OpenInBrowser();
+
+            // Mapa WebBrowser
+            mapBrowser = new System.Windows.Forms.WebBrowser
+            {
+                Dock = DockStyle.Fill,
+                ScrollBarsEnabled = false,
+                IsWebBrowserContextMenuEnabled = false,
+                WebBrowserShortcutsEnabled = false,
+                AllowNavigation = true
+            };
+
+            gpsPanel.Controls.Add(mapBrowser);
+            gpsPanel.Controls.Add(openMapBtn);
+            gpsPanel.Controls.Add(infoPanel);
+            gpsPanel.Controls.Add(gpsHeader);
+
             Controls.Add(canvasPanel);
+            Controls.Add(gpsPanel);
             Controls.Add(leftToolbar);
             Controls.Add(topToolbar);
             Controls.Add(bottomBar);
@@ -306,29 +426,320 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CARGA
+        //  CARGA — multi-formato
         // ════════════════════════════════════════════════════════════════════
+
+        // Todos los formatos soportados por el visor
+        internal static readonly string[] SupportedExtensions =
+        {
+            ".jpg", ".jpeg", ".jfif", ".jpe",          // JPEG familia
+            ".png",                                      // PNG
+            ".gif",                                      // GIF (primer frame)
+            ".bmp", ".dib",                              // BMP
+            ".tiff", ".tif",                             // TIFF (primer frame)
+            ".ico",                                      // Icono Windows
+            ".webp",                                     // WebP (requiere codec Win10+)
+            ".avif",                                     // AVIF (requiere codec Win11+)
+            ".heic", ".heif",                            // HEIC/HEIF (requiere codec MS Store)
+            ".emf", ".wmf",                              // Metaarchivos vectoriales
+            ".svg",                                      // SVG (renderizado en WebBrowser)
+            ".ppm", ".pgm", ".pbm",                      // Netpbm
+            ".tga",                                      // TGA/Targa
+            ".exr",                                      // OpenEXR (requiere codec)
+            ".raw", ".cr2", ".cr3", ".nef", ".nrw",      // RAW Canon/Nikon (requiere codec)
+            ".arw", ".srf", ".sr2",                      // RAW Sony
+            ".orf",                                      // RAW Olympus
+            ".rw2",                                      // RAW Panasonic
+            ".dng",                                      // DNG (Adobe)
+            ".pef",                                      // RAW Pentax
+            ".raf",                                      // RAW Fuji
+            ".3fr",                                      // RAW Hasselblad
+        };
+
         private void LoadImage()
         {
+            string ext = Path.GetExtension(imagePath).ToLower();
+
             try
             {
-                using var tmp = Image.FromFile(imagePath);
-                original = new Bitmap(tmp);
+                Bitmap? bmp = null;
+
+                // ── SVG: renderizar en WebBrowser embebido ───────────────────
+                if (ext == ".svg")
+                {
+                    LoadSvg();
+                    return;
+                }
+
+                // ── ICO: usar clase Icon para preservar todos los tamaños ────
+                if (ext == ".ico")
+                {
+                    using var ico = new Icon(imagePath, new Size(256, 256));
+                    bmp = ico.ToBitmap();
+                }
+
+                // ── TIFF multi-página: cargar primer frame ───────────────────
+                else if (ext is ".tiff" or ".tif")
+                {
+                    using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var tmp = Image.FromStream(fs);
+                    // Seleccionar primer frame de dimensión máxima
+                    var dim = new System.Drawing.Imaging.FrameDimension(
+                        tmp.FrameDimensionsList[0]);
+                    tmp.SelectActiveFrame(dim, 0);
+                    bmp = new Bitmap(tmp);
+                }
+
+                // ── GIF animado: extraer primer frame ────────────────────────
+                else if (ext == ".gif")
+                {
+                    using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var tmp = Image.FromStream(fs);
+                    bmp = new Bitmap(tmp.Width, tmp.Height);
+                    using var g = Graphics.FromImage(bmp);
+                    g.DrawImage(tmp, 0, 0);
+                }
+
+                // ── Metaarchivos vectoriales (EMF/WMF) ───────────────────────
+                else if (ext is ".emf" or ".wmf")
+                {
+                    using var meta = new System.Drawing.Imaging.Metafile(imagePath);
+                    int w = Math.Max(1, meta.Width); int h = Math.Max(1, meta.Height);
+                    // Renderizar a 2x para mejor calidad
+                    bmp = new Bitmap(w * 2, h * 2);
+                    using var g = Graphics.FromImage(bmp);
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.DrawImage(meta, 0, 0, w * 2, h * 2);
+                }
+
+                // ── Todos los demás: Image.FromFile (usa codecs WIC de Windows) ─
+                else
+                {
+                    using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var tmp = Image.FromStream(fs, true, true);
+                    bmp = new Bitmap(tmp);
+                }
+
+                if (bmp == null) throw new InvalidOperationException("No se pudo decodificar la imagen.");
+
+                original = bmp;
                 working = new Bitmap(original);
                 FitToWindow();
                 UpdateInfo();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al cargar la imagen:\n{ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // Último intento: mostrar en WebBrowser para formatos como AVIF/HEIC si el browser los soporta
+                if (TryLoadInBrowser(imagePath))
+                    return;
+
+                MessageBox.Show(
+                    $"No se pudo abrir este archivo.\n\n{ex.Message}\n\n" +
+                    "Algunos formatos (RAW, HEIC, AVIF) requieren codecs adicionales\n" +
+                    "disponibles en la Microsoft Store.",
+                    "Formato no compatible", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 Close();
             }
         }
 
+        // ── SVG: sustituir canvas por WebBrowser ─────────────────────────────
+        private void LoadSvg()
+        {
+            string svgContent = File.ReadAllText(imagePath);
+            string html = $@"<!DOCTYPE html>
+<html><head>
+<meta charset='utf-8'/>
+<meta http-equiv='X-UA-Compatible' content='IE=edge'/>
+<style>
+  * {{margin:0;padding:0;box-sizing:border-box;}}
+  html,body {{width:100%;height:100%;background:#080c12;display:flex;
+             align-items:center;justify-content:center;overflow:hidden;}}
+  svg {{max-width:100%;max-height:100%;}}
+</style>
+</head><body>
+{svgContent}
+</body></html>";
+
+            // Reemplazar canvas por WebBrowser para SVG
+            var svgBrowser = new System.Windows.Forms.WebBrowser
+            {
+                Dock = DockStyle.Fill,
+                ScrollBarsEnabled = false,
+                IsWebBrowserContextMenuEnabled = false
+            };
+            canvasPanel.Controls.Remove(canvas);
+            canvasPanel.Controls.Add(svgBrowser);
+            svgBrowser.DocumentText = html;
+
+            // Deshabilitar herramientas de dibujo para SVG
+            foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
+                btn.Enabled = false;
+
+            var fi = new FileInfo(imagePath);
+            infoLabel!.Text = $"  {fi.Name}   ·   SVG vectorial   ·   {FormatSize(fi.Length)}";
+        }
+
+        // Fallback: abrir en WebBrowser embebido (funciona para HEIC/AVIF en Edge-based systems)
+        private bool TryLoadInBrowser(string path)
+        {
+            try
+            {
+                var fb = new System.Windows.Forms.WebBrowser
+                {
+                    Dock = DockStyle.Fill,
+                    ScrollBarsEnabled = false,
+                    IsWebBrowserContextMenuEnabled = false
+                };
+                canvasPanel.Controls.Remove(canvas);
+                canvasPanel.Controls.Add(fb);
+                fb.Navigate(path);
+
+                foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
+                    btn.Enabled = false;
+
+                var fi = new FileInfo(path);
+                infoLabel!.Text = $"  {fi.Name}   ·   {FormatSize(fi.Length)}   ·   (modo compatibilidad)";
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static string FormatSize(long bytes)
+        {
+            string[] u = { "B", "KB", "MB", "GB" };
+            double v = bytes; int i = 0;
+            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+            return $"{v:0.##} {u[i]}";
+        }
+
+        private static Label MakeGpsLabel(string text) => new Label
+        {
+            Text = text,
+            Height = 24,
+            Font = new Font("Cascadia Code", 8.5F),
+            ForeColor = Color.FromArgb(180, 210, 255),
+            BackColor = Color.Transparent,
+            AutoEllipsis = true
+        };
+
         // ════════════════════════════════════════════════════════════════════
-        //  CANVAS PAINT
+        //  GPS
         // ════════════════════════════════════════════════════════════════════
+        private GpsReader.GpsData? _gpsData;
+
+        private void ToggleGpsPanel()
+        {
+            gpsVisible = !gpsVisible;
+            gpsPanel.Visible = gpsVisible;
+            btnToggleGps.BackColor = gpsVisible
+                ? Color.FromArgb(20, 100, 50)
+                : Color.FromArgb(20, 60, 30);
+
+            if (gpsVisible && _gpsData == null)
+                LoadGps();
+        }
+
+        private void LoadGps()
+        {
+            _gpsData = GpsReader.Read(imagePath);
+
+            if (_gpsData == null || !_gpsData.HasGps)
+            {
+                gpsLatLabel.Text = "Sin datos GPS en este archivo";
+                gpsLatLabel.ForeColor = Color.FromArgb(160, 100, 60);
+                gpsLonLabel.Visible = gpsAltLabel.Visible = gpsCameraLabel.Visible = gpsDateLabel.Visible = false;
+                mapBrowser.DocumentText = "<html><body style='background:#0a0e14;color:#5a7090;font-family:Segoe UI;" +
+                    "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-size:14px'>" +
+                    "<div style='text-align:center'>📭<br><br>Sin coordenadas GPS<br>en este archivo</div></body></html>";
+                return;
+            }
+
+            var g = _gpsData;
+            gpsLatLabel.Text = $"Lat:     {g.LatString}";
+            gpsLonLabel.Text = $"Lon:    {g.LonString}";
+            gpsAltLabel.Text = g.Altitude.HasValue ? $"Alt:     {g.Altitude.Value:0.0} m" : "Alt:     —";
+            gpsCameraLabel.Text = $"Cámara: {g.CameraModel ?? "—"}";
+            gpsDateLabel.Text = $"Fecha:  {g.Date ?? "—"}";
+
+            foreach (var lbl in new[] { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel })
+            {
+                lbl.ForeColor = Color.FromArgb(180, 210, 255);
+                lbl.Visible = true;
+            }
+
+            LoadMap(g.Latitude, g.Longitude);
+        }
+
+        private void LoadMap(double lat, double lon)
+        {
+            // Fijar modo IE11 en el registro para el proceso actual
+            SetBrowserEmulation();
+
+            string html = $@"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'/>
+<meta http-equiv='X-UA-Compatible' content='IE=edge'/>
+<meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>Map</title>
+<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/>
+<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  html, body, #map {{ width:100%; height:100%; background:#0d1117; }}
+</style>
+</head>
+<body>
+<div id='map'></div>
+<script>
+  var map = L.map('map', {{ zoomControl:true, attributionControl:false }})
+             .setView([{lat.ToString(System.Globalization.CultureInfo.InvariantCulture)},
+                       {lon.ToString(System.Globalization.CultureInfo.InvariantCulture)}], 15);
+
+  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+    maxZoom: 19
+  }}).addTo(map);
+
+  var icon = L.divIcon({{
+    html: '<div style=""width:22px;height:22px;border-radius:50% 50% 50% 0;background:#3a8bfd;border:3px solid #fff;transform:rotate(-45deg);box-shadow:0 2px 8px rgba(0,0,0,.5)""></div>',
+    iconSize: [22, 22],
+    iconAnchor: [11, 22],
+    className: ''
+  }});
+
+  L.marker([{lat.ToString(System.Globalization.CultureInfo.InvariantCulture)},
+             {lon.ToString(System.Globalization.CultureInfo.InvariantCulture)}], {{icon: icon}})
+    .addTo(map)
+    .bindPopup('<b>📍 Ubicación</b><br>{lat:F6}°, {lon:F6}°')
+    .openPopup();
+</script>
+</body>
+</html>";
+
+            mapBrowser.DocumentText = html;
+        }
+
+        private void OpenInBrowser()
+        {
+            if (_gpsData == null || !_gpsData.HasGps) return;
+            string url = $"https://www.google.com/maps?q={_gpsData.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{_gpsData.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+
+        // Necesario para que WebBrowser use IE11 y cargue Leaflet correctamente
+        private static void SetBrowserEmulation()
+        {
+            try
+            {
+                string appName = System.Diagnostics.Process.GetCurrentProcess().ProcessName + ".exe";
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION", true)
+                    ?? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
+                    @"Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION");
+                key?.SetValue(appName, 11001, Microsoft.Win32.RegistryValueKind.DWord);
+            }
+            catch { /* Sin permisos de registro — el mapa puede mostrarse en modo compat */ }
+        }
         private void Canvas_Paint(object? sender, PaintEventArgs e)
         {
             if (working == null) return;

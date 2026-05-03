@@ -1379,10 +1379,10 @@ namespace FileExplorerr
             {
                 if (new[] { ".txt", ".csv", ".json", ".xml", ".log" }.Contains(ext))
                     new FileViewerForm(path).Show();
-                else if (new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp" }.Contains(ext))
+                else if (ImageViewerForm.SupportedExtensions.Contains(ext))
                     new ImageViewerForm(path).Show();
                 else
-                    Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+                            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -1474,26 +1474,77 @@ namespace FileExplorerr
         private string IconKey(string ext)
         {
             ext = ext.ToLower();
-            if (new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".webp" }.Contains(ext)) return "image";
-            if (new[] { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg" }.Contains(ext)) return "audio";
-            if (new[] { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv" }.Contains(ext)) return "video";
+
+            // Imágenes raster
+            if (new[] { ".jpg", ".jpeg", ".jfif", ".jpe",
+                ".png", ".gif", ".bmp", ".dib",
+                ".tiff", ".tif", ".ico",
+                ".webp", ".avif", ".heic", ".heif",
+                ".ppm", ".pgm", ".pbm", ".tga",
+                ".emf", ".wmf", ".svg",
+                ".raw", ".cr2", ".cr3", ".nef", ".nrw",
+                ".arw", ".srf", ".sr2", ".orf",
+                ".rw2", ".dng", ".pef", ".raf",
+                ".3fr", ".exr" }.Contains(ext))
+                return "image";
+
+            if (new[] { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".aiff" }.Contains(ext))
+                return "audio";
+
+            if (new[] { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".ts", ".m4v", ".3gp" }.Contains(ext))
+                return "video";
+
             if (new[] { ".txt", ".csv", ".json", ".xml", ".log", ".ini",
-                        ".config", ".md", ".cs", ".py", ".js", ".html"            }.Contains(ext)) return "text";
+                ".config", ".md", ".cs", ".py", ".js", ".html", ".ts" }.Contains(ext))
+                return "text";
+
             return "file";
         }
+
 
         private string FileTypeName(string ext)
         {
             ext = ext.ToLower();
             var map = new Dictionary<string, string>
-            {
-                {".txt","Texto"},{".csv","CSV"},{".json","JSON"},{".xml","XML"},
-                {".md","Markdown"},{".log","Log"},{".ini","Config"},
-                {".cs","C#"},{".py","Python"},{".js","JavaScript"},
-                {".jpg","JPG"},{".jpeg","JPEG"},{".png","PNG"},{".gif","GIF"},{".bmp","BMP"},
-                {".mp3","MP3"},{".wav","WAV"},{".flac","FLAC"},{".aac","AAC"},
-                {".mp4","MP4"},{".avi","AVI"},{".mkv","MKV"},{".mov","MOV"}
-            };
+    {
+        // Texto / código
+        {".txt","Texto"},{".csv","CSV"},{".json","JSON"},{".xml","XML"},
+        {".md","Markdown"},{".log","Log"},{".ini","Config"},
+        {".cs","C#"},{".py","Python"},{".js","JavaScript"},{".ts","TypeScript"},
+        {".html","HTML"},{".css","CSS"},
+ 
+        // Imágenes comunes
+        {".jpg","JPEG"},{".jpeg","JPEG"},{".jfif","JPEG"},{".jpe","JPEG"},
+        {".png","PNG"},{".gif","GIF"},{".bmp","BMP"},{".dib","BMP"},
+        {".tiff","TIFF"},{".tif","TIFF"},{".ico","Icono"},
+        {".webp","WebP"},{".avif","AVIF"},{".heic","HEIC"},{".heif","HEIF"},
+        {".svg","SVG vectorial"},{".emf","Metaarchivo"},{".wmf","Metaarchivo"},
+        {".ppm","Netpbm"},{".pgm","Netpbm"},{".pbm","Netpbm"},{".tga","TGA"},
+        {".exr","OpenEXR"},
+ 
+        // RAW
+        {".raw","RAW"},{".cr2","Canon RAW"},{".cr3","Canon RAW"},
+        {".nef","Nikon RAW"},{".nrw","Nikon RAW"},
+        {".arw","Sony RAW"},{".srf","Sony RAW"},{".sr2","Sony RAW"},
+        {".orf","Olympus RAW"},{".rw2","Panasonic RAW"},
+        {".dng","Adobe DNG"},{".pef","Pentax RAW"},
+        {".raf","Fuji RAW"},{".3fr","Hasselblad RAW"},
+ 
+        // Audio
+        {".mp3","MP3"},{".wav","WAV"},{".flac","FLAC"},{".aac","AAC"},
+        {".wma","WMA"},{".m4a","M4A"},{".ogg","OGG"},{".opus","OPUS"},
+        {".aiff","AIFF"},
+ 
+        // Video
+        {".mp4","MP4"},{".avi","AVI"},{".mkv","MKV"},{".mov","MOV"},
+        {".wmv","WMV"},{".flv","FLV"},{".webm","WebM"},
+        {".m4v","M4V"},{".3gp","3GP"},
+ 
+        // Documentos
+        {".pdf","PDF"},{".doc","Word"},{".docx","Word"},
+        {".xls","Excel"},{".xlsx","Excel"},
+        {".ppt","PowerPoint"},{".pptx","PowerPoint"},
+    };
             return map.TryGetValue(ext, out var t) ? t : "Archivo";
         }
 
