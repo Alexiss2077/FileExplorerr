@@ -139,6 +139,7 @@ namespace FileExplorerr
         public VideoPlayerForm(string path)
         {
             initialPath = path;
+            _currentPath = path;
             SetBrowserEmulation();
             BuildUI();
             AddFile(path);
@@ -547,6 +548,7 @@ namespace FileExplorerr
             listView.Items[idx].EnsureVisible();
 
             string path = listView.Items[idx].Tag!.ToString()!;
+            _currentPath = path;
             wmp.URL = path;
             wmp.Play();
             btnPlayPause.Text = "⏸";
@@ -743,13 +745,21 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  GPS
         // ════════════════════════════════════════════════════════════════════
+        private string _currentPath = "";
+
         private void ToggleGps()
         {
             gpsVisible = !gpsVisible;
-            propsPanel.Visible = !gpsVisible; gpsPanel.Visible = gpsVisible;
+            propsPanel.Visible = !gpsVisible;
+            gpsPanel.Visible = gpsVisible;
             btnGps.BackColor = gpsVisible ? Color.FromArgb(20, 100, 45) : Color.FromArgb(18, 55, 28);
-            if (gpsVisible && _gpsLoadedFor != currentIndex && currentIndex >= 0)
-                LoadGps(listView.Items[currentIndex].Tag!.ToString()!, currentIndex);
+
+            if (!gpsVisible) return;
+
+            // Usar _currentPath en lugar de acceder al listView por índice
+            if (string.IsNullOrEmpty(_currentPath)) return;
+            if (_gpsLoadedFor != currentIndex)
+                LoadGps(_currentPath, currentIndex);
         }
 
         private void LoadGps(string path, int index)
