@@ -183,32 +183,67 @@ namespace FileExplorerr
             grid.ColumnHeaderMouseClick += (s, e) => SortByColumn(e.ColumnIndex);
 
             // ── Bottom panel ────────────────────────────────────────────────
-            bottomPanel = new Panel { Height = 48, Dock = DockStyle.Bottom, BackColor = Color.FromArgb(17, 23, 33), Padding = new Padding(8, 8, 8, 8) };
+            bottomPanel = new Panel { Height = 84, Dock = DockStyle.Bottom, BackColor = Color.FromArgb(17, 23, 33) };
             bottomPanel.Paint += (s, e) =>
+            {
                 e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, 0, bottomPanel.Width, 0);
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, 42, bottomPanel.Width, 42);
+            };
 
             statusLabel = new Label
             {
-                Dock = DockStyle.Fill,
+                Left = 12,
+                Top = 12,
+                Height = 22,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 ForeColor = Color.FromArgb(110, 140, 180),
                 Font = new Font("Segoe UI", 9F),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(4, 0, 0, 0)
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            bottomPanel.Resize += (s, e) => statusLabel.Width = bottomPanel.Width - 24;
+
+            // Fila 1: guardar copia corregida (alineada derecha)
+            saveFixedBtn = MakeBtn("💾  Guardar copia corregida", 200, Color.FromArgb(22, 80, 40), Color.FromArgb(35, 134, 54));
+            saveFixedBtn.Top = 8;
+            saveFixedBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            saveFixedBtn.Click += (s, e) => SaveFixedCopy();
+            bottomPanel.Resize += (s, e) => saveFixedBtn.Left = bottomPanel.Width - saveFixedBtn.Width - 8;
+
+            // Fila 2: botones exportar por formato
+            var exportLabel = new Label
+            {
+                Text = "Exportar como:",
+                Top = 52,
+                Left = 12,
+                AutoSize = true,
+                ForeColor = Color.FromArgb(110, 140, 180),
+                Font = new Font("Segoe UI", 8.5F),
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
-            saveFixedBtn = MakeBtn("💾  Guardar copia corregida", 190, Color.FromArgb(22, 80, 40), Color.FromArgb(35, 134, 54));
-            saveFixedBtn.Dock = DockStyle.Right;
-            saveFixedBtn.Width = 200;
-            saveFixedBtn.Click += (s, e) => SaveFixedCopy();
+            exportCsvBtn = MakeBtn("CSV", 62, Color.FromArgb(20, 55, 100), Color.FromArgb(56, 139, 253));
+            exportCsvBtn.Top = 48; exportCsvBtn.Left = 114;
+            exportCsvBtn.Click += (s, e) => ExportAs(".csv");
 
-            exportCsvBtn = MakeBtn("📊  Exportar vista CSV", 160, Color.FromArgb(31, 60, 110), Color.FromArgb(56, 100, 200));
-            exportCsvBtn.Dock = DockStyle.Right;
-            exportCsvBtn.Width = 170;
-            exportCsvBtn.Click += (s, e) => ExportCurrentView();
+            var exportJsonBtn = MakeBtn("JSON", 62, Color.FromArgb(80, 50, 10), Color.FromArgb(210, 140, 30));
+            exportJsonBtn.Top = 48; exportJsonBtn.Left = 182;
+            exportJsonBtn.Click += (s, e) => ExportAs(".json");
+
+            var exportTxtBtn = MakeBtn("TXT", 62, Color.FromArgb(30, 60, 30), Color.FromArgb(60, 160, 60));
+            exportTxtBtn.Top = 48; exportTxtBtn.Left = 250;
+            exportTxtBtn.Click += (s, e) => ExportAs(".txt");
+
+            var exportXmlBtn = MakeBtn("XML", 62, Color.FromArgb(70, 20, 70), Color.FromArgb(180, 60, 200));
+            exportXmlBtn.Top = 48; exportXmlBtn.Left = 318;
+            exportXmlBtn.Click += (s, e) => ExportAs(".xml");
 
             bottomPanel.Controls.Add(statusLabel);
             bottomPanel.Controls.Add(saveFixedBtn);
+            bottomPanel.Controls.Add(exportLabel);
             bottomPanel.Controls.Add(exportCsvBtn);
+            bottomPanel.Controls.Add(exportJsonBtn);
+            bottomPanel.Controls.Add(exportTxtBtn);
+            bottomPanel.Controls.Add(exportXmlBtn);
 
             Controls.Add(grid);
             Controls.Add(filterPanel);
@@ -256,6 +291,7 @@ namespace FileExplorerr
                 PopulateFilterCombo();
                 ApplyDisplayTable(masterTable);
                 UpdateStatus();
+                ShowAnalysisPopup();
             }
             catch (Exception ex)
             {
@@ -616,6 +652,56 @@ namespace FileExplorerr
             statusLabel.Text = "  " + string.Join("   ·   ", parts);
         }
 
+        private void ShowAnalysisPopup()
+        {
+            int dups = duplicateRows.Count;
+            int dates = dateIssues.Count;
+            int empties = emptyFields.Count;
+
+            if (dups == 0 && dates == 0 && empties == 0) return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Se detectaron problemas en \"{Path.GetFileName(filePath)}\":");
+            sb.AppendLine();
+
+            if (dups > 0)
+            {
+                sb.AppendLine($"🔴  DUPLICADOS — {dups} fila(s) repetida(s)");
+                foreach (int r in duplicateRows.Take(5))
+                {
+                    string preview = string.Join(" | ", masterTable.Rows[r].ItemArray
+                        .Take(3).Select(x => x?.ToString()?.Trim() ?? ""));
+                    sb.AppendLine($"     Fila {r + 1}: {preview}…");
+                }
+                if (dups > 5) sb.AppendLine($"     … y {dups - 5} más");
+                sb.AppendLine();
+            }
+
+            if (dates > 0)
+            {
+                sb.AppendLine($"🔵  FECHAS MAL FORMATEADAS — {dates} celda(s)");
+                foreach (var (row, col, orig, fixd) in dateIssues.Take(5))
+                    sb.AppendLine($"     Fila {row + 1}, col \"{masterTable.Columns[col].ColumnName}\": \"{orig}\" → \"{fixd}\"");
+                if (dates > 5) sb.AppendLine($"     … y {dates - 5} más");
+                sb.AppendLine();
+            }
+
+            if (empties > 0)
+            {
+                sb.AppendLine($"🟡  CAMPOS VACÍOS — {empties} celda(s) sin valor");
+                var byCol = emptyFields.GroupBy(x => x.Col)
+                    .Select(g => $"\"{masterTable.Columns[g.Key].ColumnName}\" ({g.Count()})");
+                sb.AppendLine($"     Columnas afectadas: {string.Join(", ", byCol)}");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("Las celdas afectadas están resaltadas en la tabla.");
+            sb.AppendLine("Usa \"Guardar copia corregida\" para aplicar todas las correcciones.");
+
+            MessageBox.Show(sb.ToString(), "Análisis del archivo",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
         // ════════════════════════════════════════════════════════════════════
         //  FILTRADO
         // ════════════════════════════════════════════════════════════════════
@@ -764,25 +850,48 @@ namespace FileExplorerr
         };
 
         // ════════════════════════════════════════════════════════════════════
-        //  EXPORTAR VISTA ACTUAL A CSV
+        //  EXPORTAR A FORMATO ELEGIDO
         // ════════════════════════════════════════════════════════════════════
-        private void ExportCurrentView()
+        private void ExportAs(string targetExt)
         {
+            string baseName = Path.GetFileNameWithoutExtension(filePath);
+            string filter = targetExt switch
+            {
+                ".csv" => "CSV (*.csv)|*.csv|Todos|*.*",
+                ".json" => "JSON (*.json)|*.json|Todos|*.*",
+                ".txt" => "Texto separado por tabuladores (*.txt)|*.txt|Todos|*.*",
+                ".xml" => "XML (*.xml)|*.xml|Todos|*.*",
+                _ => "Todos|*.*"
+            };
+
             using var dlg = new SaveFileDialog
             {
-                Title = "Exportar vista actual",
-                Filter = "CSV (*.csv)|*.csv|Todos|*.*",
-                FileName = Path.GetFileNameWithoutExtension(filePath) + "_vista.csv"
+                Title = $"Exportar como {targetExt.TrimStart('.').ToUpper()}",
+                Filter = filter,
+                FileName = $"{baseName}_exportado{targetExt}",
+                InitialDirectory = Path.GetDirectoryName(filePath)
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
             try
             {
-                File.WriteAllText(dlg.FileName, TableToCsv(displayTable), Encoding.UTF8);
-                MessageBox.Show("Vista exportada correctamente.", "Exportado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                string content = targetExt switch
+                {
+                    ".csv" => TableToCsv(displayTable),
+                    ".json" => TableToJson(displayTable),
+                    ".txt" => TableToTsv(displayTable),
+                    ".xml" => TableToXml(displayTable),
+                    _ => TableToCsv(displayTable)
+                };
+                File.WriteAllText(dlg.FileName, content, Encoding.UTF8);
+                MessageBox.Show(
+                    $"Exportado correctamente:\n{dlg.FileName}\n\n{displayTable.Rows.Count} filas · {displayTable.Columns.Count} columnas",
+                    $"Exportado como {targetExt.TrimStart('.').ToUpper()}",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error al exportar:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
