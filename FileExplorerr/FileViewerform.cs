@@ -586,33 +586,112 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  MOSTRAR TABLA
         // ════════════════════════════════════════════════════════════════════
+
+        // columna → (esNumérica, esMoneda)
+        private Dictionary<int, (bool IsNumeric, bool IsCurrency)> columnNumericInfo = new();
+
+        // Keywords que sugieren moneda en el nombre de la columna
+        private static readonly string[] CurrencyKeywords =
+            { "price", "precio", "cost", "costo", "coste", "amount", "monto", "importe",
+              "total", "salary", "salario", "sueldo", "revenue", "ingreso", "venta", "sale",
+              "fee", "tarifa", "rate", "tasa", "balance", "saldo", "pago", "payment",
+              "value", "valor", "budget", "presupuesto", "gasto", "expense" };
+
         private void ApplyDisplayTable(DataTable source)
         {
             displayTable = source;
+            columnNumericInfo.Clear();
             grid.DataSource = null;
             grid.DataSource = displayTable;
+
+            // Detectar columnas numéricas y de moneda
+            for (int c = 0; c < displayTable.Columns.Count; c++)
+            {
+                string colName = displayTable.Columns[c].ColumnName.ToLower();
+                bool isCurrencyCol = CurrencyKeywords.Any(k => colName.Contains(k));
+
+                int numericCount = 0;
+                bool hasCurrencySymbol = false;
+
+                foreach (DataRow row in displayTable.Rows)
+                {
+                    string raw = row[c]?.ToString()?.Trim() ?? "";
+                    if (string.IsNullOrWhiteSpace(raw)) continue;
+
+                    // Quitar símbolo $ para parsear
+                    string clean = raw.TrimStart('$', '€', '£', '¥', ' ');
+                    if (clean != raw) hasCurrencySymbol = true;
+
+                    if (double.TryParse(clean, System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out _))
+                        numericCount++;
+                }
+
+                int nonEmpty = displayTable.Rows.Cast<DataRow>()
+                    .Count(r => !string.IsNullOrWhiteSpace(r[c]?.ToString()));
+
+                bool isNumeric = nonEmpty > 0 && (double)numericCount / nonEmpty >= 0.8;
+                bool isCurrency = isNumeric && (isCurrencyCol || hasCurrencySymbol);
+
+                columnNumericInfo[c] = (isNumeric, isCurrency);
+
+                // Alinear header a la derecha si numérica
+                if (isNumeric && c < grid.Columns.Count)
+                    grid.Columns[c].HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleRight;
+            }
 
             // Ajustar anchos
             foreach (DataGridViewColumn col in grid.Columns)
             {
                 col.SortMode = DataGridViewColumnSortMode.Programmatic;
                 col.Width = Math.Min(300, Math.Max(80, col.Width));
-                col.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleLeft;
+                if (!columnNumericInfo.TryGetValue(col.Index, out var ni) || !ni.IsNumeric)
+                    col.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleLeft;
             }
         }
 
-        // Colorear celdas según análisis
+        // Parsear número limpiando símbolo de moneda
+        private static bool TryParseNumber(string raw, out double result)
+        {
+            string clean = raw.TrimStart('$', '€', '£', '¥', ' ').Replace(",", "");
+            return double.TryParse(clean, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out result);
+        }
+
+        // Colorear celdas según análisis + formato numérico
         private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
-            // Encontrar índice original si es vista filtrada
-            int origRow = e.RowIndex; // en displayTable mismo orden por ahora
+            int origRow = e.RowIndex;
 
             bool isDup = duplicateRows.Contains(origRow);
             bool isEmpty = emptyFields.Any(x => x.Row == origRow && x.Col == e.ColumnIndex);
             bool isDate = dateIssues.Any(x => x.Row == origRow && x.Col == e.ColumnIndex);
 
+            // ── Formato numérico ────────────────────────────────────────────
+            if (columnNumericInfo.TryGetValue(e.ColumnIndex, out var numInfo) && numInfo.IsNumeric && !isEmpty)
+            {
+                string raw = e.Value?.ToString()?.Trim() ?? "";
+                if (TryParseNumber(raw, out double numVal))
+                {
+                    // Redondear a 2 decimales
+                    numVal = Math.Round(numVal, 2);
+
+                    // Formatear con o sin símbolo de moneda
+                    e.Value = numInfo.IsCurrency
+                        ? $"${numVal:N2}"
+                        : (numVal == Math.Floor(numVal) ? numVal.ToString("N0") : numVal.ToString("N2"));
+
+                    e.FormattingApplied = true;
+                    e.CellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                    e.CellStyle.ForeColor = numInfo.IsCurrency
+                        ? Color.FromArgb(100, 220, 130)   // verde para moneda
+                        : Color.FromArgb(180, 210, 255);  // azul claro para número
+                }
+            }
+
+            // ── Colores de análisis (encima del formato numérico) ───────────
             if (isDup)
             {
                 e.CellStyle.BackColor = Color.FromArgb(60, 20, 20);
