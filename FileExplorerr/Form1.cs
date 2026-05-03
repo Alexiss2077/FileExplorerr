@@ -81,7 +81,7 @@ namespace FileExplorerr
                 int textColor = ToBgr(Color.FromArgb(140, 180, 255));
                 DwmSetWindowAttribute(this.Handle, DWMWA_TEXT_COLOR, ref textColor, sizeof(int));
             }
-            catch {     }
+            catch { }
         }
 
         private Icon GetRecycleBinIcon(bool full = false)
@@ -569,7 +569,7 @@ namespace FileExplorerr
         };
 
         // Actualizar panel con contenido del directorio actual
-        
+
         private void UpdateRightPanel(string path)
         {
             if (infoTree == null) return;
@@ -1368,7 +1368,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ABRIR ARCHIVO
+        //  ABRIR ARCHIVO — MODIFICADO: audio abre MusicPlayerForm
         // ════════════════════════════════════════════════════════════════════
         private void OpenEntry(string path)
         {
@@ -1384,6 +1384,10 @@ namespace FileExplorerr
                 // Imágenes → visor/editor de imagen
                 else if (ImageViewerForm.SupportedExtensions.Contains(ext))
                     new ImageViewerForm(path).Show();
+
+                // Audio → reproductor de música integrado
+                else if (MusicPlayerForm.SupportedExtensions.Contains(ext))
+                    new MusicPlayerForm(path).Show();
 
                 // Video → reproductor interno
                 else if (new[] { ".mp4",".avi",".mkv",".mov",".wmv",
