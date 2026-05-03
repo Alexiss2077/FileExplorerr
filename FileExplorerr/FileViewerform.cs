@@ -182,68 +182,82 @@ namespace FileExplorerr
             grid.CellFormatting += Grid_CellFormatting;
             grid.ColumnHeaderMouseClick += (s, e) => SortByColumn(e.ColumnIndex);
 
-            // ── Bottom panel ────────────────────────────────────────────────
-            bottomPanel = new Panel { Height = 84, Dock = DockStyle.Bottom, BackColor = Color.FromArgb(17, 23, 33) };
-            bottomPanel.Paint += (s, e) =>
+            // ── Bottom panel — dos filas con Dock, sin posicionamiento manual ──
+            bottomPanel = new Panel
             {
-                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, 0, bottomPanel.Width, 0);
-                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, 42, bottomPanel.Width, 42);
+                Height = 80,
+                Dock = DockStyle.Bottom,
+                BackColor = Color.FromArgb(17, 23, 33)
             };
+            bottomPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)), 0, 0, bottomPanel.Width, 0);
+
+            // ── Fila superior: estado + botón guardar ────────────────────────
+            var rowTop = new Panel
+            {
+                Height = 38,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(17, 23, 33),
+                Padding = new Padding(10, 6, 8, 0)
+            };
+            rowTop.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)),
+                    0, rowTop.Height - 1, rowTop.Width, rowTop.Height - 1);
 
             statusLabel = new Label
             {
-                Left = 12,
-                Top = 12,
-                Height = 22,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Dock = DockStyle.Fill,
                 ForeColor = Color.FromArgb(110, 140, 180),
                 Font = new Font("Segoe UI", 9F),
                 TextAlign = ContentAlignment.MiddleLeft
             };
-            bottomPanel.Resize += (s, e) => statusLabel.Width = bottomPanel.Width - 24;
 
-            // Fila 1: guardar copia corregida (alineada derecha)
-            saveFixedBtn = MakeBtn("💾  Guardar copia corregida", 200, Color.FromArgb(22, 80, 40), Color.FromArgb(35, 134, 54));
-            saveFixedBtn.Top = 8;
-            saveFixedBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            saveFixedBtn = MakeBtn("💾  Guardar copia corregida", 210,
+                Color.FromArgb(22, 80, 40), Color.FromArgb(35, 134, 54));
+            saveFixedBtn.Dock = DockStyle.Right;
             saveFixedBtn.Click += (s, e) => SaveFixedCopy();
-            bottomPanel.Resize += (s, e) => saveFixedBtn.Left = bottomPanel.Width - saveFixedBtn.Width - 8;
 
-            // Fila 2: botones exportar por formato
+            rowTop.Controls.Add(statusLabel);
+            rowTop.Controls.Add(saveFixedBtn);
+
+            // ── Fila inferior: exportar como ─────────────────────────────────
+            var rowBot = new Panel
+            {
+                Height = 42,
+                Dock = DockStyle.Bottom,
+                BackColor = Color.FromArgb(14, 20, 30),
+                Padding = new Padding(10, 6, 8, 4)
+            };
+
             var exportLabel = new Label
             {
                 Text = "Exportar como:",
-                Top = 52,
-                Left = 12,
-                AutoSize = true,
+                Dock = DockStyle.Left,
+                Width = 106,
                 ForeColor = Color.FromArgb(110, 140, 180),
                 Font = new Font("Segoe UI", 8.5F),
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
-            exportCsvBtn = MakeBtn("CSV", 62, Color.FromArgb(20, 55, 100), Color.FromArgb(56, 139, 253));
-            exportCsvBtn.Top = 48; exportCsvBtn.Left = 114;
-            exportCsvBtn.Click += (s, e) => ExportAs(".csv");
+            exportCsvBtn = MakeBtn("CSV", 66, Color.FromArgb(20, 55, 100), Color.FromArgb(56, 139, 253));
+            var exportJsonBtn = MakeBtn("JSON", 66, Color.FromArgb(80, 50, 10), Color.FromArgb(210, 140, 30));
+            var exportTxtBtn = MakeBtn("TXT", 66, Color.FromArgb(30, 60, 30), Color.FromArgb(60, 160, 60));
+            var exportXmlBtn = MakeBtn("XML", 66, Color.FromArgb(70, 20, 70), Color.FromArgb(180, 60, 200));
 
-            var exportJsonBtn = MakeBtn("JSON", 62, Color.FromArgb(80, 50, 10), Color.FromArgb(210, 140, 30));
-            exportJsonBtn.Top = 48; exportJsonBtn.Left = 182;
-            exportJsonBtn.Click += (s, e) => ExportAs(".json");
+            exportCsvBtn.Dock = DockStyle.Left; exportCsvBtn.Click += (s, e) => ExportAs(".csv");
+            exportJsonBtn.Dock = DockStyle.Left; exportJsonBtn.Click += (s, e) => ExportAs(".json");
+            exportTxtBtn.Dock = DockStyle.Left; exportTxtBtn.Click += (s, e) => ExportAs(".txt");
+            exportXmlBtn.Dock = DockStyle.Left; exportXmlBtn.Click += (s, e) => ExportAs(".xml");
 
-            var exportTxtBtn = MakeBtn("TXT", 62, Color.FromArgb(30, 60, 30), Color.FromArgb(60, 160, 60));
-            exportTxtBtn.Top = 48; exportTxtBtn.Left = 250;
-            exportTxtBtn.Click += (s, e) => ExportAs(".txt");
+            // Orden: label primero, luego botones (DockStyle.Left se apila de izq a der)
+            rowBot.Controls.Add(exportXmlBtn);
+            rowBot.Controls.Add(exportTxtBtn);
+            rowBot.Controls.Add(exportJsonBtn);
+            rowBot.Controls.Add(exportCsvBtn);
+            rowBot.Controls.Add(exportLabel);
 
-            var exportXmlBtn = MakeBtn("XML", 62, Color.FromArgb(70, 20, 70), Color.FromArgb(180, 60, 200));
-            exportXmlBtn.Top = 48; exportXmlBtn.Left = 318;
-            exportXmlBtn.Click += (s, e) => ExportAs(".xml");
-
-            bottomPanel.Controls.Add(statusLabel);
-            bottomPanel.Controls.Add(saveFixedBtn);
-            bottomPanel.Controls.Add(exportLabel);
-            bottomPanel.Controls.Add(exportCsvBtn);
-            bottomPanel.Controls.Add(exportJsonBtn);
-            bottomPanel.Controls.Add(exportTxtBtn);
-            bottomPanel.Controls.Add(exportXmlBtn);
+            bottomPanel.Controls.Add(rowBot);
+            bottomPanel.Controls.Add(rowTop);
 
             Controls.Add(grid);
             Controls.Add(filterPanel);
