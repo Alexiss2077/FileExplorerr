@@ -140,24 +140,6 @@ namespace FileExplorerr
             // Grupo: Edición
             AddTopBtn(ref tx, "↩ Deshacer", () => Undo(), Color.FromArgb(80, 50, 10), Color.FromArgb(200, 130, 30));
             AddTopBtn(ref tx, "♻ Restaurar", () => RestoreOriginal(), Color.FromArgb(60, 20, 20), Color.FromArgb(200, 60, 60));
-            AddTopSep(ref tx);
-            btnToggleGps = new Button
-            {
-                Text = "📍 GPS",
-                Location = new Point(tx, 10),
-                Height = 30,
-                AutoSize = true,
-                MinimumSize = new Size(60, 30),
-                Padding = new Padding(6, 0, 6, 0),
-                BackColor = Color.FromArgb(20, 60, 30),
-                ForeColor = Color.FromArgb(80, 220, 120),
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            btnToggleGps.FlatAppearance.BorderColor = Color.FromArgb(40, 160, 80);
-            btnToggleGps.Click += (s, e) => ToggleGpsPanel();
-            topToolbar.Controls.Add(btnToggleGps);
 
             // ── Left toolbar ────────────────────────────────────────────────
             leftToolbar = new Panel
@@ -221,6 +203,29 @@ namespace FileExplorerr
             brushSizeLabel = new Label { Text = brushSize.ToString(), Left = 4, Top = ty, Width = 56, Height = 16, Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = Color.FromArgb(180, 210, 255), TextAlign = ContentAlignment.MiddleCenter };
             leftToolbar.Controls.Add(brushSizeLabel);
 
+            // Separador
+            ty += 24;
+            var gpsSep = new Panel { Left = 4, Top = ty, Width = 56, Height = 1, BackColor = Color.FromArgb(38, 50, 70) };
+            leftToolbar.Controls.Add(gpsSep);
+            ty += 8;
+
+            // Botón GPS en toolbar izquierdo — siempre visible
+            btnToggleGps = new Button
+            {
+                Text = "📍\nGPS",
+                Location = new Point(4, ty),
+                Size = new Size(56, 52),
+                BackColor = Color.FromArgb(18, 55, 28),
+                ForeColor = Color.FromArgb(80, 220, 120),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            btnToggleGps.FlatAppearance.BorderColor = Color.FromArgb(35, 130, 65);
+            btnToggleGps.Click += (s, e) => ToggleGpsPanel();
+            leftToolbar.Controls.Add(btnToggleGps);
+
             // ── Canvas ──────────────────────────────────────────────────────
             canvasPanel = new Panel
             {
@@ -232,9 +237,18 @@ namespace FileExplorerr
             canvas = new PictureBox
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.Transparent,
+                BackColor = Color.FromArgb(8, 12, 18),   // NO Transparent — evita el rectángulo fantasma
                 SizeMode = PictureBoxSizeMode.Normal
             };
+
+            // Doble buffer explícito para eliminar artefactos de redibujado
+            typeof(PictureBox).GetProperty("DoubleBuffered",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.SetValue(canvas, true);
+
+            // Al redimensionar invalidar todo el canvas
+            canvas.Resize += (s, e) => canvas.Invalidate();
+            canvasPanel.Resize += (s, e) => canvas.Invalidate();
 
             // Eventos del canvas
             canvas.Paint += Canvas_Paint;
@@ -576,7 +590,7 @@ namespace FileExplorerr
                 btn.Enabled = false;
 
             var fi = new FileInfo(imagePath);
-            infoLabel!.Text = $"  {fi.Name}   ·   SVG vectorial   ·   {FormatSize(fi.Length)}";
+            infoLabel.Text = $"  {fi.Name}   ·   SVG vectorial   ·   {FormatSize(fi.Length)}";
         }
 
         // Fallback: abrir en WebBrowser embebido (funciona para HEIC/AVIF en Edge-based systems)
@@ -598,7 +612,7 @@ namespace FileExplorerr
                     btn.Enabled = false;
 
                 var fi = new FileInfo(path);
-                infoLabel!.Text = $"  {fi.Name}   ·   {FormatSize(fi.Length)}   ·   (modo compatibilidad)";
+                infoLabel.Text = $"  {fi.Name}   ·   {FormatSize(fi.Length)}   ·   (modo compatibilidad)";
                 return true;
             }
             catch { return false; }
@@ -632,8 +646,11 @@ namespace FileExplorerr
             gpsVisible = !gpsVisible;
             gpsPanel.Visible = gpsVisible;
             btnToggleGps.BackColor = gpsVisible
-                ? Color.FromArgb(20, 100, 50)
-                : Color.FromArgb(20, 60, 30);
+                ? Color.FromArgb(20, 100, 45)
+                : Color.FromArgb(18, 55, 28);
+            btnToggleGps.ForeColor = gpsVisible
+                ? Color.FromArgb(120, 255, 150)
+                : Color.FromArgb(80, 220, 120);
 
             if (gpsVisible && _gpsData == null)
                 LoadGps();
@@ -744,6 +761,10 @@ namespace FileExplorerr
         {
             if (working == null) return;
             var g = e.Graphics;
+
+            // Limpiar TODO el fondo primero — elimina el rectángulo fantasma al redimensionar
+            g.Clear(Color.FromArgb(8, 12, 18));
+
             g.InterpolationMode = zoom >= 1
                 ? InterpolationMode.NearestNeighbor
                 : InterpolationMode.HighQualityBicubic;
