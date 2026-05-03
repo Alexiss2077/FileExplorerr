@@ -1377,12 +1377,25 @@ namespace FileExplorerr
             string ext = Path.GetExtension(path).ToLower();
             try
             {
+                // Archivos de texto / datos → visor tabla
                 if (new[] { ".txt", ".csv", ".json", ".xml", ".log" }.Contains(ext))
                     new FileViewerForm(path).Show();
+
+                // Imágenes → visor/editor de imagen
                 else if (ImageViewerForm.SupportedExtensions.Contains(ext))
                     new ImageViewerForm(path).Show();
+
+                // Video → reproductor interno
+                else if (new[] { ".mp4",".avi",".mkv",".mov",".wmv",
+                         ".flv",".webm",".m4v",".ts",".3gp",
+                         ".mpg",".mpeg",".vob",".divx" }.Contains(ext))
+                    new VideoPlayerForm(path).Show();
+
+                // Cualquier otro → abrir con app predeterminada del sistema
                 else
-                            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo
+                        { FileName = path, UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -1390,7 +1403,6 @@ namespace FileExplorerr
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
         // ════════════════════════════════════════════════════════════════════
         //  DIÁLOGO DE TEXTO
         // ════════════════════════════════════════════════════════════════════
