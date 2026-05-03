@@ -201,79 +201,135 @@ namespace FileExplorerr
         {
             try
             {
-                // Leer solo los primeros 50 MB para no cargar todo el archivo en RAM
                 long fileSize = new FileInfo(filePath).Length;
                 int readBytes = (int)Math.Min(fileSize, 50 * 1024 * 1024);
                 byte[] data = new byte[readBytes];
                 using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     fs.Read(data, 0, readBytes);
 
-                // ── ESTRATEGIA 1: átomo ©xyz de QuickTime (iPhone MOV/MP4) ────
-                // IMPORTANTE: © en QuickTime es 0xA9 (latin-1 1 byte),
-                // NO 0xC2 0xA9 (UTF-8 2 bytes). Ese era el bug.
-                byte[] markerXyz = { 0xA9, 0x78, 0x79, 0x7A }; // ©xyz latin-1
+                GpsData? gps = null;
 
+                // ── ESTRATEGIA 1: átomo ©xyz de QuickTime (iPhone MOV/MP4) ────
+                // © en QuickTime es 0xA9 (latin-1), NO 0xC2 0xA9 (UTF-8)
+                byte[] markerXyz = { 0xA9, 0x78, 0x79, 0x7A }; // ©xyz
                 int idx = IndexOf(data, markerXyz);
                 if (idx >= 0)
                 {
-                    // Estructura del átomo ©xyz dentro de udta:
-                    //   [4 bytes: tamaño big-endian] [4 bytes: "©xyz"]
-                    //   [2 bytes: longitud string]   [2 bytes: código idioma]
-                    //   [N bytes: string GPS ISO 6709]
-                    int afterType = idx + 4; // justo después de "©xyz"
+                    int afterType = idx + 4;
                     if (afterType + 4 < data.Length)
                     {
                         int strLen = (data[afterType] << 8) | data[afterType + 1];
                         int strStart = afterType + 4; // saltar longitud(2) + idioma(2)
 
                         if (strLen > 0 && strLen < 256 && strStart + strLen <= data.Length)
-                        {
-                            string raw = Encoding.UTF8.GetString(data, strStart, strLen).Trim('\0', ' ');
-                            var result = ParseIso6709(raw);
-                            if (result != null) return result;
-                        }
+                            gps = ParseIso6709(Encoding.UTF8.GetString(data, strStart, strLen).Trim('\0', ' '));
 
-                        // Fallback: leer directamente sin respetar strLen (algunos encoders lo omiten)
-                        int fallbackLen = Math.Min(64, data.Length - strStart);
-                        if (fallbackLen > 0)
+                        if (gps == null)
                         {
-                            string raw = Encoding.UTF8.GetString(data, strStart, fallbackLen).Trim('\0', ' ');
-                            var result = ParseIso6709(raw);
-                            if (result != null) return result;
+                            int fallbackLen = Math.Min(64, data.Length - strStart);
+                            if (fallbackLen > 0)
+                                gps = ParseIso6709(Encoding.UTF8.GetString(data, strStart, fallbackLen).Trim('\0', ' '));
                         }
                     }
                 }
 
-                // ── ESTRATEGIA 2: átomo 'loci' (formato alternativo) ──────────
-                byte[] markerLoci = Encoding.ASCII.GetBytes("loci");
-                idx = IndexOf(data, markerLoci);
-                if (idx >= 0)
+                // ── ESTRATEGIA 2: átomo 'loci' ────────────────────────────────
+                if (gps == null)
                 {
-                    int start = idx + 4 + 4; // saltar nombre(4) + flags(4)
-                    int len = Math.Min(128, data.Length - start);
-                    if (len > 0)
+                    int idxLoci = IndexOf(data, Encoding.ASCII.GetBytes("loci"));
+                    if (idxLoci >= 0)
                     {
-                        string raw = Encoding.UTF8.GetString(data, start, len).Trim('\0');
-                        var result = ParseIso6709(raw);
-                        if (result != null) return result;
+                        int start = idxLoci + 8;
+                        int len = Math.Min(128, data.Length - start);
+                        if (len > 0)
+                            gps = ParseIso6709(Encoding.UTF8.GetString(data, start, len).Trim('\0'));
                     }
                 }
 
-                // ── ESTRATEGIA 3: buscar patrón ISO 6709 directamente en texto ─
-                // Algunos iPhones y GoPros escriben la coord como texto plano
-                // Ej: "+27.0579-101.5436+01234.567/"
-                string fullText = Encoding.Latin1.GetString(data);
-                var directMatch = System.Text.RegularExpressions.Regex.Match(
-                    fullText,
-                    @"([+-]\d{1,3}\.\d{4,}[+-]\d{1,3}\.\d{4,}[+-]?\d*\.?\d*/?)",
-                    System.Text.RegularExpressions.RegexOptions.None);
-                if (directMatch.Success)
-                    return ParseIso6709(directMatch.Groups[1].Value);
+                // ── ESTRATEGIA 3: patrón ISO 6709 directo en bytes ───────────
+                if (gps == null)
+                {
+                    string fullText = Encoding.Latin1.GetString(data);
+                    var m = System.Text.RegularExpressions.Regex.Match(fullText,
+                        @"([+-]\d{1,3}\.\d{4,}[+-]\d{1,3}\.\d{4,}[+-]?\d*\.?\d*/?)");
+                    if (m.Success) gps = ParseIso6709(m.Groups[1].Value);
+                }
 
-                return null;
+                if (gps == null) return null;
+
+                // ── FECHA: átomo ©day (0xA9 64 61 79) ────────────────────────
+                // iPhone almacena la fecha de grabación aquí: "2024-03-15T10:22:01+0600"
+                string? date = null;
+                byte[] markerDay = { 0xA9, 0x64, 0x61, 0x79 }; // ©day
+                int idxDay = IndexOf(data, markerDay);
+                if (idxDay >= 0)
+                {
+                    int afterDay = idxDay + 4;
+                    int dayStrLen = afterDay + 2 < data.Length ? (data[afterDay] << 8) | data[afterDay + 1] : 0;
+                    int dayStart = afterDay + 4; // saltar longitud(2) + idioma(2)
+
+                    int readLen = (dayStrLen > 0 && dayStrLen < 64) ? dayStrLen
+                                                                     : Math.Min(30, data.Length - dayStart);
+                    if (readLen > 0 && dayStart + readLen <= data.Length)
+                    {
+                        string raw = Encoding.UTF8.GetString(data, dayStart, readLen).Trim('\0', ' ');
+                        date = NormalizeVideoDate(raw);
+                    }
+                }
+
+                // ── FECHA fallback: mvhd creation time (segundos desde 1904) ──
+                if (date == null)
+                {
+                    byte[] mvhd = Encoding.ASCII.GetBytes("mvhd");
+                    int idxMvhd = IndexOf(data, mvhd);
+                    if (idxMvhd >= 0)
+                    {
+                        int pos = idxMvhd + 4; // justo después de "mvhd"
+                        // version byte: 0 = 32-bit timestamps, 1 = 64-bit
+                        if (pos < data.Length)
+                        {
+                            byte version = data[pos]; pos += 4; // saltar version(1)+flags(3)
+                            if (pos + (version == 1 ? 8 : 4) <= data.Length)
+                            {
+                                long secs = version == 1
+                                    ? (long)ReadUInt64BE(data, pos)
+                                    : ReadUInt32BE(data, pos);
+                                // QuickTime epoch: 1 enero 1904
+                                var epoch = new DateTime(1904, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                                var dt = epoch.AddSeconds(secs);
+                                if (dt.Year >= 2000 && dt.Year <= 2100)
+                                    date = dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+                            }
+                        }
+                    }
+                }
+
+                // Devolver GPS con fecha incorporada
+                return new GpsData(gps.Latitude, gps.Longitude, gps.Altitude,
+                    gps.LatRef, gps.LonRef, date, gps.CameraModel, gps.Software);
             }
             catch { return null; }
         }
+
+        // Normaliza fechas de iPhone: "2024-03-15T10:22:01+0600" → "2024-03-15 10:22"
+        private static string? NormalizeVideoDate(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            // Intentar parsear ISO 8601
+            if (DateTime.TryParse(raw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out DateTime dt))
+                return dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            // Fallback: devolver los primeros 10 chars si tiene pinta de fecha
+            if (raw.Length >= 10 && raw[4] == '-') return raw.Substring(0, 10);
+            return raw.Length > 0 ? raw : null;
+        }
+
+        private static uint ReadUInt32BE(byte[] d, int o) =>
+            (uint)(d[o] << 24 | d[o + 1] << 16 | d[o + 2] << 8 | d[o + 3]);
+
+        private static ulong ReadUInt64BE(byte[] d, int o) =>
+            ((ulong)ReadUInt32BE(d, o) << 32) | ReadUInt32BE(d, o + 4);
 
         private static GpsData? ParseIso6709(string s)
         {
