@@ -1,194 +1,893 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Windows.Forms;
 
 namespace FileExplorerr
 {
+    // ════════════════════════════════════════════════════════════════════════
+    //  VISOR / EDITOR DE IMÁGENES
+    //  Zoom · Rotar · Voltear · Recortar · Dibujar · Texto · Filtros · Color
+    // ════════════════════════════════════════════════════════════════════════
     public class ImageViewerForm : Form
     {
-        private PictureBox pictureBox;
-        private Panel topPanel;
-        private Label imageInfoLabel;
-        private string imagePath;
-        private Image currentImage;
-        private float zoomFactor = 1.0f;
+        // ── Herramientas ─────────────────────────────────────────────────────
+        private enum Tool { None, Crop, Draw, Erase, Text, ColorPicker }
 
+        // ── Controles principales ────────────────────────────────────────────
+        private Panel topToolbar = null!;
+        private Panel leftToolbar = null!;
+        private Panel canvasPanel = null!;
+        private PictureBox canvas = null!;
+        private Panel bottomBar = null!;
+        private Label infoLabel = null!;
+
+        // Grupos de botones en toolbar izquierdo
+        private Button btnCrop = null!, btnDraw = null!, btnErase = null!,
+                       btnText = null!, btnPicker = null!;
+
+        // Controles de color y tamaño de pincel
+        private Panel colorSwatch = null!;
+        private TrackBar brushSizeBar = null!;
+        private Label brushSizeLabel = null!;
+
+        // ── Estado interno ───────────────────────────────────────────────────
+        private readonly string imagePath;
+        private Bitmap original = null!;   // copia intocable del original
+        private Bitmap working = null!;    // bitmap sobre el que se edita
+        private Bitmap display = null!;    // working escalado para mostrar
+
+        private float zoom = 1f;
+        private Point panOffset = Point.Empty;
+        private Point panStart;
+        private bool isPanning;
+
+        private Tool currentTool = Tool.None;
+        private Color drawColor = Color.Red;
+        private int brushSize = 4;
+
+        // Crop
+        private bool isCropping;
+        private Point cropStart, cropEnd;
+        private Rectangle cropRect;
+
+        // Draw / Erase
+        private bool isDrawing;
+        private Point lastDrawPt;
+
+        // Texto
+        private string pendingText = "";
+        private Font textFont = new Font("Segoe UI", 14F, FontStyle.Bold);
+
+        // Historial de deshacer
+        private readonly Stack<Bitmap> undoStack = new();
+        private const int MaxUndo = 20;
+
+        // ════════════════════════════════════════════════════════════════════
         public ImageViewerForm(string path)
         {
             imagePath = path;
-            SetupComponents();
+            BuildUI();
             LoadImage();
         }
 
-        private void SetupComponents()
+        // ════════════════════════════════════════════════════════════════════
+        //  UI
+        // ════════════════════════════════════════════════════════════════════
+        private void BuildUI()
         {
-            this.Text = $"Visor de imágenes — {Path.GetFileName(imagePath)}";
-            this.Size = new Size(1000, 800);
-            this.BackColor = Color.FromArgb(10, 14, 20);
-            this.ForeColor = Color.FromArgb(220, 232, 248);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.MinimumSize = new Size(600, 400);
-            this.KeyPreview = true;
-            this.KeyDown += OnKeyDown;
+            Text = $"Editor — {Path.GetFileName(imagePath)}";
+            Size = new Size(1200, 800);
+            MinimumSize = new Size(800, 550);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Color.FromArgb(10, 14, 20);
+            ForeColor = Color.FromArgb(220, 232, 248);
+            KeyPreview = true;
+            KeyDown += OnKeyDown;
 
-            topPanel = new Panel
+            // ── Top toolbar ─────────────────────────────────────────────────
+            topToolbar = new Panel
             {
-                Height = 52,
+                Height = 50,
                 Dock = DockStyle.Top,
-                BackColor = Color.FromArgb(17, 23, 33),
-                Padding = new Padding(14, 0, 0, 0)
+                BackColor = Color.FromArgb(17, 23, 33)
             };
-            topPanel.Paint += (s, e) =>
-                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)),
-                    0, topPanel.Height - 1, topPanel.Width, topPanel.Height - 1);
+            topToolbar.Paint += PaintBorder(topToolbar, bottom: true);
 
-            imageInfoLabel = new Label
+            int tx = 10;
+
+            // Grupo: Archivo
+            AddTopBtn(ref tx, "💾 Guardar copia", () => SaveCopy());
+            AddTopSep(ref tx);
+
+            // Grupo: Zoom
+            AddTopBtn(ref tx, "🔍+", () => SetZoom(zoom * 1.25f));
+            AddTopBtn(ref tx, "🔍−", () => SetZoom(zoom * 0.8f));
+            AddTopBtn(ref tx, "1:1", () => ResetZoom());
+            AddTopBtn(ref tx, "Ajustar", () => FitToWindow());
+            AddTopSep(ref tx);
+
+            // Grupo: Transformar
+            AddTopBtn(ref tx, "↺ 90°", () => Rotate(-90));
+            AddTopBtn(ref tx, "↻ 90°", () => Rotate(90));
+            AddTopBtn(ref tx, "↔ Voltear H", () => Flip(true, false));
+            AddTopBtn(ref tx, "↕ Voltear V", () => Flip(false, true));
+            AddTopSep(ref tx);
+
+            // Grupo: Filtros
+            AddTopBtn(ref tx, "Escala grises", () => ApplyFilter(FilterType.Grayscale));
+            AddTopBtn(ref tx, "Sepia", () => ApplyFilter(FilterType.Sepia));
+            AddTopBtn(ref tx, "Invertir", () => ApplyFilter(FilterType.Invert));
+            AddTopBtn(ref tx, "Brillo+", () => ApplyFilter(FilterType.BrightnessUp));
+            AddTopBtn(ref tx, "Brillo−", () => ApplyFilter(FilterType.BrightnessDown));
+            AddTopBtn(ref tx, "Contraste+", () => ApplyFilter(FilterType.ContrastUp));
+            AddTopSep(ref tx);
+
+            // Grupo: Edición
+            AddTopBtn(ref tx, "↩ Deshacer", () => Undo(), Color.FromArgb(80, 50, 10), Color.FromArgb(200, 130, 30));
+            AddTopBtn(ref tx, "♻ Restaurar", () => RestoreOriginal(), Color.FromArgb(60, 20, 20), Color.FromArgb(200, 60, 60));
+
+            // ── Left toolbar ────────────────────────────────────────────────
+            leftToolbar = new Panel
+            {
+                Width = 64,
+                Dock = DockStyle.Left,
+                BackColor = Color.FromArgb(14, 20, 30)
+            };
+            leftToolbar.Paint += PaintBorder(leftToolbar, right: true);
+
+            int ty = 10;
+            btnCrop = AddLeftBtn("✂\nRecortar", ref ty, () => SelectTool(Tool.Crop));
+            btnDraw = AddLeftBtn("✏\nDibujar", ref ty, () => SelectTool(Tool.Draw));
+            btnErase = AddLeftBtn("◻\nBorrador", ref ty, () => SelectTool(Tool.Erase));
+            btnText = AddLeftBtn("T\nTexto", ref ty, () => SelectTool(Tool.Text));
+            btnPicker = AddLeftBtn("💧\nColor", ref ty, () => SelectTool(Tool.ColorPicker));
+
+            // Color swatch
+            ty += 10;
+            var swatchLabel = new Label { Text = "Color:", Left = 6, Top = ty, Width = 52, Height = 16, Font = new Font("Segoe UI", 7.5F), ForeColor = Color.FromArgb(110, 140, 180), TextAlign = ContentAlignment.MiddleCenter };
+            leftToolbar.Controls.Add(swatchLabel);
+            ty += 18;
+
+            colorSwatch = new Panel
+            {
+                Left = 8,
+                Top = ty,
+                Width = 48,
+                Height = 28,
+                BackColor = drawColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                Cursor = Cursors.Hand
+            };
+            colorSwatch.Click += (s, e) => PickColor();
+            leftToolbar.Controls.Add(colorSwatch);
+            ty += 36;
+
+            // Brush size
+            var bsLabel = new Label { Text = "Grosor:", Left = 4, Top = ty, Width = 56, Height = 16, Font = new Font("Segoe UI", 7.5F), ForeColor = Color.FromArgb(110, 140, 180), TextAlign = ContentAlignment.MiddleCenter };
+            leftToolbar.Controls.Add(bsLabel);
+            ty += 17;
+
+            brushSizeBar = new TrackBar
+            {
+                Left = 2,
+                Top = ty,
+                Width = 60,
+                Height = 40,
+                Minimum = 1,
+                Maximum = 40,
+                Value = brushSize,
+                Orientation = Orientation.Horizontal,
+                TickFrequency = 5,
+                TickStyle = TickStyle.None,
+                BackColor = Color.FromArgb(14, 20, 30)
+            };
+            brushSizeBar.ValueChanged += (s, e) => { brushSize = brushSizeBar.Value; brushSizeLabel.Text = brushSize.ToString(); };
+            leftToolbar.Controls.Add(brushSizeBar);
+            ty += 40;
+
+            brushSizeLabel = new Label { Text = brushSize.ToString(), Left = 4, Top = ty, Width = 56, Height = 16, Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = Color.FromArgb(180, 210, 255), TextAlign = ContentAlignment.MiddleCenter };
+            leftToolbar.Controls.Add(brushSizeLabel);
+
+            // ── Canvas ──────────────────────────────────────────────────────
+            canvasPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 9F),
-                ForeColor = Color.FromArgb(110, 140, 180),
-                TextAlign = ContentAlignment.MiddleLeft
+                BackColor = Color.FromArgb(8, 12, 18),
+                AutoScroll = false
             };
 
-            Button btnZoomIn = MakeBtn("+", 14F, FontStyle.Bold);
-            Button btnZoomOut = MakeBtn("−", 14F, FontStyle.Bold);
-            Button btnReset = MakeBtn("1:1", 8F, FontStyle.Regular);
-
-            btnZoomIn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnZoomOut.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnReset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-
-            btnZoomIn.Location = new Point(topPanel.Width - 138, 11);
-            btnZoomOut.Location = new Point(topPanel.Width - 92, 11);
-            btnReset.Location = new Point(topPanel.Width - 46, 11);
-
-            btnZoomIn.Click += (s, e) => Zoom(1.2f);
-            btnZoomOut.Click += (s, e) => Zoom(0.8f);
-            btnReset.Click += (s, e) => ResetZoom();
-
-            topPanel.Controls.Add(imageInfoLabel);
-            topPanel.Controls.Add(btnZoomIn);
-            topPanel.Controls.Add(btnZoomOut);
-            topPanel.Controls.Add(btnReset);
-
-            Panel imagePanel = new Panel
+            canvas = new PictureBox
             {
                 Dock = DockStyle.Fill,
-                AutoScroll = true,
-                BackColor = Color.FromArgb(8, 11, 16)
-            };
-
-            pictureBox = new PictureBox
-            {
-                SizeMode = PictureBoxSizeMode.Zoom,
                 BackColor = Color.Transparent,
-                Dock = DockStyle.Fill
+                SizeMode = PictureBoxSizeMode.Normal
             };
 
-            imagePanel.Controls.Add(pictureBox);
-            this.Controls.Add(imagePanel);
-            this.Controls.Add(topPanel);
+            // Eventos del canvas
+            canvas.Paint += Canvas_Paint;
+            canvas.MouseDown += Canvas_MouseDown;
+            canvas.MouseMove += Canvas_MouseMove;
+            canvas.MouseUp += Canvas_MouseUp;
+            canvas.MouseWheel += Canvas_MouseWheel;
+
+            canvasPanel.Controls.Add(canvas);
+
+            // ── Bottom bar ──────────────────────────────────────────────────
+            bottomBar = new Panel
+            {
+                Height = 30,
+                Dock = DockStyle.Bottom,
+                BackColor = Color.FromArgb(17, 23, 33)
+            };
+            bottomBar.Paint += PaintBorder(bottomBar, top: true);
+
+            infoLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(110, 140, 180),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(10, 0, 0, 0)
+            };
+            bottomBar.Controls.Add(infoLabel);
+
+            Controls.Add(canvasPanel);
+            Controls.Add(leftToolbar);
+            Controls.Add(topToolbar);
+            Controls.Add(bottomBar);
         }
 
-        private Button MakeBtn(string text, float size, FontStyle style)
+        // ── Helpers para crear controles ────────────────────────────────────
+        private void AddTopBtn(ref int x, string text, Action click,
+            Color? bg = null, Color? border = null)
         {
             var btn = new Button
             {
                 Text = text,
-                Size = new Size(38, 30),
-                BackColor = Color.FromArgb(24, 32, 46),
-                ForeColor = Color.FromArgb(220, 232, 248),
+                Location = new Point(x, 10),
+                Height = 30,
+                AutoSize = true,
+                MinimumSize = new Size(40, 30),
+                Padding = new Padding(6, 0, 6, 0),
+                BackColor = bg ?? Color.FromArgb(24, 32, 46),
+                ForeColor = Color.FromArgb(200, 220, 248),
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", size, style),
+                Font = new Font("Segoe UI", 8.5F),
                 Cursor = Cursors.Hand
             };
+            btn.FlatAppearance.BorderColor = border ?? Color.FromArgb(38, 50, 70);
+            btn.Click += (s, e) => click();
+            topToolbar.Controls.Add(btn);
+            x += btn.Width + 4;
+        }
+
+        private void AddTopSep(ref int x)
+        {
+            var sep = new Panel { Location = new Point(x, 12), Size = new Size(1, 26), BackColor = Color.FromArgb(38, 50, 70) };
+            topToolbar.Controls.Add(sep);
+            x += 9;
+        }
+
+        private Button AddLeftBtn(string text, ref int y, Action click)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Location = new Point(4, y),
+                Size = new Size(56, 52),
+                BackColor = Color.FromArgb(24, 32, 46),
+                ForeColor = Color.FromArgb(200, 220, 248),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 7.5F),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
             btn.FlatAppearance.BorderColor = Color.FromArgb(38, 50, 70);
+            btn.Click += (s, e) => click();
+            leftToolbar.Controls.Add(btn);
+            y += 58;
             return btn;
         }
 
+        private static PaintEventHandler PaintBorder(Control ctrl,
+            bool bottom = false, bool top = false, bool right = false)
+        {
+            return (s, e) =>
+            {
+                using var pen = new Pen(Color.FromArgb(38, 50, 70));
+                if (bottom) e.Graphics.DrawLine(pen, 0, ctrl.Height - 1, ctrl.Width, ctrl.Height - 1);
+                if (top) e.Graphics.DrawLine(pen, 0, 0, ctrl.Width, 0);
+                if (right) e.Graphics.DrawLine(pen, ctrl.Width - 1, 0, ctrl.Width - 1, ctrl.Height);
+            };
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  CARGA
+        // ════════════════════════════════════════════════════════════════════
         private void LoadImage()
         {
             try
             {
-                currentImage = Image.FromFile(imagePath);
-                pictureBox.Image = currentImage;
+                using var tmp = Image.FromFile(imagePath);
+                original = new Bitmap(tmp);
+                working = new Bitmap(original);
+                FitToWindow();
                 UpdateInfo();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al cargar la imagen: {ex.Message}", "Error",
+                MessageBox.Show($"Error al cargar la imagen:\n{ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
-                this.Close();
+                Close();
             }
         }
 
-        private void Zoom(float factor)
+        // ════════════════════════════════════════════════════════════════════
+        //  CANVAS PAINT
+        // ════════════════════════════════════════════════════════════════════
+        private void Canvas_Paint(object? sender, PaintEventArgs e)
         {
-            zoomFactor = Math.Max(0.1f, Math.Min(10f, zoomFactor * factor));
-            UpdateImageSize();
+            if (working == null) return;
+            var g = e.Graphics;
+            g.InterpolationMode = zoom >= 1
+                ? InterpolationMode.NearestNeighbor
+                : InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            int dw = (int)(working.Width * zoom);
+            int dh = (int)(working.Height * zoom);
+            int ox = panOffset.X + (canvas.Width - dw) / 2;
+            int oy = panOffset.Y + (canvas.Height - dh) / 2;
+
+            // Cuadrícula de transparencia (fondo)
+            DrawCheckerboard(g, ox, oy, dw, dh);
+
+            g.DrawImage(working, ox, oy, dw, dh);
+
+            // Rectángulo de recorte en progreso
+            if (isCropping && cropRect.Width > 0 && cropRect.Height > 0)
+            {
+                int rx = (int)(cropRect.X * zoom) + ox;
+                int ry = (int)(cropRect.Y * zoom) + oy;
+                int rw = (int)(cropRect.Width * zoom);
+                int rh = (int)(cropRect.Height * zoom);
+
+                using var overlay = new SolidBrush(Color.FromArgb(80, 0, 0, 0));
+                // Oscurecer fuera del rectángulo
+                g.FillRectangle(overlay, ox, oy, rw == 0 ? dw : rx - ox, dh);
+                g.FillRectangle(overlay, rx + rw, oy, dw - (rx - ox + rw), dh);
+                g.FillRectangle(overlay, rx, oy, rw, ry - oy);
+                g.FillRectangle(overlay, rx, ry + rh, rw, dh - (ry - oy + rh));
+
+                using var borderPen = new Pen(Color.FromArgb(56, 139, 253), 2) { DashStyle = DashStyle.Dash };
+                g.DrawRectangle(borderPen, rx, ry, rw, rh);
+
+                // Handles esquina
+                using var hBrush = new SolidBrush(Color.FromArgb(56, 139, 253));
+                int hs = 8;
+                g.FillRectangle(hBrush, rx - hs / 2, ry - hs / 2, hs, hs);
+                g.FillRectangle(hBrush, rx + rw - hs / 2, ry - hs / 2, hs, hs);
+                g.FillRectangle(hBrush, rx - hs / 2, ry + rh - hs / 2, hs, hs);
+                g.FillRectangle(hBrush, rx + rw - hs / 2, ry + rh - hs / 2, hs, hs);
+            }
+        }
+
+        private static void DrawCheckerboard(Graphics g, int x, int y, int w, int h)
+        {
+            int sz = 12;
+            for (int row = 0; row * sz < h; row++)
+                for (int col = 0; col * sz < w; col++)
+                {
+                    bool light = (row + col) % 2 == 0;
+                    using var b = new SolidBrush(light ? Color.FromArgb(40, 40, 45) : Color.FromArgb(28, 28, 32));
+                    g.FillRectangle(b, x + col * sz, y + row * sz, sz, sz);
+                }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  MOUSE
+        // ════════════════════════════════════════════════════════════════════
+        private Point CanvasToImage(Point p)
+        {
+            int dw = (int)(working.Width * zoom);
+            int dh = (int)(working.Height * zoom);
+            int ox = panOffset.X + (canvas.Width - dw) / 2;
+            int oy = panOffset.Y + (canvas.Height - dh) / 2;
+            return new Point(
+                (int)((p.X - ox) / zoom),
+                (int)((p.Y - oy) / zoom));
+        }
+
+        private void Canvas_MouseDown(object? sender, MouseEventArgs e)
+        {
+            var imgPt = CanvasToImage(e.Location);
+
+            if (e.Button == MouseButtons.Middle || (e.Button == MouseButtons.Left && currentTool == Tool.None))
+            {
+                isPanning = true;
+                panStart = e.Location;
+                canvas.Cursor = Cursors.SizeAll;
+                return;
+            }
+
+            if (e.Button != MouseButtons.Left) return;
+
+            switch (currentTool)
+            {
+                case Tool.Crop:
+                    isCropping = true;
+                    cropStart = imgPt;
+                    cropEnd = imgPt;
+                    cropRect = Rectangle.Empty;
+                    break;
+
+                case Tool.Draw:
+                case Tool.Erase:
+                    PushUndo();
+                    isDrawing = true;
+                    lastDrawPt = imgPt;
+                    DrawPoint(imgPt);
+                    break;
+
+                case Tool.Text:
+                    PushUndo();
+                    PlaceText(imgPt);
+                    break;
+
+                case Tool.ColorPicker:
+                    PickColorFromImage(imgPt);
+                    break;
+            }
+        }
+
+        private void Canvas_MouseMove(object? sender, MouseEventArgs e)
+        {
+            if (working == null) return;
+
+            var imgPt = CanvasToImage(e.Location);
+
+            if (isPanning)
+            {
+                panOffset.X += e.X - panStart.X;
+                panOffset.Y += e.Y - panStart.Y;
+                panStart = e.Location;
+                canvas.Invalidate();
+                return;
+            }
+
+            if (isCropping)
+            {
+                cropEnd = imgPt;
+                int x = Math.Max(0, Math.Min(cropStart.X, cropEnd.X));
+                int y = Math.Max(0, Math.Min(cropStart.Y, cropEnd.Y));
+                int w = Math.Min(working.Width - x, Math.Abs(cropEnd.X - cropStart.X));
+                int h = Math.Min(working.Height - y, Math.Abs(cropEnd.Y - cropStart.Y));
+                cropRect = new Rectangle(x, y, w, h);
+                canvas.Invalidate();
+                UpdateInfo($"Recorte: {w} × {h} px");
+                return;
+            }
+
+            if (isDrawing && (currentTool == Tool.Draw || currentTool == Tool.Erase))
+            {
+                DrawLine(lastDrawPt, imgPt);
+                lastDrawPt = imgPt;
+                canvas.Invalidate();
+            }
+
+            // Info de cursor
+            if (imgPt.X >= 0 && imgPt.Y >= 0 && imgPt.X < working.Width && imgPt.Y < working.Height)
+            {
+                var px = working.GetPixel(imgPt.X, imgPt.Y);
+                UpdateInfo($"X:{imgPt.X} Y:{imgPt.Y}  |  R:{px.R} G:{px.G} B:{px.B}");
+            }
+        }
+
+        private void Canvas_MouseUp(object? sender, MouseEventArgs e)
+        {
+            if (isPanning) { isPanning = false; canvas.Cursor = Cursors.Default; return; }
+
+            if (isCropping && e.Button == MouseButtons.Left)
+            {
+                isCropping = false;
+                if (cropRect.Width > 4 && cropRect.Height > 4)
+                    ConfirmCrop();
+                else
+                    canvas.Invalidate();
+            }
+
+            if (isDrawing) { isDrawing = false; canvas.Invalidate(); }
+        }
+
+        private void Canvas_MouseWheel(object? sender, MouseEventArgs e)
+        {
+            float factor = e.Delta > 0 ? 1.15f : 0.87f;
+            SetZoom(zoom * factor);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HERRAMIENTAS
+        // ════════════════════════════════════════════════════════════════════
+        private void SelectTool(Tool t)
+        {
+            currentTool = currentTool == t ? Tool.None : t;
+            isCropping = false;
+            canvas.Invalidate();
+
+            // Resaltar botón activo
+            foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
+                btn.BackColor = Color.FromArgb(24, 32, 46);
+
+            Button? active = currentTool switch
+            {
+                Tool.Crop => btnCrop,
+                Tool.Draw => btnDraw,
+                Tool.Erase => btnErase,
+                Tool.Text => btnText,
+                Tool.ColorPicker => btnPicker,
+                _ => null
+            };
+            if (active != null)
+                active.BackColor = Color.FromArgb(31, 70, 140);
+
+            canvas.Cursor = currentTool switch
+            {
+                Tool.Draw or Tool.Erase => Cursors.Cross,
+                Tool.Text => Cursors.IBeam,
+                Tool.ColorPicker => Cursors.Cross,
+                Tool.Crop => Cursors.Cross,
+                _ => Cursors.Default
+            };
+        }
+
+        // ── Dibujar / Borrador ───────────────────────────────────────────────
+        private void DrawPoint(Point p)
+        {
+            if (p.X < 0 || p.Y < 0 || p.X >= working.Width || p.Y >= working.Height) return;
+            using var g = Graphics.FromImage(working);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Color c = currentTool == Tool.Erase ? Color.White : drawColor;
+            using var br = new SolidBrush(c);
+            int half = brushSize / 2;
+            g.FillEllipse(br, p.X - half, p.Y - half, brushSize, brushSize);
+        }
+
+        private void DrawLine(Point from, Point to)
+        {
+            using var g = Graphics.FromImage(working);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Color c = currentTool == Tool.Erase ? Color.White : drawColor;
+            using var pen = new Pen(c, brushSize) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            // Clip al área de la imagen
+            g.Clip = new Region(new Rectangle(0, 0, working.Width, working.Height));
+            g.DrawLine(pen, from, to);
+        }
+
+        // ── Texto ────────────────────────────────────────────────────────────
+        private void PlaceText(Point imgPt)
+        {
+            string? txt = InputDialog("Agregar texto", "Escribe el texto:");
+            if (string.IsNullOrWhiteSpace(txt)) return;
+
+            using var fontDlg = new FontDialog { Font = textFont, Color = drawColor, ShowColor = true };
+            if (fontDlg.ShowDialog(this) == DialogResult.OK)
+            {
+                textFont = fontDlg.Font;
+                drawColor = fontDlg.Color;
+                colorSwatch.BackColor = drawColor;
+            }
+
+            using var g = Graphics.FromImage(working);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using var brush = new SolidBrush(drawColor);
+            // Clip al área de la imagen
+            var pt = new PointF(
+                Math.Max(0, Math.Min(imgPt.X, working.Width - 4)),
+                Math.Max(0, Math.Min(imgPt.Y, working.Height - 4)));
+            g.DrawString(txt, textFont, brush, pt);
+            canvas.Invalidate();
+        }
+
+        // ── Recortar ─────────────────────────────────────────────────────────
+        private void ConfirmCrop()
+        {
+            var result = MessageBox.Show(
+                $"¿Recortar a {cropRect.Width} × {cropRect.Height} px?",
+                "Confirmar recorte", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+            if (result != DialogResult.Yes) { canvas.Invalidate(); return; }
+
+            PushUndo();
+            var cropped = new Bitmap(cropRect.Width, cropRect.Height);
+            using (var g = Graphics.FromImage(cropped))
+                g.DrawImage(working, new Rectangle(0, 0, cropRect.Width, cropRect.Height),
+                    cropRect, GraphicsUnit.Pixel);
+
+            working.Dispose();
+            working = cropped;
+            cropRect = Rectangle.Empty;
+            FitToWindow();
+            canvas.Invalidate();
+            UpdateInfo();
+        }
+
+        // ── Color picker ─────────────────────────────────────────────────────
+        private void PickColorFromImage(Point imgPt)
+        {
+            if (imgPt.X < 0 || imgPt.Y < 0 || imgPt.X >= working.Width || imgPt.Y >= working.Height) return;
+            drawColor = working.GetPixel(imgPt.X, imgPt.Y);
+            colorSwatch.BackColor = drawColor;
+            SelectTool(Tool.None);
+        }
+
+        private void PickColor()
+        {
+            using var dlg = new ColorDialog { Color = drawColor, FullOpen = true };
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                drawColor = dlg.Color;
+                colorSwatch.BackColor = drawColor;
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  TRANSFORMACIONES
+        // ════════════════════════════════════════════════════════════════════
+        private void Rotate(int degrees)
+        {
+            PushUndo();
+            var rotType = degrees == 90
+                ? RotateFlipType.Rotate90FlipNone
+                : RotateFlipType.Rotate270FlipNone;
+            working.RotateFlip(rotType);
+            FitToWindow();
+        }
+
+        private void Flip(bool horizontal, bool vertical)
+        {
+            PushUndo();
+            var flipType = (horizontal, vertical) switch
+            {
+                (true, false) => RotateFlipType.RotateNoneFlipX,
+                (false, true) => RotateFlipType.RotateNoneFlipY,
+                (true, true) => RotateFlipType.RotateNoneFlipXY,
+                _ => RotateFlipType.RotateNoneFlipNone
+            };
+            working.RotateFlip(flipType);
+            canvas.Invalidate();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  FILTROS DE COLOR
+        // ════════════════════════════════════════════════════════════════════
+        private enum FilterType { Grayscale, Sepia, Invert, BrightnessUp, BrightnessDown, ContrastUp }
+
+        private void ApplyFilter(FilterType filter)
+        {
+            PushUndo();
+            var bmp = new Bitmap(working.Width, working.Height);
+
+            for (int y = 0; y < working.Height; y++)
+            {
+                for (int x = 0; x < working.Width; x++)
+                {
+                    Color c = working.GetPixel(x, y);
+                    Color nc = filter switch
+                    {
+                        FilterType.Grayscale => GrayPixel(c),
+                        FilterType.Sepia => SepiaPixel(c),
+                        FilterType.Invert => Color.FromArgb(c.A, 255 - c.R, 255 - c.G, 255 - c.B),
+                        FilterType.BrightnessUp => Clamp(c, 30, 30, 30),
+                        FilterType.BrightnessDown => Clamp(c, -30, -30, -30),
+                        FilterType.ContrastUp => ContrastPixel(c, 1.4f),
+                        _ => c
+                    };
+                    bmp.SetPixel(x, y, nc);
+                }
+            }
+
+            working.Dispose();
+            working = bmp;
+            canvas.Invalidate();
+        }
+
+        private static Color GrayPixel(Color c)
+        {
+            int g = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114);
+            return Color.FromArgb(c.A, g, g, g);
+        }
+
+        private static Color SepiaPixel(Color c)
+        {
+            int r = Clamp255((int)(c.R * 0.393 + c.G * 0.769 + c.B * 0.189));
+            int g = Clamp255((int)(c.R * 0.349 + c.G * 0.686 + c.B * 0.168));
+            int b = Clamp255((int)(c.R * 0.272 + c.G * 0.534 + c.B * 0.131));
+            return Color.FromArgb(c.A, r, g, b);
+        }
+
+        private static Color Clamp(Color c, int dr, int dg, int db) =>
+            Color.FromArgb(c.A, Clamp255(c.R + dr), Clamp255(c.G + dg), Clamp255(c.B + db));
+
+        private static Color ContrastPixel(Color c, float factor)
+        {
+            int r = Clamp255((int)((c.R - 128) * factor + 128));
+            int g = Clamp255((int)((c.G - 128) * factor + 128));
+            int b = Clamp255((int)((c.B - 128) * factor + 128));
+            return Color.FromArgb(c.A, r, g, b);
+        }
+
+        private static int Clamp255(int v) => Math.Max(0, Math.Min(255, v));
+
+        // ════════════════════════════════════════════════════════════════════
+        //  ZOOM & PAN
+        // ════════════════════════════════════════════════════════════════════
+        private void SetZoom(float z)
+        {
+            zoom = Math.Max(0.05f, Math.Min(20f, z));
+            canvas.Invalidate();
             UpdateInfo();
         }
 
         private void ResetZoom()
         {
-            zoomFactor = 1.0f;
-            pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-            pictureBox.Dock = DockStyle.Fill;
+            zoom = 1f;
+            panOffset = Point.Empty;
+            canvas.Invalidate();
             UpdateInfo();
         }
 
-        private void UpdateImageSize()
+        private void FitToWindow()
         {
-            if (currentImage == null) return;
-            pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-            if (zoomFactor != 1.0f)
+            if (working == null) return;
+            float zx = (float)(canvas.Width > 0 ? canvas.Width : 800) / working.Width;
+            float zy = (float)(canvas.Height > 0 ? canvas.Height : 600) / working.Height;
+            zoom = Math.Min(zx, zy) * 0.95f;
+            panOffset = Point.Empty;
+            canvas.Invalidate();
+            UpdateInfo();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HISTORIAL
+        // ════════════════════════════════════════════════════════════════════
+        private void PushUndo()
+        {
+            if (undoStack.Count >= MaxUndo) { var old = undoStack.ToArray()[^1]; old.Dispose(); }
+            undoStack.Push(new Bitmap(working));
+        }
+
+        private void Undo()
+        {
+            if (undoStack.Count == 0) { UpdateInfo("Sin acciones para deshacer"); return; }
+            working.Dispose();
+            working = undoStack.Pop();
+            canvas.Invalidate();
+            UpdateInfo();
+        }
+
+        private void RestoreOriginal()
+        {
+            if (MessageBox.Show("¿Restaurar la imagen original? Se perderán todos los cambios.",
+                    "Restaurar", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            undoStack.Clear();
+            working.Dispose();
+            working = new Bitmap(original);
+            FitToWindow();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  GUARDAR
+        // ════════════════════════════════════════════════════════════════════
+        private void SaveCopy()
+        {
+            string dir = Path.GetDirectoryName(imagePath)!;
+            string name = Path.GetFileNameWithoutExtension(imagePath);
+
+            using var dlg = new SaveFileDialog
             {
-                pictureBox.Dock = DockStyle.None;
-                pictureBox.Size = new Size(
-                    (int)(currentImage.Width * zoomFactor),
-                    (int)(currentImage.Height * zoomFactor));
+                Title = "Guardar copia editada",
+                InitialDirectory = dir,
+                FileName = $"{name}_editada",
+                Filter = "PNG (*.png)|*.png|JPEG (*.jpg)|*.jpg|BMP (*.bmp)|*.bmp|Todos|*.*"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                string ext = Path.GetExtension(dlg.FileName).ToLower();
+                ImageFormat fmt = ext switch
+                {
+                    ".jpg" or ".jpeg" => ImageFormat.Jpeg,
+                    ".bmp" => ImageFormat.Bmp,
+                    _ => ImageFormat.Png
+                };
+                working.Save(dlg.FileName, fmt);
+                MessageBox.Show($"Imagen guardada:\n{dlg.FileName}", "Guardado",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
-            else
+            catch (Exception ex)
             {
-                pictureBox.Dock = DockStyle.Fill;
+                MessageBox.Show($"Error al guardar:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void UpdateInfo()
-        {
-            if (currentImage == null) return;
-            var fi = new FileInfo(imagePath);
-            imageInfoLabel.Text =
-                $"  {fi.Name}   ·   {currentImage.Width} × {currentImage.Height} px   ·   " +
-                $"{FormatSize(fi.Length)}   ·   Zoom {zoomFactor:P0}";
-        }
-
-        private void OnKeyDown(object sender, KeyEventArgs e)
+        // ════════════════════════════════════════════════════════════════════
+        //  TECLADO
+        // ════════════════════════════════════════════════════════════════════
+        private void OnKeyDown(object? sender, KeyEventArgs e)
         {
             switch (e.KeyCode)
             {
-                case Keys.Add:
-                case Keys.Oemplus: Zoom(1.2f); break;
-                case Keys.Subtract:
-                case Keys.OemMinus: Zoom(0.8f); break;
-                case Keys.D0:
-                case Keys.NumPad0: if (e.Control) ResetZoom(); break;
-                case Keys.Escape: this.Close(); break;
+                case Keys.Add or Keys.Oemplus:
+                    SetZoom(zoom * 1.15f); break;
+                case Keys.Subtract or Keys.OemMinus:
+                    SetZoom(zoom * 0.87f); break;
+                case Keys.D0 or Keys.NumPad0 when e.Control:
+                    FitToWindow(); break;
+                case Keys.Z when e.Control:
+                    Undo(); break;
+                case Keys.S when e.Control:
+                    SaveCopy(); break;
+                case Keys.Escape:
+                    if (currentTool != Tool.None) SelectTool(Tool.None);
+                    else Close();
+                    break;
             }
         }
 
-        private string FormatSize(long bytes)
+        // ════════════════════════════════════════════════════════════════════
+        //  HELPERS
+        // ════════════════════════════════════════════════════════════════════
+        private void UpdateInfo(string? extra = null)
         {
-            string[] u = { "B", "KB", "MB", "GB" };
-            double v = bytes; int i = 0;
-            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
-            return $"{v:0.##} {u[i]}";
+            if (working == null) return;
+            var fi = new FileInfo(imagePath);
+            string base_ = $"  {fi.Name}   ·   {working.Width} × {working.Height} px   ·   Zoom {zoom:P0}   ·   " +
+                           $"Ctrl+Z deshacer  ·  Ctrl+S guardar  ·  Esc limpiar herramienta";
+            infoLabel.Text = extra != null ? $"  {extra}" : base_;
+        }
+
+        private string? InputDialog(string title, string prompt)
+        {
+            using var dlg = new Form
+            {
+                Text = title,
+                Width = 400,
+                Height = 150,
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                BackColor = Color.FromArgb(17, 23, 33),
+                ForeColor = Color.FromArgb(220, 232, 248)
+            };
+            var lbl = new Label { Text = prompt, Left = 12, Top = 14, Width = 370, ForeColor = Color.FromArgb(110, 140, 180), Font = new Font("Segoe UI", 9.5F) };
+            var txt = new TextBox { Left = 12, Top = 38, Width = 372, BackColor = Color.FromArgb(24, 32, 46), ForeColor = Color.FromArgb(220, 232, 248), BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10F) };
+            var ok = new Button { Text = "OK", Left = 210, Top = 76, Width = 82, Height = 30, DialogResult = DialogResult.OK, BackColor = Color.FromArgb(31, 90, 180), ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
+            ok.FlatAppearance.BorderColor = Color.FromArgb(56, 139, 253);
+            var cancel = new Button { Text = "Cancelar", Left = 300, Top = 76, Width = 84, Height = 30, DialogResult = DialogResult.Cancel, BackColor = Color.FromArgb(24, 32, 46), ForeColor = Color.FromArgb(220, 232, 248), FlatStyle = FlatStyle.Flat };
+            cancel.FlatAppearance.BorderColor = Color.FromArgb(38, 50, 70);
+            dlg.Controls.AddRange(new Control[] { lbl, txt, ok, cancel });
+            dlg.AcceptButton = ok; dlg.CancelButton = cancel;
+            return dlg.ShowDialog(this) == DialogResult.OK ? txt.Text : null;
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) currentImage?.Dispose();
+            if (disposing)
+            {
+                original?.Dispose();
+                working?.Dispose();
+                display?.Dispose();
+                foreach (var b in undoStack) b?.Dispose();
+                undoStack.Clear();
+                textFont?.Dispose();
+            }
             base.Dispose(disposing);
         }
     }
