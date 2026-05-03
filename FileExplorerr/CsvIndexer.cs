@@ -13,14 +13,14 @@ namespace FileExplorerr
     // ════════════════════════════════════════════════════════════════════════
     internal static class CsvIndexer
     {
-        // ── Extensiones por categoría 
+        // ── Extensiones por categoría ────────────────────────────────────────
         private static readonly string[] ExtImage = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".svg" };
         private static readonly string[] ExtAudio = { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus" };
         private static readonly string[] ExtVideo = { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".ts" };
-        private static readonly string[] ExtText = { ".txt", ".csv", ".json", ".xml", ".log", ".pdf", ".ini", ".config",
+        private static readonly string[] ExtText = { ".txt", ".csv", ".json", ".xml", ".log", ".ini", ".config",
                                                         ".md", ".cs", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml" };
 
-        // ── Punto de entrada asíncrono 
+        // ── Punto de entrada asíncrono ───────────────────────────────────────
         /// <summary>
         /// Genera el contenido CSV completo recorriendo <paramref name="rootPath"/>
         /// de forma recursiva. Reporta la carpeta en proceso mediante
@@ -34,10 +34,11 @@ namespace FileExplorerr
 
                 // Cabecera
                 sb.AppendLine(
-                    "\"Ruta Completa\"," +
+                    "\"Ruta Carpeta\"," +
                     "\"Nombre Carpeta\"," +
-                    "\"Carpetas\"," +
-                    "\"Archivos Totales\"," +
+                    "\"Nombre Archivo\"," +
+                    "\"Extensión\"," +
+                    "\"Tamaño\"," +
                     "\"Último Acceso\"");
 
                 ProcessDirectory(rootPath, sb, progress);
@@ -45,7 +46,7 @@ namespace FileExplorerr
             });
         }
 
-        //Procesamiento recursivo 
+        // ── Procesamiento recursivo 
         private static void ProcessDirectory(string path, StringBuilder sb, IProgress<string>? progress)
         {
             try
@@ -61,14 +62,27 @@ namespace FileExplorerr
                                 .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
                                 .ToArray();
 
-                var stats = ClassifyFiles(files);
+                // Una fila por archivo
+                foreach (var f in files.OrderBy(x => x.Name))
+                {
+                    sb.AppendLine(
+                        $"\"{Esc(di.FullName)}\"," +
+                        $"\"{Esc(di.Name)}\"," +
+                        $"\"{Esc(f.Name)}\"," +
+                        $"\"{f.Extension.TrimStart('.').ToUpper()}\"," +
+                        $"\"{FormatSize(f.Length)}\"," +
+                        $"\"{f.LastWriteTime:dd/MM/yyyy HH:mm}\"");
+                }
 
-                sb.AppendLine(
-                    $"\"{Esc(di.FullName)}\"," +
-                    $"\"{Esc(di.Name)}\"," +
-                    $"{subdirs.Length}," +
-                    $"{files.Length}," +
-                    $"\"{di.LastWriteTime:dd/MM/yyyy HH:mm}\"");
+                // Si la carpeta está vacía igual se registra
+                if (files.Length == 0)
+                {
+                    sb.AppendLine(
+                        $"\"{Esc(di.FullName)}\"," +
+                        $"\"{Esc(di.Name)}\"," +
+                        "\"(vacía)\"," +
+                        "\"\",\"\",\"\"");
+                }
 
                 foreach (var sub in subdirs.OrderBy(d => d.Name))
                 {
@@ -79,7 +93,7 @@ namespace FileExplorerr
             catch { /* Sin acceso al directorio raíz — ignorar */ }
         }
 
-        //Clasificación de archivos 
+        // ── Clasificación de archivos 
         internal static FileStats ClassifyFiles(FileInfo[] files)
         {
             int img = 0, aud = 0, vid = 0, txt = 0;
@@ -101,7 +115,7 @@ namespace FileExplorerr
             };
         }
 
-        // Versión que acepta sólo extensiones // pendiente 
+        // Versión que acepta sólo extensiones (más rápida para el panel)
         internal static FileStats ClassifyByExtensions(string[] extensions)
         {
             int img = 0, aud = 0, vid = 0, txt = 0;
@@ -123,11 +137,20 @@ namespace FileExplorerr
             };
         }
 
-        //Helper: escapar comillas en CSV 
+        // ── Helper: formatear tamaño ─────────────────────────────────────
+        private static string FormatSize(long bytes)
+        {
+            string[] u = { "B", "KB", "MB", "GB" };
+            double v = bytes; int i = 0;
+            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+            return $"{v:0.##} {u[i]}";
+        }
+
+        // ── Helper: escapar comillas en CSV ─────────────────────────────────
         private static string Esc(string s) => s.Replace("\"", "\"\"");
     }
 
-    //            DTO de estadísticas 
+    // ── DTO de estadísticas ──────────────────────────────────────────────────
     internal struct FileStats
     {
         public int Images, Audio, Video, Text, Other;
