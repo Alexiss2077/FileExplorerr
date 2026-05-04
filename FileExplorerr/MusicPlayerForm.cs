@@ -1,7 +1,5 @@
-﻿using NAudio.Wave;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -10,6 +8,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using NAudio.Wave;
 using TagFile = TagLib.File;
 
 namespace FileExplorerr
@@ -39,7 +38,8 @@ namespace FileExplorerr
         private TrackBar volBar = null!;
         private Button btnPlay = null!, btnStop = null!, btnPrev = null!,
                        btnNext = null!, btnShuffle = null!, btnRepeat = null!,
-                       btnLyrics = null!, btnAddFiles = null!;
+                       btnLyrics = null!, btnAddFiles = null!,
+                       btnEditTags = null!, btnRemove = null!;
 
         // ── Audio ────────────────────────────────────────────────────────────
         private WaveOutEvent? outputDevice;
@@ -135,6 +135,35 @@ namespace FileExplorerr
                 SizeMode = PictureBoxSizeMode.Zoom
             };
 
+            // ── Botones Editar Tags / Eliminar ──────────────────────────────
+            var actionPanel = new Panel
+            {
+                Height = 38,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(17, 23, 33),
+                Padding = new Padding(4, 4, 4, 4)
+            };
+            actionPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(38, 50, 70)),
+                    0, actionPanel.Height - 1, actionPanel.Width, actionPanel.Height - 1);
+
+            btnEditTags = MakeBtn("✏️ Editar Tags", 0,
+                Color.FromArgb(22, 72, 130), Color.FromArgb(38, 90, 155));
+            btnEditTags.Dock = DockStyle.Left;
+            btnEditTags.Width = 134;
+            btnEditTags.Height = 30;
+            btnEditTags.Click += async (s, e) => await EditTags();
+
+            btnRemove = MakeBtn("❌ Quitar", 0,
+                Color.FromArgb(110, 25, 25), Color.FromArgb(140, 35, 35));
+            btnRemove.Dock = DockStyle.Right;
+            btnRemove.Width = 110;
+            btnRemove.Height = 30;
+            btnRemove.Click += (s, e) => RemoveSelected();
+
+            actionPanel.Controls.Add(btnEditTags);
+            actionPanel.Controls.Add(btnRemove);
+
             lblLyricsHeader = new Label
             {
                 Height = 30,
@@ -167,6 +196,7 @@ namespace FileExplorerr
             rightPanel.Controls.Add(lyricsBox);
             rightPanel.Controls.Add(lblLyricsHeader);
             rightPanel.Controls.Add(btnLyrics);
+            rightPanel.Controls.Add(actionPanel);
             rightPanel.Controls.Add(coverBox);
 
             // ── Grid ────────────────────────────────────────────────────────
@@ -759,6 +789,99 @@ namespace FileExplorerr
             {
                 btnLyrics.Enabled = true;
             }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  EDITAR TAGS
+        // ════════════════════════════════════════════════════════════════════
+        private async Task EditTags()
+        {
+            if (grid.Rows.Count == 0 || grid.SelectedRows.Count == 0) return;
+
+            int idx = grid.SelectedRows[0].Index;
+            string path = grid.Rows[idx].Cells["Path"].Value?.ToString() ?? "";
+            if (!File.Exists(path)) return;
+
+            // Si se está reproduciendo esta canción, detener para liberar el archivo
+            bool wasPlaying = audioFile != null && idx == currentIndex
+                && outputDevice?.PlaybackState == PlaybackState.Playing;
+            if (audioFile != null && idx == currentIndex)
+                StopPlayback();
+
+            try
+            {
+                var tag = TagFile.Create(path);
+
+                using var dlg = new TagEditDialog(
+                    tag.Tag.Title ?? "",
+                    tag.Tag.FirstPerformer ?? "",
+                    tag.Tag.Album ?? "",
+                    tag.Tag.Year,
+                    tag.Tag.Track,
+                    tag.Tag.Genres?.Length > 0 ? tag.Tag.Genres[0] : "");
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    tag.Tag.Title = dlg.Titulo;
+                    tag.Tag.Performers = new[] { dlg.Artista };
+                    tag.Tag.Album = dlg.Album;
+                    tag.Tag.Year = dlg.Anio;
+                    tag.Tag.Track = dlg.NumPista;
+                    if (!string.IsNullOrWhiteSpace(dlg.Genero))
+                        tag.Tag.Genres = new[] { dlg.Genero };
+                    tag.Save();
+
+                    // Actualizar grid
+                    grid.Rows[idx].Cells["Title"].Value = dlg.Titulo;
+                    grid.Rows[idx].Cells["Artist"].Value = dlg.Artista;
+                    grid.Rows[idx].Cells["Album"].Value = dlg.Album;
+
+                    // Actualizar título si es la canción actual
+                    if (idx == currentIndex)
+                        lblNowPlaying.Text = $"♪  {dlg.Artista} — {dlg.Titulo}";
+                }
+
+                // Reanudar si estaba sonando
+                if (wasPlaying)
+                    await PlayTrack(currentIndex);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al editar tags:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  QUITAR DE LA LISTA
+        // ════════════════════════════════════════════════════════════════════
+        private void RemoveSelected()
+        {
+            if (grid.Rows.Count == 0 || grid.SelectedRows.Count == 0) return;
+
+            int idx = grid.SelectedRows[0].Index;
+            string title = grid.Rows[idx].Cells["Title"].Value?.ToString() ?? "";
+            string artist = grid.Rows[idx].Cells["Artist"].Value?.ToString() ?? "";
+
+            if (MessageBox.Show(
+                    $"¿Quitar de la lista?\n\n{artist} — {title}",
+                    "Confirmar", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            if (currentIndex == idx)
+            {
+                StopPlayback();
+                currentIndex = -1;
+            }
+
+            grid.Rows.RemoveAt(idx);
+
+            if (currentIndex > idx)
+                currentIndex--;
+
+            if (grid.Rows.Count > 0)
+                grid.Rows[Math.Min(idx, grid.Rows.Count - 1)].Selected = true;
         }
 
         // ════════════════════════════════════════════════════════════════════
