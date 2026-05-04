@@ -55,6 +55,11 @@ namespace FileExplorerr
         private int[]? shuffleOrder;
         private int shufflePos = 0;
 
+        // ── Drag & Drop reordenar ────────────────────────────────────────────
+        private int dragFromIndex = -1;
+        private int dragToIndex = -1;
+        private Rectangle dragBox = Rectangle.Empty;
+
         // ── Extensiones soportadas ───────────────────────────────────────────
         internal static readonly string[] SupportedExtensions =
             { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".aiff" };
@@ -272,6 +277,15 @@ namespace FileExplorerr
             grid.Columns["Artist"]!.FillWeight = 80;
             grid.Columns["Album"]!.FillWeight = 80;
             grid.CellDoubleClick += Grid_CellDoubleClick;
+
+            // Drag & drop: reordenar filas + arrastrar archivos externos
+            grid.AllowDrop = true;
+            grid.MouseDown += Grid_MouseDown;
+            grid.MouseMove += Grid_MouseMove;
+            grid.DragOver += Grid_DragOver;
+            grid.DragDrop += Grid_DragDrop;
+            grid.DragLeave += (s, e) => { dragToIndex = -1; grid.Invalidate(); };
+            grid.Paint += Grid_PaintDragLine;
 
             // ── Progress panel ──────────────────────────────────────────────
             progressPanel = new Panel
@@ -1033,6 +1047,126 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  EVENTOS
         // ════════════════════════════════════════════════════════════════════
+
+        // ── Drag & Drop: reordenar filas ─────────────────────────────────────
+        private void Grid_MouseDown(object? sender, MouseEventArgs e)
+        {
+            dragFromIndex = grid.HitTest(e.X, e.Y).RowIndex;
+            if (dragFromIndex >= 0)
+            {
+                Size sz = SystemInformation.DragSize;
+                dragBox = new Rectangle(
+                    new Point(e.X - sz.Width / 2, e.Y - sz.Height / 2), sz);
+            }
+            else
+                dragBox = Rectangle.Empty;
+        }
+
+        private void Grid_MouseMove(object? sender, MouseEventArgs e)
+        {
+            if ((e.Button & MouseButtons.Left) != MouseButtons.Left) return;
+            if (dragBox == Rectangle.Empty || dragBox.Contains(e.X, e.Y)) return;
+            if (dragFromIndex < 0 || dragFromIndex >= grid.Rows.Count) return;
+
+            grid.DoDragDrop(grid.Rows[dragFromIndex], DragDropEffects.Move);
+        }
+
+        private void Grid_DragOver(object? sender, DragEventArgs e)
+        {
+            // Archivos externos
+            if (e.Data!.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effect = DragDropEffects.Copy;
+                Point cp = grid.PointToClient(new Point(e.X, e.Y));
+                dragToIndex = grid.HitTest(cp.X, cp.Y).RowIndex;
+                grid.Invalidate();
+                return;
+            }
+
+            // Reordenar filas internas
+            if (e.Data.GetDataPresent(typeof(DataGridViewRow)))
+            {
+                e.Effect = DragDropEffects.Move;
+                Point cp = grid.PointToClient(new Point(e.X, e.Y));
+                dragToIndex = grid.HitTest(cp.X, cp.Y).RowIndex;
+                grid.Invalidate();
+                return;
+            }
+
+            e.Effect = DragDropEffects.None;
+        }
+
+        private void Grid_DragDrop(object? sender, DragEventArgs e)
+        {
+            Point cp = grid.PointToClient(new Point(e.X, e.Y));
+            int dropIndex = grid.HitTest(cp.X, cp.Y).RowIndex;
+
+            // ── Archivos externos arrastrados al grid ────────────────────────
+            if (e.Data!.GetDataPresent(DataFormats.FileDrop))
+            {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop)!;
+                foreach (string f in files)
+                {
+                    if (!File.Exists(f)) continue;
+                    if (!SupportedExtensions.Contains(Path.GetExtension(f).ToLower())) continue;
+                    AddFileToGrid(f);
+                }
+                dragToIndex = -1;
+                grid.Invalidate();
+                return;
+            }
+
+            // ── Reordenar filas internas ─────────────────────────────────────
+            if (e.Data.GetDataPresent(typeof(DataGridViewRow)) && dropIndex >= 0)
+            {
+                var row = e.Data.GetData(typeof(DataGridViewRow)) as DataGridViewRow;
+                if (row != null && dragFromIndex != dropIndex)
+                {
+                    // Leer valores
+                    string t = row.Cells["Title"].Value?.ToString() ?? "";
+                    string a = row.Cells["Artist"].Value?.ToString() ?? "";
+                    string al = row.Cells["Album"].Value?.ToString() ?? "";
+                    string d = row.Cells["Duration"].Value?.ToString() ?? "";
+                    string r = row.Cells["Path"].Value?.ToString() ?? "";
+
+                    // Quitar la fila original
+                    grid.Rows.RemoveAt(dragFromIndex);
+
+                    // Ajustar índice destino
+                    int insertAt = dropIndex;
+                    if (dragFromIndex < dropIndex) insertAt--;
+
+                    // Insertar en nueva posición
+                    grid.Rows.Insert(insertAt, t, a, al, d, r);
+                    grid.Rows[insertAt].Selected = true;
+                    grid.CurrentCell = grid.Rows[insertAt].Cells[0];
+
+                    // Ajustar currentIndex
+                    if (currentIndex == dragFromIndex)
+                        currentIndex = insertAt;
+                    else if (dragFromIndex < currentIndex && insertAt >= currentIndex)
+                        currentIndex--;
+                    else if (dragFromIndex > currentIndex && insertAt <= currentIndex)
+                        currentIndex++;
+                }
+            }
+
+            dragToIndex = -1;
+            grid.Invalidate();
+        }
+
+        private void Grid_PaintDragLine(object? sender, PaintEventArgs e)
+        {
+            if (dragToIndex < 0 || dragToIndex >= grid.Rows.Count) return;
+
+            Rectangle rect = grid.GetRowDisplayRectangle(dragToIndex, true);
+            if (rect.Height == 0) return;
+
+            using var pen = new Pen(Color.FromArgb(56, 139, 253), 2);
+            e.Graphics.DrawLine(pen, rect.Left, rect.Top, rect.Right, rect.Top);
+        }
+
+        // ── Eventos existentes ───────────────────────────────────────────────
         private async void Grid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex >= 0) await PlayTrack(e.RowIndex);
@@ -1089,10 +1223,10 @@ namespace FileExplorerr
         {
             if (string.IsNullOrWhiteSpace(s)) return "Sin título";
             s = System.Text.RegularExpressions.Regex.Replace(s,
-                @"\s*\([^)]*?(Official|Audio|Video|Topic|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "",
+                @"\s*\([^)]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             s = System.Text.RegularExpressions.Regex.Replace(s,
-                @"\s*\[[^\]]*?(Official|Audio|Video|Topic|Lyrics|Music Video|HD|4K)[^\]]*?\]", "",
+                @"\s*\[[^\]]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K)[^\]]*?\]", "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             return s.Trim();
         }
