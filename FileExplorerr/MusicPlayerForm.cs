@@ -39,7 +39,8 @@ namespace FileExplorerr
         private Button btnPlay = null!, btnStop = null!, btnPrev = null!,
                        btnNext = null!, btnShuffle = null!, btnRepeat = null!,
                        btnLyrics = null!, btnAddFiles = null!,
-                       btnEditTags = null!, btnRemove = null!;
+                       btnEditTags = null!, btnRemove = null!,
+                       btnOpenFolder = null!, btnSavePlaylist = null!, btnLoadPlaylist = null!;
 
         // ── Audio ────────────────────────────────────────────────────────────
         private WaveOutEvent? outputDevice;
@@ -108,13 +109,32 @@ namespace FileExplorerr
                 Text = "Reproductor de Música"
             };
 
-            btnAddFiles = MakeBtn("📁 Agregar", 110,
+            // Botones del top bar (Dock Right se apilan de derecha a izquierda)
+            btnLoadPlaylist = MakeBtn("📂 Cargar Playlist", 140,
+                Color.FromArgb(24, 32, 46), Color.FromArgb(38, 50, 70));
+            btnLoadPlaylist.Dock = DockStyle.Right;
+            btnLoadPlaylist.Click += (s, e) => LoadPlaylist();
+
+            btnSavePlaylist = MakeBtn("💾 Guardar Playlist", 148,
+                Color.FromArgb(24, 32, 46), Color.FromArgb(38, 50, 70));
+            btnSavePlaylist.Dock = DockStyle.Right;
+            btnSavePlaylist.Click += (s, e) => SavePlaylist();
+
+            btnAddFiles = MakeBtn("➕ Agregar", 100,
                 Color.FromArgb(24, 32, 46), Color.FromArgb(38, 50, 70));
             btnAddFiles.Dock = DockStyle.Right;
             btnAddFiles.Click += (s, e) => AddFilesDialog();
 
+            btnOpenFolder = MakeBtn("📁 Abrir Carpeta", 136,
+                Color.FromArgb(22, 72, 130), Color.FromArgb(56, 139, 253));
+            btnOpenFolder.Dock = DockStyle.Right;
+            btnOpenFolder.Click += (s, e) => OpenFolderDialog();
+
             topBar.Controls.Add(lblNowPlaying);
+            topBar.Controls.Add(btnLoadPlaylist);
+            topBar.Controls.Add(btnSavePlaylist);
             topBar.Controls.Add(btnAddFiles);
+            topBar.Controls.Add(btnOpenFolder);
 
             // ── Right panel: cover + lyrics ──────────────────────────────────
             rightPanel = new Panel
@@ -882,6 +902,132 @@ namespace FileExplorerr
 
             if (grid.Rows.Count > 0)
                 grid.Rows[Math.Min(idx, grid.Rows.Count - 1)].Selected = true;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  ABRIR CARPETA
+        // ════════════════════════════════════════════════════════════════════
+        private void OpenFolderDialog()
+        {
+            using var dlg = new FolderBrowserDialog
+            {
+                Description = "Seleccionar carpeta con música"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            StopPlayback();
+            grid.Rows.Clear();
+            currentIndex = -1;
+
+            var audioFiles = Directory.GetFiles(dlg.SelectedPath)
+                .Where(f => SupportedExtensions.Contains(Path.GetExtension(f).ToLower()))
+                .OrderBy(f => f)
+                .ToList();
+
+            foreach (string f in audioFiles)
+                AddFileToGrid(f);
+
+            if (grid.Rows.Count > 0)
+            {
+                currentIndex = 0;
+                _ = PlayTrack(0);
+            }
+            else
+            {
+                lblNowPlaying.Text = "No se encontraron archivos de audio";
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  GUARDAR PLAYLIST (.txt)
+        // ════════════════════════════════════════════════════════════════════
+        private void SavePlaylist()
+        {
+            if (grid.Rows.Count == 0)
+            {
+                MessageBox.Show("No hay canciones en la lista.", "Sin canciones",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using var dlg = new SaveFileDialog
+            {
+                Title = "Guardar Playlist",
+                Filter = "Playlist (*.txt)|*.txt|Todos|*.*",
+                DefaultExt = "txt",
+                FileName = "playlist.txt"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                var rutas = new List<string>();
+                foreach (DataGridViewRow row in grid.Rows)
+                {
+                    string? ruta = row.Cells["Path"].Value?.ToString();
+                    if (!string.IsNullOrEmpty(ruta))
+                        rutas.Add(ruta);
+                }
+                File.WriteAllLines(dlg.FileName, rutas, System.Text.Encoding.UTF8);
+                MessageBox.Show(
+                    $"Playlist guardada:\n{dlg.FileName}\n\n{rutas.Count} canción(es)",
+                    "Guardado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al guardar:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  CARGAR PLAYLIST (.txt)
+        // ════════════════════════════════════════════════════════════════════
+        private void LoadPlaylist()
+        {
+            using var dlg = new OpenFileDialog
+            {
+                Title = "Cargar Playlist",
+                Filter = "Playlist (*.txt)|*.txt|Todos|*.*"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                StopPlayback();
+                grid.Rows.Clear();
+                currentIndex = -1;
+
+                string[] lineas = File.ReadAllLines(dlg.FileName);
+                int cargadas = 0;
+
+                foreach (string linea in lineas)
+                {
+                    string ruta = linea.Trim();
+                    if (string.IsNullOrEmpty(ruta)) continue;
+                    if (!File.Exists(ruta)) continue;
+                    if (!SupportedExtensions.Contains(Path.GetExtension(ruta).ToLower())) continue;
+
+                    AddFileToGrid(ruta);
+                    cargadas++;
+                }
+
+                if (grid.Rows.Count > 0)
+                {
+                    currentIndex = 0;
+                    grid.Rows[0].Selected = true;
+                    _ = PlayTrack(0);
+                }
+
+                lblNowPlaying.Text = cargadas > 0
+                    ? $"Playlist cargada — {cargadas} canción(es)"
+                    : "No se encontraron archivos válidos en la playlist";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar playlist:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
