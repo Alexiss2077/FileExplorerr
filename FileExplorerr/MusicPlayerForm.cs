@@ -1089,10 +1089,10 @@ namespace FileExplorerr
         {
             if (string.IsNullOrWhiteSpace(s)) return "Sin título";
             s = System.Text.RegularExpressions.Regex.Replace(s,
-                @"\s*\([^)]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "",
+                @"\s*\([^)]*?(Official|Audio|Video|Topic|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             s = System.Text.RegularExpressions.Regex.Replace(s,
-                @"\s*\[[^\]]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K)[^\]]*?\]", "",
+                @"\s*\[[^\]]*?(Official|Audio|Video|Topic|Lyrics|Music Video|HD|4K)[^\]]*?\]", "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             return s.Trim();
         }
