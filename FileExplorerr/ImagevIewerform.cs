@@ -41,6 +41,12 @@ namespace FileExplorerr
         private Font textFont = new("Segoe UI", 14F, FontStyle.Bold);
         private readonly Stack<Bitmap> undoStack = new();
 
+        // Text tool settings
+        private string textFontFamily = "Segoe UI";
+        private float textFontSize = 14F;
+        private FontStyle textFontStyle = FontStyle.Bold;
+        private Color textColor = Color.White;
+
         internal static readonly string[] SupportedExtensions =
         {
             ".jpg", ".jpeg", ".jfif", ".jpe", ".png", ".gif", ".bmp", ".dib",
@@ -311,15 +317,24 @@ namespace FileExplorerr
 
         private void PlaceText(Point imgPt)
         {
-            using var dlg = new Form { Text = "Texto", Width = 360, Height = 130, StartPosition = FormStartPosition.CenterParent, BackColor = Theme.BgSurface, ForeColor = Theme.TextPrimary, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
-            var txt = Theme.MakeTextBox(); txt.Left = 12; txt.Top = 14; txt.Width = 330;
-            var ok = Theme.MakeButton("OK", 80, Theme.ButtonKind.Primary); ok.Left = 170; ok.Top = 52; ok.DialogResult = DialogResult.OK;
-            var cancel = Theme.MakeButton("Cancelar", 80); cancel.Left = 260; cancel.Top = 52; cancel.DialogResult = DialogResult.Cancel;
-            dlg.Controls.AddRange(new Control[] { txt, ok, cancel }); dlg.AcceptButton = (IButtonControl)ok;
-            if (dlg.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(txt.Text)) return;
-            using var g = Graphics.FromImage(working); g.SmoothingMode = SmoothingMode.AntiAlias;
-            using var brush = new SolidBrush(drawColor);
-            g.DrawString(txt.Text, textFont, brush, new PointF(Math.Max(0, imgPt.X), Math.Max(0, imgPt.Y)));
+            using var dlg = new TextToolDialog(textFontFamily, textFontSize, textFontStyle, textColor);
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            // Save settings for next use
+            textFontFamily = dlg.SelectedFontFamily;
+            textFontSize = dlg.SelectedFontSize;
+            textFontStyle = dlg.SelectedFontStyle;
+            textColor = dlg.SelectedColor;
+            textFont?.Dispose();
+            textFont = new Font(textFontFamily, textFontSize, textFontStyle);
+
+            if (string.IsNullOrWhiteSpace(dlg.TextContent)) return;
+
+            using var g = Graphics.FromImage(working);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            using var brush = new SolidBrush(textColor);
+            g.DrawString(dlg.TextContent, textFont, brush, new PointF(Math.Max(0, imgPt.X), Math.Max(0, imgPt.Y)));
             canvas.Invalidate();
         }
 
@@ -397,5 +412,313 @@ namespace FileExplorerr
 
         protected override void Dispose(bool disposing)
         { if (disposing) { original?.Dispose(); working?.Dispose(); display?.Dispose(); foreach (var b in undoStack) b?.Dispose(); undoStack.Clear(); textFont?.Dispose(); } base.Dispose(disposing); }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  DIÁLOGO DE TEXTO — fuente, tamaño, estilo, color
+    // ════════════════════════════════════════════════════════════════════════
+    internal class TextToolDialog : Form
+    {
+        public string TextContent { get; private set; } = "";
+        public string SelectedFontFamily { get; private set; }
+        public float SelectedFontSize { get; private set; }
+        public FontStyle SelectedFontStyle { get; private set; }
+        public Color SelectedColor { get; private set; }
+
+        private TextBox txtContent = null!;
+        private ComboBox cmbFont = null!;
+        private NumericUpDown nudSize = null!;
+        private CheckBox chkBold = null!, chkItalic = null!, chkUnderline = null!;
+        private Panel colorSwatch = null!;
+        private Label previewLabel = null!;
+        private Color currentColor;
+
+        private static readonly Color BgForm = Color.FromArgb(18, 18, 22);
+        private static readonly Color BgField = Color.FromArgb(34, 34, 42);
+        private static readonly Color BgHeader = Color.FromArgb(26, 26, 32);
+        private static readonly Color BorderColor = Color.FromArgb(44, 44, 54);
+        private static readonly Color AccentColor = Color.FromArgb(72, 202, 188);
+        private static readonly Color TextPri = Color.FromArgb(230, 230, 236);
+        private static readonly Color TextSec = Color.FromArgb(110, 140, 180);
+
+        public TextToolDialog(string fontFamily, float fontSize, FontStyle fontStyle, Color color)
+        {
+            SelectedFontFamily = fontFamily;
+            SelectedFontSize = fontSize;
+            SelectedFontStyle = fontStyle;
+            SelectedColor = color;
+            currentColor = color;
+            BuildUI();
+        }
+
+        private void BuildUI()
+        {
+            Text = "Insertar texto";
+            Size = new Size(520, 420);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MaximizeBox = false; MinimizeBox = false;
+            BackColor = BgForm; ForeColor = TextPri;
+            Font = new Font("Segoe UI", 9.5F);
+
+            // Header
+            var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = BgHeader };
+            header.Controls.Add(new Label
+            {
+                Text = "✏  Insertar texto en imagen",
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = AccentColor,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(14, 0, 0, 0)
+            });
+
+            // Texto
+            AddLabel("Texto:", 14, 58);
+            txtContent = new TextBox
+            {
+                Location = new Point(110, 56),
+                Size = new Size(384, 28),
+                BackColor = BgField,
+                ForeColor = TextPri,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 10F)
+            };
+            txtContent.TextChanged += (s, e) => UpdatePreview();
+
+            // Fuente
+            AddLabel("Fuente:", 14, 100);
+            cmbFont = new ComboBox
+            {
+                Location = new Point(110, 98),
+                Size = new Size(230, 28),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = BgField,
+                ForeColor = TextPri,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F)
+            };
+            foreach (var fam in new[] {
+                "Segoe UI", "Arial", "Times New Roman", "Courier New", "Verdana",
+                "Georgia", "Trebuchet MS", "Impact", "Comic Sans MS", "Tahoma",
+                "Calibri", "Cambria", "Consolas", "Cascadia Code", "Palatino Linotype"
+            })
+                cmbFont.Items.Add(fam);
+
+            // Try to select current font
+            int fontIdx = cmbFont.Items.IndexOf(SelectedFontFamily);
+            cmbFont.SelectedIndex = fontIdx >= 0 ? fontIdx : 0;
+            cmbFont.SelectedIndexChanged += (s, e) => UpdatePreview();
+
+            // Tamaño
+            AddLabel("Tamaño:", 354, 100);
+            nudSize = new NumericUpDown
+            {
+                Location = new Point(420, 98),
+                Size = new Size(74, 28),
+                Minimum = 6,
+                Maximum = 200,
+                Value = (decimal)Math.Clamp(SelectedFontSize, 6, 200),
+                BackColor = BgField,
+                ForeColor = TextPri,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 9.5F)
+            };
+            nudSize.ValueChanged += (s, e) => UpdatePreview();
+
+            // Estilos
+            AddLabel("Estilo:", 14, 142);
+            chkBold = MakeCheck("Negrita", 110, 140);
+            chkItalic = MakeCheck("Cursiva", 188, 140);
+            chkUnderline = MakeCheck("Subrayado", 266, 140);
+            chkBold.Checked = (SelectedFontStyle & FontStyle.Bold) != 0;
+            chkItalic.Checked = (SelectedFontStyle & FontStyle.Italic) != 0;
+            chkUnderline.Checked = (SelectedFontStyle & FontStyle.Underline) != 0;
+            chkBold.CheckedChanged += (s, e) => UpdatePreview();
+            chkItalic.CheckedChanged += (s, e) => UpdatePreview();
+            chkUnderline.CheckedChanged += (s, e) => UpdatePreview();
+
+            // Color
+            AddLabel("Color:", 14, 184);
+            colorSwatch = new Panel
+            {
+                Location = new Point(110, 182),
+                Size = new Size(44, 26),
+                BackColor = currentColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                Cursor = Cursors.Hand
+            };
+            colorSwatch.Click += (s, e) =>
+            {
+                using var dlg = new ColorDialog { Color = currentColor, FullOpen = true };
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    currentColor = dlg.Color;
+                    colorSwatch.BackColor = currentColor;
+                    UpdatePreview();
+                }
+            };
+
+            var btnColorPick = new Button
+            {
+                Text = "Elegir color...",
+                Location = new Point(162, 181),
+                Size = new Size(110, 28),
+                BackColor = BgField,
+                ForeColor = TextSec,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F),
+                Cursor = Cursors.Hand
+            };
+            btnColorPick.FlatAppearance.BorderColor = BorderColor;
+            btnColorPick.Click += (s, e) =>
+            {
+                using var dlg = new ColorDialog { Color = currentColor, FullOpen = true };
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    currentColor = dlg.Color;
+                    colorSwatch.BackColor = currentColor;
+                    UpdatePreview();
+                }
+            };
+
+            // Preview
+            var previewBox = new Panel
+            {
+                Location = new Point(14, 222),
+                Size = new Size(480, 90),
+                BackColor = Color.FromArgb(10, 10, 14),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            previewLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                AutoEllipsis = true,
+                Text = "Vista previa"
+            };
+            previewBox.Controls.Add(previewLabel);
+
+            var lblPreviewHint = new Label
+            {
+                Text = "Vista previa",
+                Location = new Point(14, 208),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 7.5F),
+                ForeColor = TextSec
+            };
+
+            // Botones
+            var btnOk = new Button
+            {
+                Text = "Insertar",
+                Location = new Point(280, 326),
+                Size = new Size(100, 36),
+                BackColor = Color.FromArgb(22, 100, 40),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                DialogResult = DialogResult.OK
+            };
+            btnOk.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
+            btnOk.Click += BtnOk_Click;
+
+            var btnCancel = new Button
+            {
+                Text = "Cancelar",
+                Location = new Point(390, 326),
+                Size = new Size(100, 36),
+                BackColor = BgField,
+                ForeColor = TextPri,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F),
+                Cursor = Cursors.Hand,
+                DialogResult = DialogResult.Cancel
+            };
+            btnCancel.FlatAppearance.BorderColor = BorderColor;
+
+            Controls.Add(header);
+            Controls.Add(txtContent);
+            Controls.Add(cmbFont);
+            Controls.Add(nudSize);
+            Controls.Add(chkBold);
+            Controls.Add(chkItalic);
+            Controls.Add(chkUnderline);
+            Controls.Add(colorSwatch);
+            Controls.Add(btnColorPick);
+            Controls.Add(lblPreviewHint);
+            Controls.Add(previewBox);
+            Controls.Add(btnOk);
+            Controls.Add(btnCancel);
+
+            AcceptButton = btnOk;
+            CancelButton = btnCancel;
+
+            UpdatePreview();
+            txtContent.Focus();
+        }
+
+        private void UpdatePreview()
+        {
+            try
+            {
+                FontStyle style = FontStyle.Regular;
+                if (chkBold?.Checked == true) style |= FontStyle.Bold;
+                if (chkItalic?.Checked == true) style |= FontStyle.Italic;
+                if (chkUnderline?.Checked == true) style |= FontStyle.Underline;
+
+                string family = cmbFont?.SelectedItem?.ToString() ?? "Segoe UI";
+                float size = (float)(nudSize?.Value ?? 14);
+
+                previewLabel.Font?.Dispose();
+                previewLabel.Font = new Font(family, Math.Min(size, 40), style);
+                previewLabel.ForeColor = currentColor;
+                previewLabel.Text = string.IsNullOrWhiteSpace(txtContent?.Text) ? "Vista previa" : txtContent.Text;
+            }
+            catch { }
+        }
+
+        private void BtnOk_Click(object? sender, EventArgs e)
+        {
+            TextContent = txtContent.Text;
+            SelectedFontFamily = cmbFont.SelectedItem?.ToString() ?? "Segoe UI";
+            SelectedFontSize = (float)nudSize.Value;
+            SelectedColor = currentColor;
+
+            SelectedFontStyle = FontStyle.Regular;
+            if (chkBold.Checked) SelectedFontStyle |= FontStyle.Bold;
+            if (chkItalic.Checked) SelectedFontStyle |= FontStyle.Italic;
+            if (chkUnderline.Checked) SelectedFontStyle |= FontStyle.Underline;
+        }
+
+        private void AddLabel(string text, int x, int y)
+        {
+            Controls.Add(new Label
+            {
+                Text = text,
+                Location = new Point(x, y + 4),
+                AutoSize = true,
+                ForeColor = TextSec,
+                Font = new Font("Segoe UI", 9F)
+            });
+        }
+
+        private CheckBox MakeCheck(string text, int x, int y)
+        {
+            var chk = new CheckBox
+            {
+                Text = text,
+                Location = new Point(x, y),
+                AutoSize = true,
+                ForeColor = TextPri,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9F),
+                Cursor = Cursors.Hand
+            };
+            Controls.Add(chk);
+            return chk;
+        }
     }
 }

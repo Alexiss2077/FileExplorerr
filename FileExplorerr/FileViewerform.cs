@@ -86,14 +86,45 @@ namespace FileExplorerr
 
             var rowBot = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
             var expLabel = new Label { Text = "Exportar:", Dock = DockStyle.Left, Width = 64, ForeColor = Theme.TextMuted, Font = Theme.FontSmall, TextAlign = ContentAlignment.MiddleLeft };
-            var expCsv = Theme.MakeButton("CSV", 56, Theme.ButtonKind.Primary); expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
-            var expJson = Theme.MakeButton("JSON", 56); expJson.Dock = DockStyle.Left; expJson.Click += (s, e) => ExportAs(".json");
-            var expTxt = Theme.MakeButton("TXT", 56); expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
-            var expXml = Theme.MakeButton("XML", 56); expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
+
+            // CSV — verde azulado
+            var expCsv = MakeExportButton("CSV", Color.FromArgb(20, 90, 70), Color.FromArgb(56, 210, 170));
+            expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
+
+            // JSON — naranja ámbar
+            var expJson = MakeExportButton("JSON", Color.FromArgb(80, 55, 10), Color.FromArgb(230, 160, 40));
+            expJson.Dock = DockStyle.Left; expJson.Click += (s, e) => ExportAs(".json");
+
+            // TXT — azul índigo
+            var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240));
+            expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
+
+            // XML — violeta
+            var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230));
+            expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
+
             rowBot.Controls.Add(expXml); rowBot.Controls.Add(expTxt); rowBot.Controls.Add(expJson); rowBot.Controls.Add(expCsv); rowBot.Controls.Add(expLabel);
 
             bottomPanel.Controls.Add(rowBot); bottomPanel.Controls.Add(rowTop);
             Controls.Add(grid); Controls.Add(filterPanel); Controls.Add(topPanel); Controls.Add(bottomPanel);
+        }
+
+        private static Button MakeExportButton(string text, Color bgColor, Color accentColor)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Width = 62,
+                Height = 28,
+                BackColor = bgColor,
+                ForeColor = accentColor,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderColor = accentColor;
+            btn.FlatAppearance.BorderSize = 1;
+            return btn;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -113,7 +144,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  PARSERS (unchanged logic, cleaned up)
+        //  PARSERS
         // ════════════════════════════════════════════════════════════════════
         private static DataTable ParseCsv(string content)
         {
@@ -147,10 +178,70 @@ namespace FileExplorerr
                 using var doc = JsonDocument.Parse(content);
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
-                    foreach (var elem in doc.RootElement.EnumerateArray()) { if (elem.ValueKind != JsonValueKind.Object) continue; foreach (var prop in elem.EnumerateObject()) if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name); }
-                    foreach (var elem in doc.RootElement.EnumerateArray()) { if (elem.ValueKind != JsonValueKind.Object) continue; var row = dt.NewRow(); foreach (var prop in elem.EnumerateObject()) if (dt.Columns.Contains(prop.Name)) row[prop.Name] = prop.Value.ValueKind == JsonValueKind.Null ? "" : prop.Value.ToString(); dt.Rows.Add(row); }
+                    // First pass: collect all column names
+                    foreach (var elem in doc.RootElement.EnumerateArray())
+                    {
+                        if (elem.ValueKind != JsonValueKind.Object) continue;
+                        foreach (var prop in elem.EnumerateObject())
+                            if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
+                    }
+                    // Second pass: fill rows
+                    foreach (var elem in doc.RootElement.EnumerateArray())
+                    {
+                        if (elem.ValueKind != JsonValueKind.Object) continue;
+                        var row = dt.NewRow();
+                        foreach (var prop in elem.EnumerateObject())
+                        {
+                            if (!dt.Columns.Contains(prop.Name)) continue;
+                            row[prop.Name] = prop.Value.ValueKind switch
+                            {
+                                JsonValueKind.Null => "",
+                                JsonValueKind.Object => prop.Value.GetRawText(),
+                                JsonValueKind.Array => prop.Value.GetRawText(),
+                                _ => prop.Value.ToString()
+                            };
+                        }
+                        dt.Rows.Add(row);
+                    }
                 }
-                else if (doc.RootElement.ValueKind == JsonValueKind.Object) { dt.Columns.Add("Clave"); dt.Columns.Add("Valor"); foreach (var prop in doc.RootElement.EnumerateObject()) dt.Rows.Add(prop.Name, prop.Value.ToString()); }
+                else if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    // Check if it wraps an array (e.g. {"data": [...]} or {"items": [...]})
+                    bool foundArray = false;
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            // Parse the nested array
+                            foreach (var elem in prop.Value.EnumerateArray())
+                            {
+                                if (elem.ValueKind != JsonValueKind.Object) continue;
+                                foreach (var p in elem.EnumerateObject())
+                                    if (!dt.Columns.Contains(p.Name)) dt.Columns.Add(p.Name);
+                            }
+                            foreach (var elem in prop.Value.EnumerateArray())
+                            {
+                                if (elem.ValueKind != JsonValueKind.Object) continue;
+                                var row = dt.NewRow();
+                                foreach (var p in elem.EnumerateObject())
+                                {
+                                    if (!dt.Columns.Contains(p.Name)) continue;
+                                    row[p.Name] = p.Value.ValueKind == JsonValueKind.Null ? "" : p.Value.ToString();
+                                }
+                                dt.Rows.Add(row);
+                            }
+                            foundArray = true;
+                            break;
+                        }
+                    }
+                    if (!foundArray)
+                    {
+                        dt.Columns.Add("Clave");
+                        dt.Columns.Add("Valor");
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                            dt.Rows.Add(prop.Name, prop.Value.ValueKind == JsonValueKind.Null ? "" : prop.Value.GetRawText());
+                    }
+                }
             }
             catch { dt = SingleColumnTable(content); }
             return dt;
@@ -358,9 +449,48 @@ namespace FileExplorerr
             _ => TableToTsv(dt)
         };
 
-        private static string TableToCsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\""))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\""))); return sb.ToString(); }
-        private static string TableToTsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join("\t", dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join("\t", row.ItemArray.Select(x => x?.ToString() ?? ""))); return sb.ToString(); }
-        private static string TableToJson(DataTable dt) { var rows = new List<Dictionary<string, string?>>(); foreach (DataRow row in dt.Rows) { var d = new Dictionary<string, string?>(); foreach (DataColumn col in dt.Columns) d[col.ColumnName] = row[col]?.ToString(); rows.Add(d); } return JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true }); }
+        private static string TableToCsv(DataTable dt)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\"")));
+            foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\"")));
+            return sb.ToString();
+        }
+
+        private static string TableToTsv(DataTable dt)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join("\t", dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName)));
+            foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join("\t", row.ItemArray.Select(x => x?.ToString() ?? "")));
+            return sb.ToString();
+        }
+
+        private static string TableToJson(DataTable dt)
+        {
+            var rows = new List<Dictionary<string, object?>>();
+            foreach (DataRow row in dt.Rows)
+            {
+                var d = new Dictionary<string, object?>();
+                foreach (DataColumn col in dt.Columns)
+                {
+                    string? val = row[col]?.ToString();
+                    // Try to preserve numeric types
+                    if (double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numVal))
+                        d[col.ColumnName] = numVal;
+                    else if (val == "" || val == null)
+                        d[col.ColumnName] = null;
+                    else
+                        d[col.ColumnName] = val;
+                }
+                rows.Add(d);
+            }
+            return JsonSerializer.Serialize(rows, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+
         private static string TableToXml(DataTable dt) { dt.TableName = "Records"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
 
         // ════════════════════════════════════════════════════════════════════
