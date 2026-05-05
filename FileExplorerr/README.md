@@ -1,4 +1,4 @@
-# FileExplorerr
+# FileExplorer
 
 > Explorador de archivos de escritorio avanzado, construido con **C# / .NET 8** y **Windows Forms**, con tema oscuro "Arctic Frost", visualizadores integrados para múltiples formatos, reproductor de música y video, y herramientas de edición de imágenes.
 
