@@ -758,7 +758,9 @@ namespace FileExplorerr
             if (!e.Data!.GetDataPresent(DataFormats.FileDrop)) return;
             e.Effect = DragDropEffects.Move;
             recycleDropPanel.BackColor = Theme.RecycleHot;
+            recycleIconBox.Image = GetRecycleBinIcon(true).ToBitmap();
             recyclePanelLabel.ForeColor = Theme.Danger;
+            recyclePanelLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
             recyclePanelLabel.Text = "Soltar para eliminar";
         }
         private void RecycleDragOver(DragEventArgs e) =>
@@ -766,7 +768,9 @@ namespace FileExplorerr
         private void RecycleDragLeave()
         {
             recycleDropPanel.BackColor = Theme.RecycleBg;
+            recycleIconBox.Image = GetRecycleBinIcon(false).ToBitmap();
             recyclePanelLabel.ForeColor = Theme.TextMuted;
+            recyclePanelLabel.Font = Theme.FontSmall;
             recyclePanelLabel.Text = "Papelera";
         }
         private void RecycleDragDrop(DragEventArgs e)
