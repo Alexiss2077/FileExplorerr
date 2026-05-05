@@ -909,7 +909,47 @@ namespace FileExplorerr
             string ext = Path.GetExtension(path).ToLower();
             try
             {
-                if (new[] { ".txt", ".csv", ".json", ".xml", ".log" }.Contains(ext))
+                if (ext == ".txt")
+                {
+                    // Ofrecer elegir entre visor de tabla o bloc de notas
+                    using var dlg = new Form
+                    {
+                        Text = "Abrir como...",
+                        Width = 340,
+                        Height = 160,
+                        StartPosition = FormStartPosition.CenterParent,
+                        FormBorderStyle = FormBorderStyle.FixedDialog,
+                        MaximizeBox = false,
+                        MinimizeBox = false,
+                        BackColor = Theme.BgSurface,
+                        ForeColor = Theme.TextPrimary
+                    };
+                    var lbl = new Label
+                    {
+                        Text = $"¿Cómo deseas abrir \"{Path.GetFileName(path)}\"?",
+                        Left = 14,
+                        Top = 16,
+                        Width = 306,
+                        ForeColor = Theme.TextSecondary,
+                        Font = Theme.FontBody
+                    };
+                    var btnTable = Theme.MakeButton("Visor de tabla", 140, Theme.ButtonKind.Default);
+                    btnTable.Left = 14; btnTable.Top = 60;
+                    btnTable.Click += (s, e) => { dlg.Tag = "table"; dlg.DialogResult = DialogResult.OK; };
+                    var btnNotepad = Theme.MakeButton("Bloc de notas", 140, Theme.ButtonKind.Primary);
+                    btnNotepad.Left = 164; btnNotepad.Top = 60;
+                    btnNotepad.Click += (s, e) => { dlg.Tag = "notepad"; dlg.DialogResult = DialogResult.OK; };
+                    dlg.Controls.AddRange(new Control[] { lbl, btnTable, btnNotepad });
+
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
+                    {
+                        if (dlg.Tag?.ToString() == "notepad")
+                            new NotepadForm(path).Show();
+                        else
+                            new FileViewerForm(path).Show();
+                    }
+                }
+                else if (new[] { ".csv", ".json", ".xml", ".log" }.Contains(ext))
                     new FileViewerForm(path).Show();
                 else if (ImageViewerForm.SupportedExtensions.Contains(ext))
                     new ImageViewerForm(path).Show();
