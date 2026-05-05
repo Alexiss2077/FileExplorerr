@@ -322,10 +322,144 @@ namespace FileExplorerr
                     propValues[1].Text = FmtTime(media.duration);
                     string w = media.getItemInfo("WM/VideoWidth"), h = media.getItemInfo("WM/VideoHeight");
                     propValues[4].Text = (w.Length > 0 && h.Length > 0) ? $"{w}×{h}" : "—";
-                    propValues[5].Text = "—"; propValues[6].Text = "—"; propValues[7].Text = "—"; propValues[8].Text = "—";
+                    string fr = media.getItemInfo("WM/VideoFrameRate");
+                    propValues[5].Text = fr.Length > 0 && double.TryParse(fr,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out double frd)
+                        ? $"{frd / 1000.0:0.##} fps" : "—";
+                    propValues[6].Text = FallbackMeta(media, "WM/VideoCodec", "WM/EncodingSettings");
+                    propValues[7].Text = FallbackMeta(media, "WM/AudioCodec");
+                    string sr = media.getItemInfo("WM/AudioSampleRate");
+                    string ch = media.getItemInfo("WM/AudioChannels");
+                    string cs = ch == "1" ? "Mono" : ch == "2" ? "Stereo" : (ch.Length > 0 ? ch + " ch" : "");
+                    propValues[8].Text = sr.Length > 0 ? $"{sr} Hz{(cs.Length > 0 ? " · " + cs : "")}" : "—";
+                }
+                if (propValues[4].Text == "—" || propValues[5].Text == "—")
+                    ReadShellMeta(path);
+
+                // Fallback para MOV/MP4 de iPhone
+                string ext = Path.GetExtension(path).ToLower();
+                if ((propValues[6].Text == "—" || propValues[7].Text == "—" || propValues[8].Text == "—")
+                    && ext is ".mov" or ".mp4" or ".m4v" or ".3gp")
+                {
+                    var (vc, ac, ai) = ReadMovCodecs(path);
+                    if (propValues[6].Text == "—" && vc != "—") propValues[6].Text = vc;
+                    if (propValues[7].Text == "—" && ac != "—") propValues[7].Text = ac;
+                    if (propValues[8].Text == "—" && ai != "—") propValues[8].Text = ai;
                 }
             }
             catch { }
+        }
+
+        private static string FallbackMeta(IWMPMedia m, params string[] keys)
+        {
+            foreach (var k in keys)
+            { string v = m.getItemInfo(k); if (!string.IsNullOrWhiteSpace(v)) return v; }
+            return "—";
+        }
+
+        private void ReadShellMeta(string path)
+        {
+            try
+            {
+                dynamic sh = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application")!)!;
+                dynamic fld = sh.NameSpace(Path.GetDirectoryName(path));
+                dynamic itm = fld.ParseName(Path.GetFileName(path));
+                string res = (string)fld.GetDetailsOf(itm, 285);
+                string fps = (string)fld.GetDetailsOf(itm, 292);
+                string dur = (string)fld.GetDetailsOf(itm, 27);
+                if (!string.IsNullOrWhiteSpace(res) && propValues[4].Text == "—") propValues[4].Text = res;
+                if (!string.IsNullOrWhiteSpace(fps) && propValues[5].Text == "—") propValues[5].Text = fps;
+                if (!string.IsNullOrWhiteSpace(dur) && propValues[1].Text == "—") propValues[1].Text = dur;
+            }
+            catch { }
+        }
+
+        // ── Leer codec / audio directamente de átomos MP4/MOV ───────────────
+        private static (string VideoCodec, string AudioCodec, string AudioInfo) ReadMovCodecs(string path)
+        {
+            string vc = "—", ac = "—", ai = "—";
+            try
+            {
+                long fileSize = new FileInfo(path).Length;
+                int readBytes = (int)Math.Min(fileSize, 8 * 1024 * 1024);
+                byte[] data = new byte[readBytes];
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    fs.Read(data, 0, readBytes);
+
+                byte[] stsdMarker = System.Text.Encoding.ASCII.GetBytes("stsd");
+                int pos = 0;
+                while (pos < data.Length - 8)
+                {
+                    int found = IndexOfFrom(data, stsdMarker, pos);
+                    if (found < 0) break;
+                    int entryStart = found + 8 + 4;
+                    if (entryStart + 8 > data.Length) { pos = found + 1; continue; }
+                    string fourcc = System.Text.Encoding.ASCII.GetString(data, entryStart + 4, 4).Trim();
+                    if (IsVideoFourcc(fourcc) && vc == "—") vc = FourccToName(fourcc);
+                    else if (IsAudioFourcc(fourcc) && ac == "—") ac = FourccToName(fourcc);
+                    pos = found + 1;
+                }
+
+                byte[] mp4aMarker = System.Text.Encoding.ASCII.GetBytes("mp4a");
+                int mp4aPos = IndexOfFrom(data, mp4aMarker, 0);
+                if (mp4aPos >= 0)
+                {
+                    int p = mp4aPos + 4 + 6 + 2 + 8;
+                    if (p + 6 <= data.Length)
+                    {
+                        int channels = (data[p] << 8) | data[p + 1];
+                        int srInt = (data[p + 4] << 8) | data[p + 5];
+                        string chStr = channels == 1 ? "Mono" : channels == 2 ? "Stereo" : $"{channels} ch";
+                        if (srInt > 0) ai = $"{srInt} Hz · {chStr}";
+                        else ai = chStr;
+                        if (ac == "—") ac = "AAC";
+                    }
+                }
+            }
+            catch { }
+            return (vc, ac, ai);
+        }
+
+        private static bool IsVideoFourcc(string f) =>
+            f is "avc1" or "hvc1" or "hev1" or "dvh1" or "dvhe" or
+                 "mp4v" or "xvid" or "divx" or "vp08" or "vp09" or "av01";
+
+        private static bool IsAudioFourcc(string f) =>
+            f is "mp4a" or "ac-3" or "ec-3" or "Opus" or "opus" or
+                 "sowt" or "twos" or "lpcm" or "alaw" or "ulaw" or "alac";
+
+        private static string FourccToName(string f) => f.Trim() switch
+        {
+            "avc1" or "avc2" or "avc3" or "avc4" => "H264",
+            "hvc1" or "hev1" => "H265 (HEVC)",
+            "dvh1" or "dvhe" => "Dolby Vision",
+            "mp4v" => "MPEG-4",
+            "xvid" => "Xvid",
+            "divx" => "DivX",
+            "vp08" => "VP8",
+            "vp09" => "VP9",
+            "av01" => "AV1",
+            "mp4a" => "AAC",
+            "ac-3" => "AC-3 (Dolby)",
+            "ec-3" => "E-AC-3",
+            "Opus" or "opus" => "Opus",
+            "alac" => "ALAC",
+            "sowt" or "twos" or "lpcm" => "PCM",
+            _ => f.Trim()
+        };
+
+        private static int IndexOfFrom(byte[] source, byte[] pattern, int startAt)
+        {
+            int limit = source.Length - pattern.Length;
+            for (int i = startAt; i <= limit; i++)
+            {
+                bool found = true;
+                for (int j = 0; j < pattern.Length; j++)
+                    if (source[i + j] != pattern[j]) { found = false; break; }
+                if (found) return i;
+            }
+            return -1;
         }
 
         // ════════════════════════════════════════════════════════════════════
