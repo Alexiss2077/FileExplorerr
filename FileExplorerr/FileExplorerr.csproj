@@ -8,25 +8,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!--
-    Solo se necesita la referencia de tipo "tlbimp" (la librería de tipos de WMP).
-    Ya NO se necesita "aximp" porque WmpControl en VideoPlayerForm.cs
-    extiende directamente System.Windows.Forms.AxHost.
-  -->
   <ItemGroup>
-    <COMReference Include="WMPLib">
-      <Guid>{6BF52A50-394A-11D3-B153-00C04F79FAA6}</Guid>
-      <VersionMajor>1</VersionMajor>
-      <VersionMinor>0</VersionMinor>
-      <Lcid>0</Lcid>
-      <WrapperTool>tlbimp</WrapperTool>
-      <Isolated>false</Isolated>
-      <EmbedInteropTypes>true</EmbedInteropTypes>
-    </COMReference>
-  </ItemGroup>
+    <!-- LibVLC: motor de video (reemplaza WMP COM) -->
+    <PackageReference Include="LibVLCSharp" Version="3.9.7.1" />
+    <PackageReference Include="LibVLCSharp.WinForms" Version="3.9.3" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
 
-  <!-- Dependencias para el reproductor de música integrado -->
-  <ItemGroup>
+    <!-- Reproductor de música -->
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="taglib-sharp-netstandard2.0" Version="2.1.0" />
   </ItemGroup>
