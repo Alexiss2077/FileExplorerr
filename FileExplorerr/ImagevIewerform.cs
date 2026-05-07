@@ -144,11 +144,21 @@ namespace FileExplorerr
             int gy = 8;
             foreach (var l in new[] { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel }) { l.Left = 12; l.Top = gy; l.Width = 252; infoPanel.Controls.Add(l); gy += 24; }
 
-            var openMapBtn = Theme.MakeButton("Abrir en Maps", 0, Theme.ButtonKind.Primary); openMapBtn.Dock = DockStyle.Bottom; openMapBtn.Height = 32;
+            // Botón para agregar/editar GPS
+            var setGpsBtn = Theme.MakeButton("Agregar GPS", 0, Theme.ButtonKind.Primary);
+            setGpsBtn.Dock = DockStyle.Bottom; setGpsBtn.Height = 32;
+            setGpsBtn.Click += (s, e) => SetGpsCoordinates();
+
+            var openMapBtn = Theme.MakeButton("Abrir en Maps", 0, Theme.ButtonKind.Primary);
+            openMapBtn.Dock = DockStyle.Bottom; openMapBtn.Height = 32;
             openMapBtn.Click += (s, e) => { if (_gpsData?.HasGps == true) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = $"https://www.google.com/maps?q={_gpsData.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{_gpsData.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}", UseShellExecute = true }); };
 
             mapBrowser = new System.Windows.Forms.WebBrowser { Dock = DockStyle.Fill, ScrollBarsEnabled = false, IsWebBrowserContextMenuEnabled = false };
-            gpsPanel.Controls.Add(mapBrowser); gpsPanel.Controls.Add(openMapBtn); gpsPanel.Controls.Add(infoPanel); gpsPanel.Controls.Add(gpsHeader);
+            gpsPanel.Controls.Add(mapBrowser);
+            gpsPanel.Controls.Add(openMapBtn);
+            gpsPanel.Controls.Add(setGpsBtn);
+            gpsPanel.Controls.Add(infoPanel);
+            gpsPanel.Controls.Add(gpsHeader);
 
             Controls.Add(canvasPanel); Controls.Add(gpsPanel); Controls.Add(leftToolbar); Controls.Add(topToolbar); Controls.Add(bottomBar);
         }
@@ -214,7 +224,15 @@ namespace FileExplorerr
         {
             _gpsData = GpsReader.Read(imagePath);
             if (_gpsData == null || !_gpsData.HasGps)
-            { gpsLatLabel.Text = "Sin datos GPS"; gpsLatLabel.ForeColor = Theme.Warning; gpsLonLabel.Visible = gpsAltLabel.Visible = gpsCameraLabel.Visible = gpsDateLabel.Visible = false; return; }
+            {
+                gpsLatLabel.Text = "Sin datos GPS";
+                gpsLatLabel.ForeColor = Theme.Warning;
+                gpsLonLabel.Text = "Usa 'Agregar GPS' para añadir";
+                gpsLonLabel.ForeColor = Theme.TextMuted;
+                gpsLonLabel.Visible = true;
+                gpsAltLabel.Visible = gpsCameraLabel.Visible = gpsDateLabel.Visible = false;
+                return;
+            }
             var g = _gpsData;
             gpsLatLabel.Text = $"Lat:   {g.LatString}"; gpsLonLabel.Text = $"Lon:  {g.LonString}";
             gpsAltLabel.Text = g.Altitude.HasValue ? $"Alt:   {g.Altitude.Value:0.0} m" : "Alt:   —";
@@ -224,6 +242,42 @@ namespace FileExplorerr
             string ls = g.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
             string lo = g.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
             mapBrowser.DocumentText = $@"<!DOCTYPE html><html><head><meta charset='utf-8'/><meta http-equiv='X-UA-Compatible' content='IE=edge'/><link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script><style>*{{margin:0;padding:0}}html,body,#map{{width:100%;height:100%;background:#121216}}</style></head><body><div id='map'></div><script>var map=L.map('map',{{attributionControl:false}}).setView([{ls},{lo}],15);L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}}).addTo(map);L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}°').openPopup();</script></body></html>";
+        }
+
+        /// <summary>
+        /// Diálogo para agregar o editar coordenadas GPS en los metadatos EXIF de la imagen
+        /// </summary>
+        private void SetGpsCoordinates()
+        {
+            string extLow = Path.GetExtension(imagePath).ToLower();
+            if (extLow != ".jpg" && extLow != ".jpeg" && extLow != ".tiff" && extLow != ".tif")
+            {
+                MessageBox.Show("Solo se pueden escribir coordenadas GPS en archivos JPEG y TIFF.",
+                    "Formato no soportado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            using var dlg = new GpsEditDialog(_gpsData);
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                GpsWriter.WriteGps(imagePath, dlg.Latitude, dlg.Longitude, dlg.Altitude);
+
+                // Recargar GPS
+                _gpsData = null;
+                LoadGps();
+
+                MessageBox.Show(
+                    $"GPS guardado:\nLat: {dlg.Latitude:F6}\nLon: {dlg.Longitude:F6}" +
+                    (dlg.Altitude.HasValue ? $"\nAlt: {dlg.Altitude.Value:F1} m" : ""),
+                    "GPS actualizado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al escribir GPS:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private static void SetBrowserEmulation()
@@ -320,7 +374,6 @@ namespace FileExplorerr
             using var dlg = new TextToolDialog(textFontFamily, textFontSize, textFontStyle, textColor);
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
-            // Save settings for next use
             textFontFamily = dlg.SelectedFontFamily;
             textFontSize = dlg.SelectedFontSize;
             textFontStyle = dlg.SelectedFontStyle;
@@ -415,6 +468,156 @@ namespace FileExplorerr
     }
 
     // ════════════════════════════════════════════════════════════════════════
+    //  DIÁLOGO PARA EDITAR/AGREGAR GPS
+    // ════════════════════════════════════════════════════════════════════════
+    internal class GpsEditDialog : Form
+    {
+        public double Latitude { get; private set; }
+        public double Longitude { get; private set; }
+        public double? Altitude { get; private set; }
+
+        private TextBox txtLat = null!, txtLon = null!, txtAlt = null!;
+
+        public GpsEditDialog(GpsReader.GpsData? existing)
+        {
+            Text = existing?.HasGps == true ? "Editar coordenadas GPS" : "Agregar coordenadas GPS";
+            Size = new Size(420, 280);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MaximizeBox = false; MinimizeBox = false;
+            BackColor = Color.FromArgb(18, 18, 22);
+            ForeColor = Color.FromArgb(230, 230, 236);
+            Font = new Font("Segoe UI", 9.5F);
+
+            var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = Color.FromArgb(26, 26, 32) };
+            header.Controls.Add(new Label
+            {
+                Text = "📍  Coordenadas GPS",
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(82, 196, 120),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(14, 0, 0, 0)
+            });
+
+            var lblInfo = new Label
+            {
+                Text = "Ingresa las coordenadas en formato decimal.\nEjemplo: Lat 27.057918, Lon -101.543602",
+                Location = new Point(14, 56),
+                Size = new Size(380, 36),
+                ForeColor = Color.FromArgb(140, 140, 156),
+                Font = new Font("Segoe UI", 8.5F)
+            };
+
+            AddLabel("Latitud:", 14, 100);
+            txtLat = AddField(120, 98, 260, existing?.HasGps == true ? existing.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+
+            AddLabel("Longitud:", 14, 136);
+            txtLon = AddField(120, 134, 260, existing?.HasGps == true ? existing.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+
+            AddLabel("Altitud (m):", 14, 172);
+            txtAlt = AddField(120, 170, 120, existing?.Altitude.HasValue == true ? existing.Altitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+
+            var btnSave = new Button
+            {
+                Text = "Guardar GPS",
+                Location = new Point(170, 210),
+                Size = new Size(120, 36),
+                BackColor = Color.FromArgb(22, 100, 40),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                DialogResult = DialogResult.OK
+            };
+            btnSave.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
+            btnSave.Click += BtnSave_Click;
+
+            var btnCancel = new Button
+            {
+                Text = "Cancelar",
+                Location = new Point(300, 210),
+                Size = new Size(100, 36),
+                BackColor = Color.FromArgb(34, 34, 42),
+                ForeColor = Color.FromArgb(230, 230, 236),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F),
+                Cursor = Cursors.Hand,
+                DialogResult = DialogResult.Cancel
+            };
+            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(44, 44, 54);
+
+            Controls.Add(header);
+            Controls.Add(lblInfo);
+            Controls.Add(btnSave);
+            Controls.Add(btnCancel);
+            AcceptButton = btnSave;
+            CancelButton = btnCancel;
+        }
+
+        private void BtnSave_Click(object? sender, EventArgs e)
+        {
+            if (!double.TryParse(txtLat.Text.Trim(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out double lat) ||
+                Math.Abs(lat) > 90)
+            {
+                MessageBox.Show("Latitud inválida. Debe ser un número entre -90 y 90.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                DialogResult = DialogResult.None;
+                return;
+            }
+
+            if (!double.TryParse(txtLon.Text.Trim(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out double lon) ||
+                Math.Abs(lon) > 180)
+            {
+                MessageBox.Show("Longitud inválida. Debe ser un número entre -180 y 180.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                DialogResult = DialogResult.None;
+                return;
+            }
+
+            Latitude = lat;
+            Longitude = lon;
+
+            if (!string.IsNullOrWhiteSpace(txtAlt.Text) &&
+                double.TryParse(txtAlt.Text.Trim(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out double alt))
+                Altitude = alt;
+            else
+                Altitude = null;
+        }
+
+        private void AddLabel(string text, int x, int y)
+        {
+            Controls.Add(new Label
+            {
+                Text = text,
+                Location = new Point(x, y + 4),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(110, 140, 180),
+                Font = new Font("Segoe UI", 9F)
+            });
+        }
+
+        private TextBox AddField(int x, int y, int width, string value)
+        {
+            var txt = new TextBox
+            {
+                Location = new Point(x, y),
+                Size = new Size(width, 28),
+                BackColor = Color.FromArgb(34, 34, 42),
+                ForeColor = Color.FromArgb(230, 230, 236),
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Cascadia Code", 10F),
+                Text = value
+            };
+            Controls.Add(txt);
+            return txt;
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
     //  DIÁLOGO DE TEXTO — fuente, tamaño, estilo, color
     // ════════════════════════════════════════════════════════════════════════
     internal class TextToolDialog : Form
@@ -461,7 +664,6 @@ namespace FileExplorerr
             BackColor = BgForm; ForeColor = TextPri;
             Font = new Font("Segoe UI", 9.5F);
 
-            // Header
             var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = BgHeader };
             header.Controls.Add(new Label
             {
@@ -473,7 +675,6 @@ namespace FileExplorerr
                 Padding = new Padding(14, 0, 0, 0)
             });
 
-            // Texto
             AddLabel("Texto:", 14, 58);
             txtContent = new TextBox
             {
@@ -486,7 +687,6 @@ namespace FileExplorerr
             };
             txtContent.TextChanged += (s, e) => UpdatePreview();
 
-            // Fuente
             AddLabel("Fuente:", 14, 100);
             cmbFont = new ComboBox
             {
@@ -505,12 +705,10 @@ namespace FileExplorerr
             })
                 cmbFont.Items.Add(fam);
 
-            // Try to select current font
             int fontIdx = cmbFont.Items.IndexOf(SelectedFontFamily);
             cmbFont.SelectedIndex = fontIdx >= 0 ? fontIdx : 0;
             cmbFont.SelectedIndexChanged += (s, e) => UpdatePreview();
 
-            // Tamaño
             AddLabel("Tamaño:", 354, 100);
             nudSize = new NumericUpDown
             {
@@ -526,7 +724,6 @@ namespace FileExplorerr
             };
             nudSize.ValueChanged += (s, e) => UpdatePreview();
 
-            // Estilos
             AddLabel("Estilo:", 14, 142);
             chkBold = MakeCheck("Negrita", 110, 140);
             chkItalic = MakeCheck("Cursiva", 188, 140);
@@ -538,7 +735,6 @@ namespace FileExplorerr
             chkItalic.CheckedChanged += (s, e) => UpdatePreview();
             chkUnderline.CheckedChanged += (s, e) => UpdatePreview();
 
-            // Color
             AddLabel("Color:", 14, 184);
             colorSwatch = new Panel
             {
@@ -582,7 +778,6 @@ namespace FileExplorerr
                 }
             };
 
-            // Preview
             var previewBox = new Panel
             {
                 Location = new Point(14, 222),
@@ -609,7 +804,6 @@ namespace FileExplorerr
                 ForeColor = TextSec
             };
 
-            // Botones
             var btnOk = new Button
             {
                 Text = "Insertar",
