@@ -412,7 +412,7 @@ namespace FileExplorerr
         /// <summary>
         /// Valida un teléfono: debe tener exactamente 10 dígitos.
         /// Si tiene código de país (+52, +1, etc.) lo quita.
-        /// Retorna el teléfono corregido si necesitó corrección, null si está bien o no es teléfono.
+        /// Retorna el teléfono corregido (solo 10 dígitos) si necesitó corrección, null si ya está perfecto.
         /// </summary>
         private static string? ValidateAndFixPhone(string raw)
         {
@@ -421,33 +421,30 @@ namespace FileExplorerr
             // Extraer solo dígitos
             string digitsOnly = new string(raw.Where(char.IsDigit).ToArray());
 
-            if (digitsOnly.Length == 0) return null;
+            if (digitsOnly.Length == 0) return "⚠(sin dígitos)";
 
-            // Ya tiene exactamente 10 dígitos — verificar si el formato original es limpio
+            // Ya tiene exactamente 10 dígitos
             if (digitsOnly.Length == 10)
             {
-                // Si el original tiene +, código de país u otros caracteres raros, limpiar
-                string cleaned = digitsOnly;
-                if (raw.Trim() != cleaned && raw.Trim().Replace("-", "").Replace(" ", "").Replace("(", "").Replace(")", "") != cleaned)
-                    return cleaned;
-                return null; // está bien
+                // Si el original no es exactamente los 10 dígitos limpios, corregir formato
+                if (raw.Trim() != digitsOnly)
+                    return digitsOnly;
+                return null; // perfecto, no necesita corrección
             }
 
-            // Tiene más de 10 dígitos — probablemente tiene código de país
+            // Tiene más de 10 dígitos — tiene código de país
             if (digitsOnly.Length > 10 && digitsOnly.Length <= 15)
             {
-                // Quitar código de país: tomar los últimos 10 dígitos
-                string fixed10 = digitsOnly.Substring(digitsOnly.Length - 10);
-                return fixed10;
+                // Tomar los últimos 10 dígitos (quitar código de país)
+                return digitsOnly.Substring(digitsOnly.Length - 10);
             }
 
             // Menos de 10 dígitos — teléfono incompleto
             if (digitsOnly.Length < 10 && digitsOnly.Length >= 7)
-            {
                 return $"⚠{digitsOnly}({digitsOnly.Length}d)";
-            }
 
-            return null;
+            // Muy corto o muy largo — marcar como inválido
+            return $"⚠{digitsOnly}(inválido)";
         }
 
         // ── Validación de email ──────────────────────────────────────────────
@@ -669,21 +666,38 @@ namespace FileExplorerr
             var ft = masterTable.Copy();
 
             // Corregir fechas
-            foreach (var (r, c, _, f) in dateIssues) ft.Rows[r][c] = f;
+            foreach (var (r, c, _, f) in dateIssues)
+                ft.Rows[r][c] = f;
 
-            // Corregir teléfonos
-            foreach (var (r, c, _, f) in phoneIssues)
+            // Corregir teléfonos: aplicar todos los que tienen corrección real (10 dígitos)
+            foreach (var (r, c, orig, f) in phoneIssues)
             {
-                if (!f.StartsWith("⚠")) // Solo aplicar si es una corrección real (no advertencia)
+                // Si el fix es solo 10 dígitos limpios, aplicar
+                string digitsInFix = new string(f.Where(char.IsDigit).ToArray());
+                if (digitsInFix.Length == 10 && !f.StartsWith("⚠"))
+                    ft.Rows[r][c] = digitsInFix;
+                // Si es advertencia (incompleto/inválido), marcar en el campo
+                else
                     ft.Rows[r][c] = f;
             }
 
+            // Marcar emails inválidos
+            foreach (var (r, c, orig) in emailIssues)
+                ft.Rows[r][c] = $"⚠{orig}";
+
             // Marcar vacíos
-            foreach (var (r, c) in emptyFields) ft.Rows[r][c] = "(vacío)";
+            foreach (var (r, c) in emptyFields)
+                ft.Rows[r][c] = "(vacío)";
 
             // Eliminar duplicados
-            var toRemove = duplicateRows.GroupBy(r => string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? ""))).SelectMany(g => g.Skip(1)).Distinct().OrderByDescending(x => x).ToList();
-            foreach (int r in toRemove) if (r < ft.Rows.Count) ft.Rows[r].Delete();
+            var toRemove = duplicateRows
+                .GroupBy(r => string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? "")))
+                .SelectMany(g => g.Skip(1))
+                .Distinct()
+                .OrderByDescending(x => x)
+                .ToList();
+            foreach (int r in toRemove)
+                if (r < ft.Rows.Count) ft.Rows[r].Delete();
             ft.AcceptChanges();
 
             string dir = Path.GetDirectoryName(filePath)!;
