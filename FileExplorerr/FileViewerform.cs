@@ -59,7 +59,8 @@ namespace FileExplorerr
             { "email", "correo", "mail", "e-mail", "correo electronico",
               "correo electrónico", "electronic", "address" };
 
-        private Dictionary<int, (bool IsNumeric, bool IsCurrency)> columnNumericInfo = new();
+        // IsPhone añadido al tuple para bloquear formateo numérico en columnas de teléfono
+        private Dictionary<int, (bool IsNumeric, bool IsCurrency, bool IsPhone)> columnNumericInfo = new();
         private static readonly string[] CurrencyKeywords =
             { "price", "precio", "cost", "costo", "amount", "monto", "total", "salary", "salario",
               "revenue", "ingreso", "venta", "sale", "fee", "value", "valor", "budget", "expense", "gasto" };
@@ -343,6 +344,63 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
+        //  DETECCIÓN INTELIGENTE DE COLUMNAS DE TELÉFONO
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Determina si una columna debe tratarse como número de teléfono,
+        /// combinando detección por nombre de columna Y análisis del contenido.
+        /// Una columna es de teléfono si:
+        ///   - Su nombre contiene alguna keyword de teléfono, O
+        ///   - ≥60% de sus valores no-vacíos pasan el test LooksLikePhone()
+        /// </summary>
+        private static bool IsPhoneColumn(DataTable dt, int colIndex)
+        {
+            string colName = dt.Columns[colIndex].ColumnName.ToLower();
+
+            // 1. Detección por nombre de columna
+            if (PhoneKeywords.Any(k => colName.Contains(k)))
+                return true;
+
+            // 2. Detección por contenido
+            var nonEmpty = dt.Rows.Cast<DataRow>()
+                .Select(r => r[colIndex]?.ToString()?.Trim() ?? "")
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToList();
+
+            if (nonEmpty.Count == 0) return false;
+
+            int phoneCount = nonEmpty.Count(v => LooksLikePhone(v));
+            return (double)phoneCount / nonEmpty.Count >= 0.6;
+        }
+
+        /// <summary>
+        /// Heurística para distinguir un número de teléfono de un valor numérico real.
+        /// Acepta: dígitos, espacios, +, -, (, ), puntos — entre 7 y 15 dígitos totales.
+        /// Rechaza: valores con punto decimal y parte fraccionaria significativa (precios, medidas).
+        /// </summary>
+        private static bool LooksLikePhone(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+
+            // Solo caracteres válidos en un teléfono
+            if (!Regex.IsMatch(value, @"^[\d\s\+\-\(\)\.ext]{7,20}$", RegexOptions.IgnoreCase))
+                return false;
+
+            string digitsOnly = new string(value.Where(char.IsDigit).ToArray());
+
+            // Entre 7 y 15 dígitos
+            if (digitsOnly.Length < 7 || digitsOnly.Length > 15) return false;
+
+            // Si tiene punto decimal con parte fraccionaria no-cero → es precio/medida, no teléfono
+            var dotMatch = Regex.Match(value, @"\.(\d+)");
+            if (dotMatch.Success && dotMatch.Groups[1].Value.TrimEnd('0').Length > 0)
+                return false;
+
+            return true;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         //  ANÁLISIS
         // ════════════════════════════════════════════════════════════════════
         private void AnalyzeTable()
@@ -353,14 +411,15 @@ namespace FileExplorerr
             phoneIssues.Clear();
             emailIssues.Clear();
 
-            // Detectar columnas de teléfono y email por nombre
+            // Detectar columnas de teléfono (por nombre + contenido) y email (por nombre)
             var phoneColumns = new HashSet<int>();
             var emailColumns = new HashSet<int>();
             for (int c = 0; c < masterTable.Columns.Count; c++)
             {
-                string colName = masterTable.Columns[c].ColumnName.ToLower();
-                if (PhoneKeywords.Any(k => colName.Contains(k)))
+                if (IsPhoneColumn(masterTable, c))
                     phoneColumns.Add(c);
+
+                string colName = masterTable.Columns[c].ColumnName.ToLower();
                 if (EmailKeywords.Any(k => colName.Contains(k)))
                     emailColumns.Add(c);
             }
@@ -400,10 +459,13 @@ namespace FileExplorerr
                             emailIssues.Add((r, c, val));
                     }
 
-                    // Fechas
-                    string? fixedDate = DetectAndFixDate(val);
-                    if (fixedDate != null && fixedDate != val)
-                        dateIssues.Add((r, c, val, fixedDate));
+                    // Fechas: solo en columnas que no sean de teléfono
+                    if (!phoneColumns.Contains(c))
+                    {
+                        string? fixedDate = DetectAndFixDate(val);
+                        if (fixedDate != null && fixedDate != val)
+                            dateIssues.Add((r, c, val, fixedDate));
+                    }
                 }
             }
         }
@@ -498,10 +560,21 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private void ApplyDisplayTable(DataTable source)
         {
-            displayTable = source; columnNumericInfo.Clear();
-            grid.DataSource = null; grid.DataSource = displayTable;
+            displayTable = source;
+            columnNumericInfo.Clear();
+            grid.DataSource = null;
+            grid.DataSource = displayTable;
+
             for (int c = 0; c < displayTable.Columns.Count; c++)
             {
+                // Detectar columna de teléfono PRIMERO — nunca formatear sus valores como número
+                bool isPhoneCol = IsPhoneColumn(displayTable, c);
+                if (isPhoneCol)
+                {
+                    columnNumericInfo[c] = (false, false, true);
+                    continue;
+                }
+
                 string colName = displayTable.Columns[c].ColumnName.ToLower();
                 bool isCurrencyCol = CurrencyKeywords.Any(k => colName.Contains(k));
                 int numericCount = 0; bool hasCurrencySymbol = false;
@@ -513,7 +586,7 @@ namespace FileExplorerr
                 }
                 int nonEmpty = displayTable.Rows.Cast<DataRow>().Count(r => !string.IsNullOrWhiteSpace(r[c]?.ToString()));
                 bool isNumeric = nonEmpty > 0 && (double)numericCount / nonEmpty >= 0.8;
-                columnNumericInfo[c] = (isNumeric, isNumeric && (isCurrencyCol || hasCurrencySymbol));
+                columnNumericInfo[c] = (isNumeric, isNumeric && (isCurrencyCol || hasCurrencySymbol), false);
             }
             foreach (DataGridViewColumn col in grid.Columns) { col.SortMode = DataGridViewColumnSortMode.Programmatic; col.Width = Math.Min(280, Math.Max(70, col.Width)); }
         }
@@ -528,7 +601,8 @@ namespace FileExplorerr
             bool isEmail = emailIssues.Any(x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
             bool isColMismatch = columnMismatchRows.Contains(e.RowIndex);
 
-            if (columnNumericInfo.TryGetValue(e.ColumnIndex, out var ni) && ni.IsNumeric && !isEmpty)
+            // Formateo numérico solo si la columna NO es de teléfono
+            if (columnNumericInfo.TryGetValue(e.ColumnIndex, out var ni) && ni.IsNumeric && !ni.IsPhone && !isEmpty)
             {
                 string raw = e.Value?.ToString()?.Trim() ?? "";
                 string clean = raw.TrimStart('$', '€', '£', '¥', ' ').Replace(",", "");
