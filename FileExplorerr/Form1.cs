@@ -646,6 +646,8 @@ namespace FileExplorerr
             var miRename = new ToolStripMenuItem("Renombrar") { ForeColor = Theme.TextPrimary };
             var miDelete = new ToolStripMenuItem("Eliminar") { ForeColor = Theme.Danger };
             var miSep3 = new ToolStripSeparator();
+            var miProps = new ToolStripMenuItem("Ver propiedades") { ForeColor = Color.FromArgb(180, 160, 230) };
+            var miSep4 = new ToolStripSeparator();
             var miRefresh = new ToolStripMenuItem("Actualizar") { ForeColor = Theme.Accent };
 
             miOpen.Click += (s, e) => { if (listView.SelectedItems.Count > 0) OpenEntry(listView.SelectedItems[0].Tag!.ToString()!); };
@@ -653,19 +655,34 @@ namespace FileExplorerr
             miRename.Click += (s, e) => RenameSelected();
             miDelete.Click += (s, e) => DeleteSelected();
             miRefresh.Click += (s, e) => RefreshView();
+            miProps.Click += (s, e) =>
+            {
+                if (listView.SelectedItems.Count > 0)
+                    new FilePropertiesForm(listView.SelectedItems[0].Tag!.ToString()!).Show(this);
+            };
 
-            contextMenu.Items.AddRange(new ToolStripItem[] { miOpen, miSep1, miNewFolder, miSep2, miRename, miDelete, miSep3, miRefresh });
+            contextMenu.Items.AddRange(new ToolStripItem[]
+            {
+        miOpen, miSep1, miNewFolder, miSep2, miRename, miDelete,
+        miSep3, miProps, miSep4, miRefresh
+            });
         }
-
         private void ListView_MouseClick(object sender, MouseEventArgs e)
         {
+
             if (e.Button != MouseButtons.Right) return;
             bool sel = listView.SelectedItems.Count > 0;
-            contextMenu.Items[0].Visible = sel;
-            contextMenu.Items[1].Visible = sel;
-            contextMenu.Items[3].Visible = sel;
-            contextMenu.Items[4].Visible = sel;
-            contextMenu.Items[5].Visible = sel;
+
+            // Índices: 0=Abrir 1=Sep1 2=NuevaCarpeta 3=Sep2 4=Renombrar
+            //          5=Eliminar 6=Sep3 7=Propiedades 8=Sep4 9=Actualizar
+            contextMenu.Items[0].Visible = sel;   // Abrir
+            contextMenu.Items[1].Visible = sel;   // Sep1
+            contextMenu.Items[3].Visible = sel;   // Sep2
+            contextMenu.Items[4].Visible = sel;   // Renombrar
+            contextMenu.Items[5].Visible = sel;   // Eliminar
+            contextMenu.Items[6].Visible = sel;   // Sep3
+            contextMenu.Items[7].Visible = sel;   // Ver propiedades
+            contextMenu.Items[8].Visible = sel;   // Sep4
         }
 
         // ════════════════════════════════════════════════════════════════════

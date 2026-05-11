@@ -1,0 +1,582 @@
+﻿using System;
+using System.Drawing;
+using System.IO;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Windows.Forms;
+
+namespace FileExplorerr
+{
+    // ════════════════════════════════════════════════════════════════════════
+    //  VENTANA DE PROPIEDADES DE ARCHIVO / CARPETA
+    // ════════════════════════════════════════════════════════════════════════
+   public class FilePropertiesForm : Form
+    {
+        private readonly string _path;
+        private readonly bool _isDirectory;
+
+        public FilePropertiesForm(string path)
+        {
+            _path = path;
+            _isDirectory = Directory.Exists(path);
+            BuildUI();
+        }
+
+        private void BuildUI()
+        {
+            // ── Ventana ──────────────────────────────────────────────────────
+            Text = $"Propiedades — {Path.GetFileName(_path)}";
+            Size = new Size(480, 620);
+            MinimumSize = new Size(420, 520);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            BackColor = Color.FromArgb(18, 18, 22);
+            ForeColor = Color.FromArgb(230, 230, 236);
+            Font = new Font("Segoe UI", 9.5F);
+
+            // ── Header con ícono y nombre ────────────────────────────────────
+            var header = new Panel
+            {
+                Height = 72,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(26, 26, 32),
+                Padding = new Padding(16, 0, 0, 0)
+            };
+
+            string emoji = _isDirectory ? "📁" : GetFileEmoji(Path.GetExtension(_path));
+            var iconLabel = new Label
+            {
+                Text = emoji,
+                Font = new Font("Segoe UI", 26F),
+                Size = new Size(54, 54),
+                Location = new Point(14, 10),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            string fileName = Path.GetFileName(_path);
+            if (string.IsNullOrEmpty(fileName)) fileName = _path; // raíz de disco
+
+            var nameLabel = new Label
+            {
+                Text = fileName,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(230, 230, 236),
+                Location = new Point(76, 14),
+                Size = new Size(370, 24),
+                AutoEllipsis = true
+            };
+
+            var typeLabel = new Label
+            {
+                Text = _isDirectory ? "Carpeta" : DescribeType(Path.GetExtension(_path)),
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(100, 140, 180),
+                Location = new Point(76, 40),
+                Size = new Size(370, 18)
+            };
+
+            header.Controls.AddRange(new Control[] { iconLabel, nameLabel, typeLabel });
+
+            // ── Separador ────────────────────────────────────────────────────
+            var divider = new Panel
+            {
+                Height = 1,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(44, 44, 54)
+            };
+
+            // ── Scroll de propiedades ────────────────────────────────────────
+            var scroll = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.FromArgb(18, 18, 22),
+                Padding = new Padding(16, 12, 16, 12)
+            };
+
+            var rows = new System.Collections.Generic.List<(string Key, string Value, Color? Color)>();
+            LoadProperties(rows);
+
+            int y = 10;
+            foreach (var (key, value, color) in rows)
+            {
+                if (key == "---")   // separador de sección
+                {
+                    var sep = new Panel
+                    {
+                        Left = 0,
+                        Top = y + 4,
+                        Width = 430,
+                        Height = 1,
+                        BackColor = Color.FromArgb(38, 38, 48)
+                    };
+                    scroll.Controls.Add(sep);
+                    y += 14;
+                    continue;
+                }
+
+                if (key.StartsWith("##"))  // título de sección
+                {
+                    var secLabel = new Label
+                    {
+                        Text = key.Substring(2),
+                        Left = 0,
+                        Top = y,
+                        Width = 430,
+                        Height = 22,
+                        Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                        ForeColor = Color.FromArgb(72, 202, 188)
+                    };
+                    scroll.Controls.Add(secLabel);
+                    y += 26;
+                    continue;
+                }
+
+                // Fila clave / valor
+                var lKey = new Label
+                {
+                    Text = key,
+                    Left = 0,
+                    Top = y,
+                    Width = 140,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.5F),
+                    ForeColor = Color.FromArgb(100, 130, 170)
+                };
+
+                var lVal = new Label
+                {
+                    Text = value,
+                    Left = 148,
+                    Top = y,
+                    Width = 282,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                    ForeColor = color ?? Color.FromArgb(220, 220, 230),
+                    AutoEllipsis = true,
+                    Cursor = Cursors.IBeam
+                };
+
+                // Permitir copiar al hacer doble clic en el valor
+                lVal.DoubleClick += (s, e) =>
+                {
+                    Clipboard.SetText(lVal.Text);
+                    ShowCopiedToast(lVal.Text);
+                };
+
+                scroll.Controls.AddRange(new Control[] { lKey, lVal });
+                y += 24;
+            }
+
+            // ── Botón cerrar ─────────────────────────────────────────────────
+            var bottomPanel = new Panel
+            {
+                Height = 48,
+                Dock = DockStyle.Bottom,
+                BackColor = Color.FromArgb(26, 26, 32),
+                Padding = new Padding(8)
+            };
+
+            var btnClose = new Button
+            {
+                Text = "Cerrar",
+                Size = new Size(90, 32),
+                BackColor = Color.FromArgb(34, 34, 42),
+                ForeColor = Color.FromArgb(220, 220, 230),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F),
+                Cursor = Cursors.Hand,
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
+            };
+            btnClose.FlatAppearance.BorderColor = Color.FromArgb(54, 54, 64);
+            btnClose.Click += (s, e) => Close();
+            btnClose.Location = new Point(bottomPanel.Width - 106, 8);
+            bottomPanel.Resize += (s, e) => btnClose.Location = new Point(bottomPanel.Width - 106, 8);
+
+            var hintLabel = new Label
+            {
+                Text = "Doble clic en un valor para copiarlo",
+                Left = 12,
+                Top = 16,
+                AutoSize = true,
+                Font = new Font("Segoe UI", 7.5F),
+                ForeColor = Color.FromArgb(70, 70, 88)
+            };
+
+            bottomPanel.Controls.AddRange(new Control[] { btnClose, hintLabel });
+
+            Controls.Add(scroll);
+            Controls.Add(divider);
+            Controls.Add(header);
+            Controls.Add(bottomPanel);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  CARGAR PROPIEDADES
+        // ════════════════════════════════════════════════════════════════════
+        private void LoadProperties(System.Collections.Generic.List<(string, string, Color?)> rows)
+        {
+            void Add(string k, string v, Color? c = null) => rows.Add((k, v, c));
+            void Sep() => rows.Add(("---", "", null));
+            void Section(string t) => rows.Add(("##" + t, "", null));
+
+            try
+            {
+                // ── GENERAL ──────────────────────────────────────────────────
+                Section("General");
+
+                if (_isDirectory)
+                {
+                    var di = new DirectoryInfo(_path);
+                    Add("Nombre", di.Name);
+                    Add("Tipo", "Carpeta de archivos");
+                    Add("Ubicación", di.Parent?.FullName ?? _path);
+                    Add("Ruta completa", di.FullName);
+                    Sep();
+
+                    Section("Contenido");
+                    (int files, int dirs, long totalSize) = CountContents(di);
+                    Add("Archivos", files.ToString("N0"));
+                    Add("Subcarpetas", dirs.ToString("N0"));
+                    Add("Tamaño total", FormatSize(totalSize) + $"  ({totalSize:N0} bytes)",
+                        Color.FromArgb(140, 210, 170));
+                    Sep();
+
+                    Section("Fechas");
+                    Add("Creación", di.CreationTime.ToString("dd/MM/yyyy   HH:mm:ss"));
+                    Add("Modificación", di.LastWriteTime.ToString("dd/MM/yyyy   HH:mm:ss"));
+                    Add("Último acceso", di.LastAccessTime.ToString("dd/MM/yyyy   HH:mm:ss"));
+                    Sep();
+
+                    Section("Atributos");
+                    Add("Oculta", di.Attributes.HasFlag(FileAttributes.Hidden) ? "Sí" : "No");
+                    Add("Solo lectura", di.Attributes.HasFlag(FileAttributes.ReadOnly) ? "Sí" : "No");
+                    Add("Sistema", di.Attributes.HasFlag(FileAttributes.System) ? "Sí" : "No");
+                }
+                else
+                {
+                    var fi = new FileInfo(_path);
+                    string ext = fi.Extension.ToLower();
+
+                    Add("Nombre", fi.Name);
+                    Add("Extensión", string.IsNullOrEmpty(fi.Extension) ? "(sin extensión)" : fi.Extension.ToUpper());
+                    Add("Tipo", DescribeType(ext));
+                    Add("Ubicación", fi.DirectoryName ?? "");
+                    Add("Ruta completa", fi.FullName);
+                    Sep();
+
+                    // ── TAMAÑO ───────────────────────────────────────────────
+                    Section("Tamaño");
+                    Add("En disco", FormatSize(fi.Length),
+                        Color.FromArgb(140, 210, 170));
+                    Add("Bytes exactos", $"{fi.Length:N0} bytes");
+                    Add("Kilobytes", $"{fi.Length / 1024.0:N2} KB");
+                    Add("Megabytes", $"{fi.Length / 1048576.0:N4} MB");
+                    Sep();
+
+                    // ── FECHAS ───────────────────────────────────────────────
+                    Section("Fechas");
+                    Add("Creación", fi.CreationTime.ToString("dd/MM/yyyy   HH:mm:ss"));
+                    Add("Modificación", fi.LastWriteTime.ToString("dd/MM/yyyy   HH:mm:ss"));
+                    Add("Último acceso", fi.LastAccessTime.ToString("dd/MM/yyyy   HH:mm:ss"));
+                    Sep();
+
+                    // ── ATRIBUTOS ────────────────────────────────────────────
+                    Section("Atributos");
+                    Add("Solo lectura", fi.IsReadOnly ? "Sí" : "No",
+                        fi.IsReadOnly ? Color.FromArgb(220, 160, 80) : null);
+                    Add("Oculto", fi.Attributes.HasFlag(FileAttributes.Hidden) ? "Sí" : "No");
+                    Add("Sistema", fi.Attributes.HasFlag(FileAttributes.System) ? "Sí" : "No");
+                    Add("Archivo", fi.Attributes.HasFlag(FileAttributes.Archive) ? "Sí" : "No");
+                    Add("Comprimido", fi.Attributes.HasFlag(FileAttributes.Compressed) ? "Sí" : "No");
+                    Add("Cifrado", fi.Attributes.HasFlag(FileAttributes.Encrypted) ? "Sí" : "No",
+                        fi.Attributes.HasFlag(FileAttributes.Encrypted)
+                            ? Color.FromArgb(220, 160, 80) : null);
+                    Sep();
+
+                    // ── PROPIEDADES ESPECÍFICAS POR TIPO ─────────────────────
+                    if (IsImage(ext)) LoadImageProps(fi, rows);
+                    else if (IsAudio(ext)) LoadAudioProps(fi, rows);
+                    else if (IsVideo(ext)) LoadVideoProps(fi, rows);
+                    else if (IsText(ext)) LoadTextProps(fi, rows);
+
+                    // ── SEGURIDAD / PROPIETARIO ──────────────────────────────
+                    Section("Seguridad");
+                    try
+                    {
+                        var acl = fi.GetAccessControl();
+                        var owner = acl.GetOwner(typeof(NTAccount));
+                        Add("Propietario", owner?.ToString() ?? "Desconocido");
+                    }
+                    catch
+                    {
+                        Add("Propietario", "Sin acceso");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                rows.Add(("Error", ex.Message, Color.FromArgb(220, 95, 85)));
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  PROPIEDADES POR TIPO
+        // ════════════════════════════════════════════════════════════════════
+        private static void LoadImageProps(FileInfo fi,
+            System.Collections.Generic.List<(string, string, Color?)> rows)
+        {
+            rows.Add(("##Imagen", "", null));
+            try
+            {
+                using var fs = new FileStream(fi.FullName, FileMode.Open,
+                                               FileAccess.Read, FileShare.ReadWrite);
+                using var img = System.Drawing.Image.FromStream(fs, false, false);
+                rows.Add(("Resolución", $"{img.Width} × {img.Height} px", null));
+                rows.Add(("DPI horizontal", $"{img.HorizontalResolution:0} dpi", null));
+                rows.Add(("DPI vertical", $"{img.VerticalResolution:0} dpi", null));
+                rows.Add(("Formato", img.RawFormat.ToString(), null));
+                rows.Add(("Profundidad", $"{System.Drawing.Image.GetPixelFormatSize(img.PixelFormat)} bpp", null));
+            }
+            catch { rows.Add(("Resolución", "No disponible", null)); }
+            rows.Add(("---", "", null));
+        }
+
+        private static void LoadAudioProps(FileInfo fi,
+            System.Collections.Generic.List<(string, string, Color?)> rows)
+        {
+            rows.Add(("##Audio", "", null));
+            try
+            {
+                var tag = TagLib.File.Create(fi.FullName);
+                rows.Add(("Título", string.IsNullOrWhiteSpace(tag.Tag.Title) ? "—" : tag.Tag.Title, null));
+                rows.Add(("Artista", string.IsNullOrWhiteSpace(tag.Tag.FirstPerformer) ? "—" : tag.Tag.FirstPerformer, null));
+                rows.Add(("Álbum", string.IsNullOrWhiteSpace(tag.Tag.Album) ? "—" : tag.Tag.Album, null));
+                rows.Add(("Año", tag.Tag.Year == 0 ? "—" : tag.Tag.Year.ToString(), null));
+                rows.Add(("Género", tag.Tag.Genres?.Length > 0 ? tag.Tag.Genres[0] : "—", null));
+                rows.Add(("Pista #", tag.Tag.Track == 0 ? "—" : tag.Tag.Track.ToString(), null));
+                rows.Add(("Duración", FormatDuration(tag.Properties.Duration), null));
+                rows.Add(("Bitrate", $"{tag.Properties.AudioBitrate} kbps", null));
+                rows.Add(("Sample rate", $"{tag.Properties.AudioSampleRate} Hz", null));
+                rows.Add(("Canales", tag.Properties.AudioChannels == 1 ? "Mono"
+                                       : tag.Properties.AudioChannels == 2 ? "Estéreo"
+                                       : $"{tag.Properties.AudioChannels} canales", null));
+            }
+            catch { rows.Add(("Metadatos", "No disponibles", null)); }
+            rows.Add(("---", "", null));
+        }
+
+        private static void LoadVideoProps(FileInfo fi,
+            System.Collections.Generic.List<(string, string, Color?)> rows)
+        {
+            rows.Add(("##Video", "", null));
+            try
+            {
+                var tag = TagLib.File.Create(fi.FullName);
+                if (tag.Properties != null)
+                {
+                    rows.Add(("Duración", FormatDuration(tag.Properties.Duration), null));
+                    if (tag.Properties.VideoWidth > 0)
+                        rows.Add(("Resolución", $"{tag.Properties.VideoWidth} × {tag.Properties.VideoHeight} px", null));
+                }
+            }
+            catch { rows.Add(("Metadatos", "No disponibles", null)); }
+            rows.Add(("---", "", null));
+        }
+
+        private static void LoadTextProps(FileInfo fi,
+            System.Collections.Generic.List<(string, string, Color?)> rows)
+        {
+            rows.Add(("##Contenido de texto", "", null));
+            try
+            {
+                // Leer solo los primeros 512 KB para no bloquear con archivos enormes
+                long readBytes = Math.Min(fi.Length, 512 * 1024);
+                byte[] buffer = new byte[readBytes];
+                using var fs = new FileStream(fi.FullName, FileMode.Open,
+                                                FileAccess.Read, FileShare.ReadWrite);
+                fs.Read(buffer, 0, (int)readBytes);
+
+                // Detectar encoding
+                string enc = "UTF-8";
+                if (buffer.Length >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF)
+                    enc = "UTF-8 (con BOM)";
+                else if (buffer.Length >= 2 && buffer[0] == 0xFF && buffer[1] == 0xFE)
+                    enc = "UTF-16 LE";
+                else if (buffer.Length >= 2 && buffer[0] == 0xFE && buffer[1] == 0xFF)
+                    enc = "UTF-16 BE";
+
+                string content = System.Text.Encoding.UTF8.GetString(buffer);
+                int lines = 1;
+                int words = 0;
+                bool inWord = false;
+                foreach (char c in content)
+                {
+                    if (c == '\n') lines++;
+                    if (char.IsLetterOrDigit(c)) { if (!inWord) { words++; inWord = true; } }
+                    else inWord = false;
+                }
+
+                bool isTruncated = fi.Length > 512 * 1024;
+                rows.Add(("Encoding", enc, null));
+                rows.Add(("Líneas", lines.ToString("N0") + (isTruncated ? " (aprox.)" : ""), null));
+                rows.Add(("Palabras", words.ToString("N0") + (isTruncated ? " (aprox.)" : ""), null));
+                rows.Add(("Caracteres", fi.Length.ToString("N0"), null));
+            }
+            catch { rows.Add(("Contenido", "No disponible", null)); }
+            rows.Add(("---", "", null));
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  TOAST "Copiado"
+        // ════════════════════════════════════════════════════════════════════
+        private void ShowCopiedToast(string value)
+        {
+            var toast = new Form
+            {
+                Size = new Size(220, 36),
+                FormBorderStyle = FormBorderStyle.None,
+                StartPosition = FormStartPosition.Manual,
+                BackColor = Color.FromArgb(40, 100, 80),
+                TopMost = true,
+                Opacity = 0.92
+            };
+            toast.Location = new Point(
+                Left + (Width - toast.Width) / 2,
+                Top + Height - 70);
+            toast.Controls.Add(new Label
+            {
+                Text = "✔  Copiado al portapapeles",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(160, 240, 200),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold)
+            });
+            toast.Show(this);
+            var t = new System.Windows.Forms.Timer { Interval = 1400 };
+            t.Tick += (s, e) => { t.Stop(); toast.Close(); };
+            t.Start();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HELPERS
+        // ════════════════════════════════════════════════════════════════════
+        private static (int files, int dirs, long size) CountContents(DirectoryInfo di)
+        {
+            int files = 0, dirs = 0;
+            long size = 0;
+            try
+            {
+                foreach (var f in di.EnumerateFiles("*", SearchOption.AllDirectories))
+                { files++; size += f.Length; }
+                foreach (var _ in di.EnumerateDirectories("*", SearchOption.AllDirectories))
+                    dirs++;
+            }
+            catch { }
+            return (files, dirs, size);
+        }
+
+        private static string FormatSize(long bytes)
+        {
+            string[] u = { "B", "KB", "MB", "GB", "TB" };
+            double v = bytes; int i = 0;
+            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+            return $"{v:0.##} {u[i]}";
+        }
+
+        private static string FormatDuration(TimeSpan t) =>
+            t.Hours > 0
+                ? $"{t.Hours}:{t.Minutes:D2}:{t.Seconds:D2}"
+                : $"{t.Minutes}:{t.Seconds:D2}";
+
+        private static string GetFileEmoji(string ext) => ext.ToLower() switch
+        {
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp"
+                or ".webp" or ".tiff" or ".ico" => "🖼️",
+            ".mp3" or ".wav" or ".flac" or ".aac"
+                or ".ogg" or ".m4a" or ".wma" => "🎵",
+            ".mp4" or ".avi" or ".mkv" or ".mov"
+                or ".wmv" or ".webm" or ".flv" => "🎬",
+            ".pdf" => "📄",
+            ".doc" or ".docx" => "📝",
+            ".xls" or ".xlsx" => "📊",
+            ".ppt" or ".pptx" => "📋",
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "📦",
+            ".exe" or ".msi" => "⚙️",
+            ".cs" or ".py" or ".js" or ".ts"
+                or ".html" or ".css" or ".json" => "💻",
+            ".txt" or ".log" or ".md" or ".csv" or ".xml" => "📃",
+            _ => "📄"
+        };
+
+        private static string DescribeType(string ext) => ext.ToLower() switch
+        {
+            ".jpg" or ".jpeg" => "Imagen JPEG",
+            ".png" => "Imagen PNG",
+            ".gif" => "Imagen GIF animada",
+            ".bmp" => "Imagen de mapa de bits",
+            ".webp" => "Imagen WebP",
+            ".tiff" or ".tif" => "Imagen TIFF",
+            ".ico" => "Ícono de Windows",
+            ".svg" => "Gráfico vectorial SVG",
+            ".mp3" => "Audio MP3",
+            ".wav" => "Audio WAV sin comprimir",
+            ".flac" => "Audio FLAC sin pérdida",
+            ".aac" => "Audio AAC",
+            ".ogg" => "Audio OGG Vorbis",
+            ".m4a" => "Audio M4A (MPEG-4)",
+            ".wma" => "Audio Windows Media",
+            ".mp4" => "Video MPEG-4",
+            ".avi" => "Video AVI",
+            ".mkv" => "Video Matroska",
+            ".mov" => "Video QuickTime",
+            ".wmv" => "Video Windows Media",
+            ".webm" => "Video WebM",
+            ".pdf" => "Documento PDF",
+            ".doc" => "Documento Word (antiguo)",
+            ".docx" => "Documento Word",
+            ".xls" => "Hoja de cálculo Excel (antiguo)",
+            ".xlsx" => "Hoja de cálculo Excel",
+            ".ppt" => "Presentación PowerPoint (antiguo)",
+            ".pptx" => "Presentación PowerPoint",
+            ".zip" => "Archivo comprimido ZIP",
+            ".rar" => "Archivo comprimido RAR",
+            ".7z" => "Archivo comprimido 7-Zip",
+            ".exe" => "Aplicación ejecutable",
+            ".msi" => "Instalador de Windows",
+            ".txt" => "Documento de texto plano",
+            ".csv" => "Valores separados por comas",
+            ".json" => "Datos JSON",
+            ".xml" => "Documento XML",
+            ".html" => "Página web HTML",
+            ".css" => "Hoja de estilos CSS",
+            ".cs" => "Código fuente C#",
+            ".py" => "Código fuente Python",
+            ".js" => "Código JavaScript",
+            ".md" => "Documento Markdown",
+            ".log" => "Archivo de registro (log)",
+            _ => string.IsNullOrEmpty(ext)
+                                    ? "Archivo sin extensión"
+                                    : $"Archivo {ext.ToUpper()}"
+        };
+
+        private static bool IsImage(string ext) =>
+            ext is ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp"
+                or ".webp" or ".tiff" or ".tif" or ".ico" or ".svg";
+
+        private static bool IsAudio(string ext) =>
+            ext is ".mp3" or ".wav" or ".flac" or ".aac"
+                or ".ogg" or ".m4a" or ".wma" or ".opus";
+
+        private static bool IsVideo(string ext) =>
+            ext is ".mp4" or ".avi" or ".mkv" or ".mov"
+                or ".wmv" or ".webm" or ".flv" or ".ts";
+
+        private static bool IsText(string ext) =>
+            ext is ".txt" or ".csv" or ".json" or ".xml"
+                or ".log" or ".md" or ".cs" or ".py"
+                or ".js" or ".ts" or ".html" or ".css";
+    }
+}
