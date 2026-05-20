@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
 
@@ -41,31 +42,23 @@ namespace FileExplorerr
             new(@"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})\b", RegexOptions.IgnoreCase),
         };
 
-        // Regex para detectar teléfonos
         private static readonly Regex PhoneRegex = new(
             @"^[\s]*(\+?\d{1,3}[\s\-]?)?(\(?\d{1,4}\)?[\s\-]?)?(\d[\d\s\-\.]{6,14}\d)[\s]*$");
-
-        // Regex para detectar emails
         private static readonly Regex EmailRegex = new(
             @"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.IgnoreCase);
 
-        // Palabras clave para detectar columnas de teléfono
         private static readonly string[] PhoneKeywords =
             { "phone", "telefono", "teléfono", "tel", "celular", "mobile", "cell",
               "fono", "movil", "móvil", "whatsapp", "contacto", "numero", "número" };
-
-        // Palabras clave para detectar columnas de email
         private static readonly string[] EmailKeywords =
             { "email", "correo", "mail", "e-mail", "correo electronico",
               "correo electrónico", "electronic", "address" };
 
-        // IsPhone añadido al tuple para bloquear formateo numérico en columnas de teléfono
         private Dictionary<int, (bool IsNumeric, bool IsCurrency, bool IsPhone)> columnNumericInfo = new();
         private static readonly string[] CurrencyKeywords =
             { "price", "precio", "cost", "costo", "amount", "monto", "total", "salary", "salario",
               "revenue", "ingreso", "venta", "sale", "fee", "value", "valor", "budget", "expense", "gasto" };
 
-        // Almacenar info de filas con columnas de más (raw)
         private List<(int Row, int ExpectedCols, int ActualCols)> columnMismatchDetails = new();
 
         public FileViewerForm(string path) { filePath = path; ext = Path.GetExtension(path).ToLower(); BuildUI(); LoadFile(); }
@@ -125,10 +118,25 @@ namespace FileExplorerr
             var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230));
             expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
 
-            rowBot.Controls.Add(expXml); rowBot.Controls.Add(expTxt); rowBot.Controls.Add(expJson); rowBot.Controls.Add(expCsv); rowBot.Controls.Add(expLabel);
+            // ── BOTÓN EXPORTAR A BD ──────────────────────────────────────────
+            var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252));
+            expBD.Width = 80;
+            expBD.Dock = DockStyle.Left;
+            expBD.Click += async (s, e) => await ExportarABD();
 
-            bottomPanel.Controls.Add(rowBot); bottomPanel.Controls.Add(rowTop);
-            Controls.Add(grid); Controls.Add(filterPanel); Controls.Add(topPanel); Controls.Add(bottomPanel);
+            rowBot.Controls.Add(expXml);
+            rowBot.Controls.Add(expTxt);
+            rowBot.Controls.Add(expJson);
+            rowBot.Controls.Add(expCsv);
+            rowBot.Controls.Add(expBD);
+            rowBot.Controls.Add(expLabel);
+
+            bottomPanel.Controls.Add(rowBot);
+            bottomPanel.Controls.Add(rowTop);
+            Controls.Add(grid);
+            Controls.Add(filterPanel);
+            Controls.Add(topPanel);
+            Controls.Add(bottomPanel);
         }
 
         private static Button MakeExportButton(string text, Color bgColor, Color accentColor)
@@ -147,6 +155,46 @@ namespace FileExplorerr
             btn.FlatAppearance.BorderColor = accentColor;
             btn.FlatAppearance.BorderSize = 1;
             return btn;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  EXPORTAR A BASE DE DATOS
+        // ════════════════════════════════════════════════════════════════════
+        private async Task ExportarABD()
+        {
+            if (masterTable == null || masterTable.Rows.Count == 0)
+            {
+                MessageBox.Show("No hay datos cargados para exportar.", "Sin datos",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Buscar si ya hay un SqlViewerForm abierto
+            SqlViewerForm? sqlViewer = null;
+            foreach (Form f in Application.OpenForms)
+                if (f is SqlViewerForm sv) { sqlViewer = sv; break; }
+
+            // Si no hay uno abierto, crear uno nuevo
+            if (sqlViewer == null)
+            {
+                var resultado = MessageBox.Show(
+                    "No hay una ventana SQL abierta.\n¿Abrir el visor SQL para conectarte a una base de datos?",
+                    "Exportar a BD", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (resultado != DialogResult.Yes) return;
+
+                sqlViewer = new SqlViewerForm();
+                sqlViewer.Show();
+
+                // Esperar a que el usuario se conecte
+                MessageBox.Show(
+                    "Conéctate a PostgreSQL o MariaDB en la ventana SQL y luego cierra este mensaje para continuar.",
+                    "Paso 1 — Conectar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+
+            string nombreSugerido = Path.GetFileNameWithoutExtension(filePath)
+                .Replace(" ", "_").ToLowerInvariant();
+
+            await sqlViewer.ImportarDataTableABD(masterTable, nombreSugerido);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -183,10 +231,6 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  PARSERS
         // ════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// CSV parser que detecta filas con más columnas de las esperadas
-        /// </summary>
         private DataTable ParseCsvWithMismatch(string content)
         {
             var dt = new DataTable();
@@ -209,7 +253,7 @@ namespace FileExplorerr
 
                 if (cells.Count != expectedColumnCount)
                 {
-                    columnMismatchRows.Add(i - 1); // row index in DataTable
+                    columnMismatchRows.Add(i - 1);
                     columnMismatchDetails.Add((i - 1, expectedColumnCount, cells.Count));
                 }
 
@@ -218,16 +262,6 @@ namespace FileExplorerr
                     row[c] = c < cells.Count ? cells[c].Trim('"') : "";
                 dt.Rows.Add(row);
             }
-            return dt;
-        }
-
-        private static DataTable ParseCsv(string content)
-        {
-            var dt = new DataTable(); var lines = SplitLines(content); if (lines.Count == 0) return dt;
-            var headers = SplitCsvLine(lines[0]);
-            foreach (var h in headers) dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"Col{dt.Columns.Count + 1}");
-            for (int i = 1; i < lines.Count; i++)
-            { if (string.IsNullOrWhiteSpace(lines[i])) continue; var cells = SplitCsvLine(lines[i]); var row = dt.NewRow(); for (int c = 0; c < dt.Columns.Count; c++) row[c] = c < cells.Count ? cells[c].Trim('"') : ""; dt.Rows.Add(row); }
             return dt;
         }
 
@@ -301,14 +335,12 @@ namespace FileExplorerr
                                 }
                                 dt.Rows.Add(row);
                             }
-                            foundArray = true;
-                            break;
+                            foundArray = true; break;
                         }
                     }
                     if (!foundArray)
                     {
-                        dt.Columns.Add("Clave");
-                        dt.Columns.Add("Valor");
+                        dt.Columns.Add("Clave"); dt.Columns.Add("Valor");
                         foreach (var prop in doc.RootElement.EnumerateObject())
                             dt.Rows.Add(prop.Name, prop.Value.ValueKind == JsonValueKind.Null ? "" : prop.Value.GetRawText());
                     }
@@ -344,59 +376,26 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  DETECCIÓN INTELIGENTE DE COLUMNAS DE TELÉFONO
+        //  DETECCIÓN DE TELÉFONO
         // ════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Determina si una columna debe tratarse como número de teléfono,
-        /// combinando detección por nombre de columna Y análisis del contenido.
-        /// Una columna es de teléfono si:
-        ///   - Su nombre contiene alguna keyword de teléfono, O
-        ///   - ≥60% de sus valores no-vacíos pasan el test LooksLikePhone()
-        /// </summary>
         private static bool IsPhoneColumn(DataTable dt, int colIndex)
         {
             string colName = dt.Columns[colIndex].ColumnName.ToLower();
-
-            // 1. Detección por nombre de columna
-            if (PhoneKeywords.Any(k => colName.Contains(k)))
-                return true;
-
-            // 2. Detección por contenido
-            var nonEmpty = dt.Rows.Cast<DataRow>()
-                .Select(r => r[colIndex]?.ToString()?.Trim() ?? "")
-                .Where(v => !string.IsNullOrWhiteSpace(v))
-                .ToList();
-
+            if (PhoneKeywords.Any(k => colName.Contains(k))) return true;
+            var nonEmpty = dt.Rows.Cast<DataRow>().Select(r => r[colIndex]?.ToString()?.Trim() ?? "").Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
             if (nonEmpty.Count == 0) return false;
-
             int phoneCount = nonEmpty.Count(v => LooksLikePhone(v));
             return (double)phoneCount / nonEmpty.Count >= 0.6;
         }
 
-        /// <summary>
-        /// Heurística para distinguir un número de teléfono de un valor numérico real.
-        /// Acepta: dígitos, espacios, +, -, (, ), puntos — entre 7 y 15 dígitos totales.
-        /// Rechaza: valores con punto decimal y parte fraccionaria significativa (precios, medidas).
-        /// </summary>
         private static bool LooksLikePhone(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return false;
-
-            // Solo caracteres válidos en un teléfono
-            if (!Regex.IsMatch(value, @"^[\d\s\+\-\(\)\.ext]{7,20}$", RegexOptions.IgnoreCase))
-                return false;
-
+            if (!Regex.IsMatch(value, @"^[\d\s\+\-\(\)\.ext]{7,20}$", RegexOptions.IgnoreCase)) return false;
             string digitsOnly = new string(value.Where(char.IsDigit).ToArray());
-
-            // Entre 7 y 15 dígitos
             if (digitsOnly.Length < 7 || digitsOnly.Length > 15) return false;
-
-            // Si tiene punto decimal con parte fraccionaria no-cero → es precio/medida, no teléfono
             var dotMatch = Regex.Match(value, @"\.(\d+)");
-            if (dotMatch.Success && dotMatch.Groups[1].Value.TrimEnd('0').Length > 0)
-                return false;
-
+            if (dotMatch.Success && dotMatch.Groups[1].Value.TrimEnd('0').Length > 0) return false;
             return true;
         }
 
@@ -405,142 +404,58 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private void AnalyzeTable()
         {
-            duplicateRows.Clear();
-            dateIssues.Clear();
-            emptyFields.Clear();
-            phoneIssues.Clear();
-            emailIssues.Clear();
-
-            // Detectar columnas de teléfono (por nombre + contenido) y email (por nombre)
+            duplicateRows.Clear(); dateIssues.Clear(); emptyFields.Clear(); phoneIssues.Clear(); emailIssues.Clear();
             var phoneColumns = new HashSet<int>();
             var emailColumns = new HashSet<int>();
             for (int c = 0; c < masterTable.Columns.Count; c++)
             {
-                if (IsPhoneColumn(masterTable, c))
-                    phoneColumns.Add(c);
-
+                if (IsPhoneColumn(masterTable, c)) phoneColumns.Add(c);
                 string colName = masterTable.Columns[c].ColumnName.ToLower();
-                if (EmailKeywords.Any(k => colName.Contains(k)))
-                    emailColumns.Add(c);
+                if (EmailKeywords.Any(k => colName.Contains(k))) emailColumns.Add(c);
             }
-
-            // Duplicados
             var seen = new Dictionary<string, int>();
             for (int r = 0; r < masterTable.Rows.Count; r++)
             {
                 string key = string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? ""));
                 if (seen.TryGetValue(key, out int orig)) { if (!duplicateRows.Contains(orig)) duplicateRows.Add(orig); duplicateRows.Add(r); } else seen[key] = r;
             }
-
             for (int r = 0; r < masterTable.Rows.Count; r++)
             {
                 for (int c = 0; c < masterTable.Columns.Count; c++)
                 {
                     string val = masterTable.Rows[r][c]?.ToString() ?? "";
-
-                    if (string.IsNullOrWhiteSpace(val))
-                    {
-                        emptyFields.Add((r, c));
-                        continue;
-                    }
-
-                    // Validar teléfonos
-                    if (phoneColumns.Contains(c))
-                    {
-                        string? fixedPhone = ValidateAndFixPhone(val);
-                        if (fixedPhone != null)
-                            phoneIssues.Add((r, c, val, fixedPhone));
-                    }
-
-                    // Validar emails
-                    if (emailColumns.Contains(c))
-                    {
-                        if (!IsValidEmail(val))
-                            emailIssues.Add((r, c, val));
-                    }
-
-                    // Fechas: solo en columnas que no sean de teléfono
-                    if (!phoneColumns.Contains(c))
-                    {
-                        string? fixedDate = DetectAndFixDate(val);
-                        if (fixedDate != null && fixedDate != val)
-                            dateIssues.Add((r, c, val, fixedDate));
-                    }
+                    if (string.IsNullOrWhiteSpace(val)) { emptyFields.Add((r, c)); continue; }
+                    if (phoneColumns.Contains(c)) { string? fixedPhone = ValidateAndFixPhone(val); if (fixedPhone != null) phoneIssues.Add((r, c, val, fixedPhone)); }
+                    if (emailColumns.Contains(c)) { if (!IsValidEmail(val)) emailIssues.Add((r, c, val)); }
+                    if (!phoneColumns.Contains(c)) { string? fixedDate = DetectAndFixDate(val); if (fixedDate != null && fixedDate != val) dateIssues.Add((r, c, val, fixedDate)); }
                 }
             }
         }
 
-        // ── Validación de teléfono ───────────────────────────────────────────
-        /// <summary>
-        /// Valida un teléfono: debe tener exactamente 10 dígitos.
-        /// Si tiene código de país (+52, +1, etc.) lo quita.
-        /// Retorna el teléfono corregido (solo 10 dígitos) si necesitó corrección, null si ya está perfecto.
-        /// </summary>
         private static string? ValidateAndFixPhone(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;
-
-            // Extraer solo dígitos
             string digitsOnly = new string(raw.Where(char.IsDigit).ToArray());
-
             if (digitsOnly.Length == 0) return "⚠(sin dígitos)";
-
-            // Ya tiene exactamente 10 dígitos
-            if (digitsOnly.Length == 10)
-            {
-                // Si el original no es exactamente los 10 dígitos limpios, corregir formato
-                if (raw.Trim() != digitsOnly)
-                    return digitsOnly;
-                return null; // perfecto, no necesita corrección
-            }
-
-            // Tiene más de 10 dígitos — tiene código de país
-            if (digitsOnly.Length > 10 && digitsOnly.Length <= 15)
-            {
-                // Tomar los últimos 10 dígitos (quitar código de país)
-                return digitsOnly.Substring(digitsOnly.Length - 10);
-            }
-
-            // Menos de 10 dígitos — teléfono incompleto
-            if (digitsOnly.Length < 10 && digitsOnly.Length >= 7)
-                return $"⚠{digitsOnly}({digitsOnly.Length}d)";
-
-            // Muy corto o muy largo — marcar como inválido
+            if (digitsOnly.Length == 10) { if (raw.Trim() != digitsOnly) return digitsOnly; return null; }
+            if (digitsOnly.Length > 10 && digitsOnly.Length <= 15) return digitsOnly.Substring(digitsOnly.Length - 10);
+            if (digitsOnly.Length < 10 && digitsOnly.Length >= 7) return $"⚠{digitsOnly}({digitsOnly.Length}d)";
             return $"⚠{digitsOnly}(inválido)";
         }
 
-        // ── Validación de email ──────────────────────────────────────────────
-        /// <summary>
-        /// Valida que un email tenga @ y un dominio válido con al menos un punto.
-        /// </summary>
         private static bool IsValidEmail(string email)
         {
             if (string.IsNullOrWhiteSpace(email)) return false;
             email = email.Trim();
-
-            // Debe contener @
             if (!email.Contains('@')) return false;
-
             var parts = email.Split('@');
             if (parts.Length != 2) return false;
-
-            string local = parts[0];
-            string domain = parts[1];
-
-            // Local part no vacía
-            if (string.IsNullOrWhiteSpace(local)) return false;
-
-            // Domain debe tener al menos un punto y no estar vacío
-            if (string.IsNullOrWhiteSpace(domain)) return false;
-            if (!domain.Contains('.')) return false;
-
-            // El dominio no debe empezar ni terminar con punto
-            if (domain.StartsWith('.') || domain.EndsWith('.')) return false;
-
-            // Verificar que después del último punto haya al menos 2 caracteres
-            string tld = domain.Substring(domain.LastIndexOf('.') + 1);
+            if (string.IsNullOrWhiteSpace(parts[0])) return false;
+            if (string.IsNullOrWhiteSpace(parts[1])) return false;
+            if (!parts[1].Contains('.')) return false;
+            if (parts[1].StartsWith('.') || parts[1].EndsWith('.')) return false;
+            string tld = parts[1].Substring(parts[1].LastIndexOf('.') + 1);
             if (tld.Length < 2) return false;
-
             return true;
         }
 
@@ -553,6 +468,7 @@ namespace FileExplorerr
             if (m2.Success) return TryDate(int.Parse(m2.Groups[1].Value), int.Parse(m2.Groups[2].Value), int.Parse(m2.Groups[3].Value));
             return null;
         }
+
         private static string? TryDate(int y, int m, int d) { try { return new DateTime(y, m, d).ToString("yyyy-MM-dd"); } catch { return null; } }
 
         // ════════════════════════════════════════════════════════════════════
@@ -567,14 +483,8 @@ namespace FileExplorerr
 
             for (int c = 0; c < displayTable.Columns.Count; c++)
             {
-                // Detectar columna de teléfono PRIMERO — nunca formatear sus valores como número
                 bool isPhoneCol = IsPhoneColumn(displayTable, c);
-                if (isPhoneCol)
-                {
-                    columnNumericInfo[c] = (false, false, true);
-                    continue;
-                }
-
+                if (isPhoneCol) { columnNumericInfo[c] = (false, false, true); continue; }
                 string colName = displayTable.Columns[c].ColumnName.ToLower();
                 bool isCurrencyCol = CurrencyKeywords.Any(k => colName.Contains(k));
                 int numericCount = 0; bool hasCurrencySymbol = false;
@@ -601,7 +511,6 @@ namespace FileExplorerr
             bool isEmail = emailIssues.Any(x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
             bool isColMismatch = columnMismatchRows.Contains(e.RowIndex);
 
-            // Formateo numérico solo si la columna NO es de teléfono
             if (columnNumericInfo.TryGetValue(e.ColumnIndex, out var ni) && ni.IsNumeric && !ni.IsPhone && !isEmpty)
             {
                 string raw = e.Value?.ToString()?.Trim() ?? "";
@@ -619,19 +528,10 @@ namespace FileExplorerr
             if (isDup) { e.CellStyle.BackColor = Color.FromArgb(50, 25, 25); e.CellStyle.ForeColor = Theme.Danger; }
             if (isEmpty) { e.CellStyle.BackColor = Theme.WarningDim; e.CellStyle.ForeColor = Theme.Warning; e.Value = "(vacío)"; e.FormattingApplied = true; }
             if (isDate) { e.CellStyle.BackColor = Color.FromArgb(20, 35, 50); e.CellStyle.ForeColor = Theme.Accent; }
-
-            // Teléfono con problema: magenta/rosa
             if (isPhone) { e.CellStyle.BackColor = Color.FromArgb(50, 20, 50); e.CellStyle.ForeColor = Color.FromArgb(230, 130, 200); }
-
-            // Email inválido: naranja
             if (isEmail) { e.CellStyle.BackColor = Color.FromArgb(50, 35, 15); e.CellStyle.ForeColor = Color.FromArgb(255, 170, 60); }
-
-            // Fila con columnas de más/menos: borde rojo fuerte
             if (isColMismatch && !isDup && !isEmpty && !isDate && !isPhone && !isEmail)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(60, 20, 20);
-                e.CellStyle.ForeColor = Color.FromArgb(255, 120, 100);
-            }
+            { e.CellStyle.BackColor = Color.FromArgb(60, 20, 20); e.CellStyle.ForeColor = Color.FromArgb(255, 120, 100); }
 
             if (grid.RowHeadersVisible) grid.Rows[e.RowIndex].HeaderCell.Value = (e.RowIndex + 1).ToString();
         }
@@ -641,7 +541,6 @@ namespace FileExplorerr
             int total = masterTable.Rows.Count, dups = duplicateRows.Count, dates = dateIssues.Count,
                 empties = emptyFields.Count, phones = phoneIssues.Count, emails = emailIssues.Count,
                 colMis = columnMismatchRows.Count;
-
             var parts = new List<string> { $"{total} filas" };
             if (dups > 0) parts.Add($"{dups} duplicados");
             if (dates > 0) parts.Add($"{dates} fechas");
@@ -649,8 +548,7 @@ namespace FileExplorerr
             if (phones > 0) parts.Add($"{phones} teléfonos");
             if (emails > 0) parts.Add($"{emails} emails");
             if (colMis > 0) parts.Add($"{colMis} col.desajustadas");
-            if (dups == 0 && dates == 0 && empties == 0 && phones == 0 && emails == 0 && colMis == 0)
-                parts.Add("Sin problemas");
+            if (dups == 0 && dates == 0 && empties == 0 && phones == 0 && emails == 0 && colMis == 0) parts.Add("Sin problemas");
             statusLabel.Text = "  " + string.Join("  ·  ", parts);
         }
 
@@ -661,39 +559,9 @@ namespace FileExplorerr
             if (duplicateRows.Count > 0) sb.AppendLine($"• {duplicateRows.Count} fila(s) duplicada(s)");
             if (dateIssues.Count > 0) sb.AppendLine($"• {dateIssues.Count} fecha(s) a normalizar");
             if (emptyFields.Count > 0) sb.AppendLine($"• {emptyFields.Count} campo(s) vacío(s)");
-            if (phoneIssues.Count > 0)
-            {
-                sb.AppendLine($"• {phoneIssues.Count} teléfono(s) con problemas:");
-                int shown = 0;
-                foreach (var (r, c, orig, fix) in phoneIssues)
-                {
-                    if (shown >= 5) { sb.AppendLine($"    ... y {phoneIssues.Count - 5} más"); break; }
-                    sb.AppendLine($"    Fila {r + 1}: \"{orig}\" → \"{fix}\"");
-                    shown++;
-                }
-            }
-            if (emailIssues.Count > 0)
-            {
-                sb.AppendLine($"• {emailIssues.Count} email(s) inválido(s):");
-                int shown = 0;
-                foreach (var (r, c, orig) in emailIssues)
-                {
-                    if (shown >= 5) { sb.AppendLine($"    ... y {emailIssues.Count - 5} más"); break; }
-                    sb.AppendLine($"    Fila {r + 1}: \"{orig}\"");
-                    shown++;
-                }
-            }
-            if (columnMismatchRows.Count > 0)
-            {
-                sb.AppendLine($"• {columnMismatchRows.Count} fila(s) con número de columnas incorrecto:");
-                int shown = 0;
-                foreach (var (row, expected, actual) in columnMismatchDetails)
-                {
-                    if (shown >= 5) { sb.AppendLine($"    ... y {columnMismatchDetails.Count - 5} más"); break; }
-                    sb.AppendLine($"    Fila {row + 1}: esperadas {expected}, tiene {actual}");
-                    shown++;
-                }
-            }
+            if (phoneIssues.Count > 0) { sb.AppendLine($"• {phoneIssues.Count} teléfono(s) con problemas:"); int shown = 0; foreach (var (r, c, orig, fix) in phoneIssues) { if (shown >= 5) { sb.AppendLine($"    ... y {phoneIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\" → \"{fix}\""); shown++; } }
+            if (emailIssues.Count > 0) { sb.AppendLine($"• {emailIssues.Count} email(s) inválido(s):"); int shown = 0; foreach (var (r, c, orig) in emailIssues) { if (shown >= 5) { sb.AppendLine($"    ... y {emailIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\""); shown++; } }
+            if (columnMismatchRows.Count > 0) { sb.AppendLine($"• {columnMismatchRows.Count} fila(s) con número de columnas incorrecto:"); int shown = 0; foreach (var (row, expected, actual) in columnMismatchDetails) { if (shown >= 5) { sb.AppendLine($"    ... y {columnMismatchDetails.Count - 5} más"); break; } sb.AppendLine($"    Fila {row + 1}: esperadas {expected}, tiene {actual}"); shown++; } }
             sb.AppendLine("\nLas celdas afectadas están resaltadas.");
             MessageBox.Show(sb.ToString(), "Análisis", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -733,45 +601,17 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  GUARDAR / EXPORTAR
+        //  GUARDAR / EXPORTAR ARCHIVO
         // ════════════════════════════════════════════════════════════════════
         private void SaveFixedCopy()
         {
             var ft = masterTable.Copy();
-
-            // Corregir fechas
-            foreach (var (r, c, _, f) in dateIssues)
-                ft.Rows[r][c] = f;
-
-            // Corregir teléfonos: aplicar todos los que tienen corrección real (10 dígitos)
-            foreach (var (r, c, orig, f) in phoneIssues)
-            {
-                // Si el fix es solo 10 dígitos limpios, aplicar
-                string digitsInFix = new string(f.Where(char.IsDigit).ToArray());
-                if (digitsInFix.Length == 10 && !f.StartsWith("⚠"))
-                    ft.Rows[r][c] = digitsInFix;
-                // Si es advertencia (incompleto/inválido), marcar en el campo
-                else
-                    ft.Rows[r][c] = f;
-            }
-
-            // Marcar emails inválidos
-            foreach (var (r, c, orig) in emailIssues)
-                ft.Rows[r][c] = $"⚠{orig}";
-
-            // Marcar vacíos
-            foreach (var (r, c) in emptyFields)
-                ft.Rows[r][c] = "(vacío)";
-
-            // Eliminar duplicados
-            var toRemove = duplicateRows
-                .GroupBy(r => string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? "")))
-                .SelectMany(g => g.Skip(1))
-                .Distinct()
-                .OrderByDescending(x => x)
-                .ToList();
-            foreach (int r in toRemove)
-                if (r < ft.Rows.Count) ft.Rows[r].Delete();
+            foreach (var (r, c, _, f) in dateIssues) ft.Rows[r][c] = f;
+            foreach (var (r, c, orig, f) in phoneIssues) { string digitsInFix = new string(f.Where(char.IsDigit).ToArray()); if (digitsInFix.Length == 10 && !f.StartsWith("⚠")) ft.Rows[r][c] = digitsInFix; else ft.Rows[r][c] = f; }
+            foreach (var (r, c, orig) in emailIssues) ft.Rows[r][c] = $"⚠{orig}";
+            foreach (var (r, c) in emptyFields) ft.Rows[r][c] = "(vacío)";
+            var toRemove = duplicateRows.GroupBy(r => string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? ""))).SelectMany(g => g.Skip(1)).Distinct().OrderByDescending(x => x).ToList();
+            foreach (int r in toRemove) if (r < ft.Rows.Count) ft.Rows[r].Delete();
             ft.AcceptChanges();
 
             string dir = Path.GetDirectoryName(filePath)!;
@@ -824,20 +664,13 @@ namespace FileExplorerr
                 foreach (DataColumn col in dt.Columns)
                 {
                     string? val = row[col]?.ToString();
-                    if (double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numVal))
-                        d[col.ColumnName] = numVal;
-                    else if (val == "" || val == null)
-                        d[col.ColumnName] = null;
-                    else
-                        d[col.ColumnName] = val;
+                    if (double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numVal)) d[col.ColumnName] = numVal;
+                    else if (val == "" || val == null) d[col.ColumnName] = null;
+                    else d[col.ColumnName] = val;
                 }
                 rows.Add(d);
             }
-            return JsonSerializer.Serialize(rows, new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            });
+            return JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         }
 
         private static string TableToXml(DataTable dt) { dt.TableName = "Records"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
@@ -846,12 +679,14 @@ namespace FileExplorerr
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
         private static List<string> SplitLines(string c) => c.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None).Where(l => !string.IsNullOrEmpty(l)).ToList();
+
         private static List<string> SplitCsvLine(string line)
         {
             var result = new List<string>(); bool inQuote = false; var cur = new StringBuilder();
             for (int i = 0; i < line.Length; i++) { char c = line[i]; if (c == '"') { if (inQuote && i + 1 < line.Length && line[i + 1] == '"') { cur.Append('"'); i++; } else inQuote = !inQuote; } else if (c == ',' && !inQuote) { result.Add(cur.ToString()); cur.Clear(); } else cur.Append(c); }
             result.Add(cur.ToString()); return result;
         }
+
         private static string Esc(string s) => s.Replace("\"", "\"\"");
         private static string FormatSize(long bytes) { string[] u = { "B", "KB", "MB", "GB" }; double v = bytes; int i = 0; while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; } return $"{v:0.##} {u[i]}"; }
     }

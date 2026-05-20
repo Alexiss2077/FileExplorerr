@@ -238,7 +238,7 @@ namespace FileExplorerr
             AddSqlBtn("⊘  Limpiar", Rose, RoseDim, ref sx, (s, e) => { sqlEditor.Clear(); });
             sx += 8;
             AddSqlBtn("⬇  Exportar CSV", Amber, AmbDim, ref sx, ExportarResultadosCSV);
-            AddSqlBtn("⬆  Importar CSV→BD", Sky, SkyDim, ref sx, async (s, e) => await ImportarCSVaBD());
+            AddSqlBtn("⬆  Importar archivo→BD", Sky, SkyDim, ref sx, async (s, e) => await ImportarArchivoABD());
 
             var lblHint = new Label
             {
@@ -551,7 +551,11 @@ namespace FileExplorerr
         //  IMPORTAR CSV → BD
         // ════════════════════════════════════════════════════════════════════
 
-        private async Task ImportarCSVaBD()
+        // ════════════════════════════════════════════════════════════════════
+        //  IMPORTAR ARCHIVO (CSV / JSON / XML / TXT) → BD
+        // ════════════════════════════════════════════════════════════════════
+
+        private async Task ImportarArchivoABD()
         {
             if (string.IsNullOrEmpty(_cadena))
             {
@@ -560,36 +564,35 @@ namespace FileExplorerr
                 return;
             }
 
-            // 1. Seleccionar CSV
             using var dlgOpen = new OpenFileDialog
             {
-                Title = "Selecciona el CSV a importar",
-                Filter = "CSV|*.csv|Todos|*.*"
+                Title = "Selecciona el archivo a importar",
+                Filter = "Archivos de datos|*.csv;*.json;*.xml;*.txt|CSV|*.csv|JSON|*.json|XML|*.xml|TXT|*.txt|Todos|*.*"
             };
             if (dlgOpen.ShowDialog(this) != DialogResult.OK) return;
 
-            // 2. Nombre de tabla destino
             string nombreTabla = Path.GetFileNameWithoutExtension(dlgOpen.FileName)
                 .Replace(" ", "_").ToLowerInvariant();
             nombreTabla = InputDialog("Nombre de tabla destino", "Tabla:", nombreTabla) ?? nombreTabla;
             if (string.IsNullOrWhiteSpace(nombreTabla)) return;
 
-            SetStatus("Leyendo CSV...");
+            string ext = Path.GetExtension(dlgOpen.FileName).ToLower();
+            SetStatus($"Leyendo {ext.TrimStart('.')}...");
             DataTable? dt = null;
             try
             {
-                dt = await Task.Run(() => LeerCsvADataTable(dlgOpen.FileName));
+                dt = await Task.Run(() => LeerArchivoADataTable(dlgOpen.FileName));
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al leer CSV:\n{ex.Message}", "Error",
+                MessageBox.Show($"Error al leer archivo:\n{ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             if (dt == null || dt.Rows.Count == 0)
             {
-                MessageBox.Show("El CSV está vacío.", "Sin datos",
+                MessageBox.Show("El archivo está vacío o no se pudo interpretar.", "Sin datos",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -604,13 +607,61 @@ namespace FileExplorerr
 
             SetStatus(result.Mensaje);
             MessageBox.Show(
-                $"{result.Mensaje}\n\nTabla: {nombreTabla}\nFilas: {result.Insertados:N0}\nErrores: {result.Errores}",
-                "Importar CSV",
+                $"{result.Mensaje}\n\nTabla:   {nombreTabla}\nColumnas: {dt.Columns.Count}\nFilas:    {result.Insertados:N0}\nErrores: {result.Errores}",
+                "Importar archivo → BD",
                 MessageBoxButtons.OK,
                 result.Exito ? MessageBoxIcon.Information : MessageBoxIcon.Error);
 
             if (result.Exito)
                 await RefrescarArbolAsync();
+        }
+
+        // ── Método público para que FileViewerForm pueda llamarlo directamente ──
+        public async Task ImportarDataTableABD(DataTable dt, string nombreSugerido)
+        {
+            if (string.IsNullOrEmpty(_cadena))
+            {
+                MessageBox.Show("No hay conexión activa en el visor SQL.\nConéctate primero a PostgreSQL o MariaDB.",
+                    "Sin conexión", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string nombreTabla = nombreSugerido.Replace(" ", "_").ToLowerInvariant();
+            nombreTabla = InputDialog("Nombre de tabla destino", "Tabla:", nombreTabla) ?? nombreTabla;
+            if (string.IsNullOrWhiteSpace(nombreTabla)) return;
+
+            SetStatus($"Importando {dt.Rows.Count} filas a '{nombreTabla}'...");
+            var progreso = new Progress<int>(pct => SetStatus($"Importando... {pct}%"));
+
+            var result = await Task.Run(() =>
+                _motor == "PostgreSQL"
+                    ? SqlConnector.InsertarDataTablePostgreSQL(_cadena, nombreTabla, dt, progreso)
+                    : SqlConnector.InsertarDataTableMariaDB(_cadena, nombreTabla, dt, progreso));
+
+            SetStatus(result.Mensaje);
+            MessageBox.Show(
+                $"{result.Mensaje}\n\nTabla:    {nombreTabla}\nColumnas: {dt.Columns.Count}\nFilas:    {result.Insertados:N0}\nErrores:  {result.Errores}",
+                "Exportar a BD",
+                MessageBoxButtons.OK,
+                result.Exito ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+
+            if (result.Exito)
+                await RefrescarArbolAsync();
+        }
+
+        // ── Leer cualquier formato a DataTable ───────────────────────────────
+
+        public static DataTable LeerArchivoADataTable(string ruta)
+        {
+            string ext = Path.GetExtension(ruta).ToLower();
+            return ext switch
+            {
+                ".csv" => LeerCsvADataTable(ruta),
+                ".json" => LeerJsonADataTable(ruta),
+                ".xml" => LeerXmlADataTable(ruta),
+                ".txt" => LeerTxtADataTable(ruta),
+                _ => LeerCsvADataTable(ruta)
+            };
         }
 
         private static DataTable LeerCsvADataTable(string ruta)
@@ -619,12 +670,10 @@ namespace FileExplorerr
             string[] lineas = File.ReadAllLines(ruta, Encoding.UTF8);
             if (lineas.Length == 0) return dt;
 
-            // Detectar separador
             char sep = ',';
             if (!lineas[0].Contains(',') && lineas[0].Contains(';')) sep = ';';
             else if (!lineas[0].Contains(',') && lineas[0].Contains('\t')) sep = '\t';
 
-            // Cabecera
             var headers = SepararLinea(lineas[0], sep);
             foreach (string h in headers)
                 dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"col{dt.Columns.Count + 1}");
@@ -636,6 +685,120 @@ namespace FileExplorerr
                 var row = dt.NewRow();
                 for (int c = 0; c < dt.Columns.Count; c++)
                     row[c] = c < cols.Count ? cols[c].Trim('"') : "";
+                dt.Rows.Add(row);
+            }
+            return dt;
+        }
+
+        private static DataTable LeerJsonADataTable(string ruta)
+        {
+            var dt = new DataTable();
+            string content = File.ReadAllText(ruta, Encoding.UTF8);
+            using var doc = System.Text.Json.JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            // Buscar array raíz o primera propiedad array
+            System.Text.Json.JsonElement array = default;
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Array)
+                array = root;
+            else if (root.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var prop in root.EnumerateObject())
+                    if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    { array = prop.Value; break; }
+            }
+
+            if (array.ValueKind != System.Text.Json.JsonValueKind.Array) return dt;
+
+            var items = array.EnumerateArray().ToList();
+            if (items.Count == 0) return dt;
+
+            // Columnas desde primer objeto
+            if (items[0].ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var prop in items[0].EnumerateObject())
+                    if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
+            }
+
+            foreach (var item in items)
+            {
+                if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var row = dt.NewRow();
+                foreach (var prop in item.EnumerateObject())
+                {
+                    if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
+                    row[prop.Name] = prop.Value.ValueKind == System.Text.Json.JsonValueKind.Null
+                        ? "" : prop.Value.ToString();
+                }
+                dt.Rows.Add(row);
+            }
+            return dt;
+        }
+
+        private static DataTable LeerXmlADataTable(string ruta)
+        {
+            var dt = new DataTable();
+            try
+            {
+                var xmlDoc = new System.Xml.XmlDocument();
+                xmlDoc.Load(ruta);
+                var root = xmlDoc.DocumentElement;
+                if (root == null) return dt;
+
+                var records = root.FirstChild != null
+                    ? root.SelectNodes(root.FirstChild.Name)
+                    : null;
+                if (records == null || records.Count == 0) return dt;
+
+                // Columnas desde primer elemento
+                var first = records[0]!;
+                foreach (System.Xml.XmlAttribute attr in first.Attributes!)
+                    if (!dt.Columns.Contains("@" + attr.Name)) dt.Columns.Add("@" + attr.Name);
+                foreach (System.Xml.XmlNode child in first.ChildNodes)
+                    if (child.NodeType == System.Xml.XmlNodeType.Element && !dt.Columns.Contains(child.Name))
+                        dt.Columns.Add(child.Name);
+
+                foreach (System.Xml.XmlNode rec in records)
+                {
+                    var row = dt.NewRow();
+                    foreach (System.Xml.XmlAttribute attr in rec.Attributes!)
+                        if (dt.Columns.Contains("@" + attr.Name)) row["@" + attr.Name] = attr.Value;
+                    foreach (System.Xml.XmlNode child in rec.ChildNodes)
+                        if (child.NodeType == System.Xml.XmlNodeType.Element && dt.Columns.Contains(child.Name))
+                            row[child.Name] = child.InnerText;
+                    dt.Rows.Add(row);
+                }
+            }
+            catch { }
+            return dt;
+        }
+
+        private static DataTable LeerTxtADataTable(string ruta)
+        {
+            var dt = new DataTable();
+            string[] lineas = File.ReadAllLines(ruta, Encoding.UTF8);
+            if (lineas.Length == 0) return dt;
+
+            // Detectar separador: |, tab, ;, coma
+            char sep = '|';
+            if (!lineas[0].Contains('|'))
+            {
+                if (lineas[0].Contains('\t')) sep = '\t';
+                else if (lineas[0].Contains(';')) sep = ';';
+                else if (lineas[0].Contains(',')) sep = ',';
+            }
+
+            var headers = lineas[0].Split(sep);
+            foreach (string h in headers)
+                dt.Columns.Add(h.Trim().Trim('"').Length > 0 ? h.Trim().Trim('"') : $"col{dt.Columns.Count + 1}");
+
+            for (int i = 1; i < lineas.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lineas[i])) continue;
+                var cols = lineas[i].Split(sep);
+                var row = dt.NewRow();
+                for (int c = 0; c < dt.Columns.Count; c++)
+                    row[c] = c < cols.Length ? cols[c].Trim().Trim('"') : "";
                 dt.Rows.Add(row);
             }
             return dt;
