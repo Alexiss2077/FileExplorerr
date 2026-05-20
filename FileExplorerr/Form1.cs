@@ -151,6 +151,23 @@ namespace FileExplorerr
             exportCsvButton = Theme.MakeButton("Exportar CSV", 110, Theme.ButtonKind.Primary);
             exportCsvButton.Click += async (s, e) => await ExportCsvAsync();
 
+            // ── BOTÓN SQL ─────────────────────────────────────────────────────
+            var sqlButton = new Button
+            {
+                Text = "🗄 BD SQL",
+                Height = 32,
+                AutoSize = true,
+                Padding = new Padding(8, 0, 8, 0),
+                BackColor = Color.FromArgb(10, 32, 58),
+                ForeColor = Color.FromArgb(125, 211, 252),
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontBody,
+                Cursor = Cursors.Hand
+            };
+            sqlButton.FlatAppearance.BorderColor = Color.FromArgb(125, 211, 252);
+            sqlButton.FlatAppearance.BorderSize = 1;
+            sqlButton.Click += (s, e) => new SqlViewerForm().Show();
+
             // Layout del top bar
             var rightFlow = new FlowLayoutPanel
             {
@@ -164,6 +181,7 @@ namespace FileExplorerr
             rightFlow.Controls.Add(refreshButton);
             rightFlow.Controls.Add(newFolderButton);
             rightFlow.Controls.Add(exportCsvButton);
+            rightFlow.Controls.Add(sqlButton);
 
             var navPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
             backButton.Location = new Point(4, 10);
@@ -365,7 +383,6 @@ namespace FileExplorerr
             using var bg = new SolidBrush(Theme.BgSurface);
             e.Graphics.FillRectangle(bg, e.Bounds);
 
-            // Bottom accent line
             using var line = new Pen(Theme.Border);
             e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
 
@@ -663,26 +680,24 @@ namespace FileExplorerr
 
             contextMenu.Items.AddRange(new ToolStripItem[]
             {
-        miOpen, miSep1, miNewFolder, miSep2, miRename, miDelete,
-        miSep3, miProps, miSep4, miRefresh
+                miOpen, miSep1, miNewFolder, miSep2, miRename, miDelete,
+                miSep3, miProps, miSep4, miRefresh
             });
         }
+
         private void ListView_MouseClick(object sender, MouseEventArgs e)
         {
-
             if (e.Button != MouseButtons.Right) return;
             bool sel = listView.SelectedItems.Count > 0;
 
-            // Índices: 0=Abrir 1=Sep1 2=NuevaCarpeta 3=Sep2 4=Renombrar
-            //          5=Eliminar 6=Sep3 7=Propiedades 8=Sep4 9=Actualizar
-            contextMenu.Items[0].Visible = sel;   // Abrir
-            contextMenu.Items[1].Visible = sel;   // Sep1
-            contextMenu.Items[3].Visible = sel;   // Sep2
-            contextMenu.Items[4].Visible = sel;   // Renombrar
-            contextMenu.Items[5].Visible = sel;   // Eliminar
-            contextMenu.Items[6].Visible = sel;   // Sep3
-            contextMenu.Items[7].Visible = sel;   // Ver propiedades
-            contextMenu.Items[8].Visible = sel;   // Sep4
+            contextMenu.Items[0].Visible = sel;
+            contextMenu.Items[1].Visible = sel;
+            contextMenu.Items[3].Visible = sel;
+            contextMenu.Items[4].Visible = sel;
+            contextMenu.Items[5].Visible = sel;
+            contextMenu.Items[6].Visible = sel;
+            contextMenu.Items[7].Visible = sel;
+            contextMenu.Items[8].Visible = sel;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -928,7 +943,6 @@ namespace FileExplorerr
             {
                 if (ext == ".txt")
                 {
-                    // Ofrecer elegir entre visor de tabla o bloc de notas
                     using var dlg = new Form
                     {
                         Text = "Abrir como...",
@@ -981,7 +995,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  DIÁLOGO
+        //  DIÁLOGO DE ENTRADA
         // ════════════════════════════════════════════════════════════════════
         private string? InputDialog(string title, string prompt, string def = "")
         {
@@ -1044,8 +1058,6 @@ namespace FileExplorerr
             return $"{v:0.##} {u[i]}";
         }
 
-        // ── Iconos minimalistas: círculos de color ───────────────────────────
-        // ── Iconos detallados por tipo de archivo (32×32) ─────────────────
         private static Icon MakeFolderIcon()
         {
             using var bmp = new Bitmap(32, 32);
@@ -1171,6 +1183,3 @@ namespace FileExplorerr
         }
     }
 }
-
-
-//holaaaaaaaajwfkj
