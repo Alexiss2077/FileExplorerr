@@ -1,771 +1,906 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml;
+using Npgsql;
+using MySqlConnector;
 
 namespace FileExplorerr
 {
-    // ════════════════════════════════════════════════════════════════════════
-    //  SQL VIEWER FORM
-    //  Visor completo de bases de datos PostgreSQL / MariaDB.
-    //  Permite navegar tablas, ejecutar consultas, exportar e importar datos.
-    // ════════════════════════════════════════════════════════════════════════
     public class SqlViewerForm : Form
     {
-        // ── Controles principales ────────────────────────────────────────────
-        private Panel topBar = null!;
-        private SplitContainer mainSplit = null!;   // izq = árbol, der = contenido
-        private SplitContainer rightSplit = null!;  // arriba = editor SQL, abajo = grid
-        private TreeView tableTree = null!;
-        private RichTextBox sqlEditor = null!;
+        // ── Controles ────────────────────────────────────────────────────────
+        private Button btnPostgres = null!, btnMaria = null!;
+        private Button btnActualizar = null!, btnDesconectar = null!;
+        private Button btnEjecutar = null!, btnLimpiar = null!;
+        private Button btnExportarCsv = null!, btnExportarJson = null!;
+        private Button btnExportarTxt = null!, btnExportarXml = null!;
+        private Button btnImportar = null!;
+        private Label lblConexion = null!, lblHint = null!;
+        private Panel tablaPanel = null!;
+        private ListBox listaTablas = null!;
+        private TextBox editorSql = null!;
         private DataGridView grid = null!;
-        private StatusStrip statusBar = null!;
-        private ToolStripStatusLabel lblStatus = null!;
-        private ToolStripStatusLabel lblRows = null!;
-        private Panel sqlToolbar = null!;
+        private Label lblStatus = null!;
+        private Panel loadingPanel = null!;
+        private Label loadingLabel = null!;
 
-        // ── Conexión ─────────────────────────────────────────────────────────
-        private string _cadena = "";
-        private string _motor = "";   // "PostgreSQL" | "MariaDB"
-        private string _tablaActual = "";
+        // ── Estado ───────────────────────────────────────────────────────────
+        internal enum DbTipo { Ninguno, Postgres, Maria }
+        private DbTipo tipoConexion = DbTipo.Ninguno;
+        private string connectionString = "";
+        private DataTable? resultadoActual;
 
-        // ── Colores tema ─────────────────────────────────────────────────────
-        private static readonly Color BgBase = Color.FromArgb(13, 13, 18);
-        private static readonly Color BgSurface = Color.FromArgb(20, 20, 28);
-        private static readonly Color BgElevated = Color.FromArgb(26, 26, 36);
-        private static readonly Color BgHeader = Color.FromArgb(16, 16, 23);
-        private static readonly Color BorderClr = Color.FromArgb(36, 36, 52);
-        private static readonly Color TextPri = Color.FromArgb(225, 225, 235);
-        private static readonly Color TextDim = Color.FromArgb(110, 110, 140);
-        private static readonly Color Mint = Color.FromArgb(52, 211, 153);
-        private static readonly Color Amber = Color.FromArgb(251, 191, 36);
-        private static readonly Color Sky = Color.FromArgb(125, 211, 252);
-        private static readonly Color Rose = Color.FromArgb(251, 113, 133);
-        private static readonly Color MintDim = Color.FromArgb(13, 61, 40);
-        private static readonly Color AmbDim = Color.FromArgb(50, 38, 8);
-        private static readonly Color RoseDim = Color.FromArgb(60, 18, 18);
-        private static readonly Color SkyDim = Color.FromArgb(10, 32, 58);
-
+        // ════════════════════════════════════════════════════════════════════
+        //  CONSTRUCTOR
+        // ════════════════════════════════════════════════════════════════════
         public SqlViewerForm()
         {
             BuildUI();
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CONSTRUCCIÓN UI
+        //  UI
         // ════════════════════════════════════════════════════════════════════
         private void BuildUI()
         {
-            Text = "SQL — Sin conexión";
-            Size = new Size(1200, 780);
-            MinimumSize = new Size(900, 550);
+            Text = "SQL — PostgreSQL · datos";
+            Size = new Size(1200, 720);
+            MinimumSize = new Size(900, 560);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = BgBase;
-            ForeColor = TextPri;
-            Font = new Font("Segoe UI", 9f);
-            KeyPreview = true;
-            KeyDown += (s, e) =>
-            {
-                if (e.KeyCode == Keys.F5) _ = EjecutarConsultaAsync();
-                if (e.Control && e.KeyCode == Keys.Return) _ = EjecutarConsultaAsync();
-            };
+            BackColor = Theme.BgBase;
+            ForeColor = Theme.TextPrimary;
+            Font = Theme.FontBody;
 
-            // ── TOP BAR ──────────────────────────────────────────────────────
-            topBar = new Panel { Height = 48, Dock = DockStyle.Top, BackColor = BgHeader };
-            topBar.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Bottom, BackColor = BorderClr });
-
-            int tx = 10;
-            AddTopBtn("🐘 PostgreSQL", Mint, MintDim, ref tx, BtnPostgres_Click);
-            AddTopBtn("🐬 MariaDB", Amber, AmbDim, ref tx, BtnMariaDB_Click);
-            tx += 8;
-            var divTop = new Panel { Location = new Point(tx, 10), Size = new Size(1, 28), BackColor = BorderClr };
-            topBar.Controls.Add(divTop); tx += 10;
-            AddTopBtn("⟳ Actualizar", Sky, SkyDim, ref tx, async (s, e) => await RefrescarArbolAsync());
-            AddTopBtn("✕ Desconectar", Rose, RoseDim, ref tx, (s, e) => Desconectar());
-
-            var lblConexion = new Label
-            {
-                Text = "Sin conexión",
-                AutoSize = false,
-                Dock = DockStyle.Right,
-                Width = 360,
-                TextAlign = ContentAlignment.MiddleRight,
-                Padding = new Padding(0, 0, 14, 0),
-                ForeColor = TextDim,
-                Font = new Font("Segoe UI", 8f),
-                Tag = "lblConexion"
-            };
-            topBar.Controls.Add(lblConexion);
-
-            // ── MAIN SPLIT ───────────────────────────────────────────────────
-            mainSplit = new SplitContainer
+            // ── Loading overlay ──────────────────────────────────────────────
+            loadingPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                Orientation = Orientation.Vertical,
-                SplitterWidth = 1,
-                BackColor = BorderClr,
-                Panel1MinSize = 50,
-                Panel2MinSize = 50
+                BackColor = Color.FromArgb(200, 18, 18, 22),
+                Visible = false
             };
-            Shown += (s, e) =>
+            loadingLabel = new Label
             {
-                try { mainSplit.SplitterDistance = 220; } catch { }
-                try { rightSplit.SplitterDistance = 120; } catch { }
+                Text = "Ejecutando...",
+                Font = Theme.FontBodyBold,
+                ForeColor = Theme.Accent,
+                BackColor = Color.Transparent,
+                AutoSize = true
             };
+            loadingPanel.Controls.Add(loadingLabel);
+            loadingPanel.Resize += (s, e) => CenterLoading();
 
-            // ── ÁRBOL IZQUIERDO ──────────────────────────────────────────────
-            BuildTreePanel();
-
-            // ── LADO DERECHO ─────────────────────────────────────────────────
-            rightSplit = new SplitContainer
+            // ── Top bar ──────────────────────────────────────────────────────
+            var topBar = new Panel
             {
-                Dock = DockStyle.Fill,
-                Orientation = Orientation.Horizontal,
-                SplitterWidth = 1,
-                BackColor = BorderClr,
-                Panel1MinSize = 80,
-                Panel2MinSize = 140
+                Height = 52,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(8, 8, 8, 8)
             };
 
-
-            // ── EDITOR SQL ───────────────────────────────────────────────────
-            BuildSqlEditor();
-
-            // ── GRID RESULTADOS ──────────────────────────────────────────────
-            BuildResultGrid();
-
-            mainSplit.Panel2.Controls.Add(rightSplit);
-
-            // ── STATUS BAR ───────────────────────────────────────────────────
-            statusBar = new StatusStrip { BackColor = BgSurface, SizingGrip = false };
-            lblStatus = new ToolStripStatusLabel("Listo") { ForeColor = TextDim, Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-            lblRows = new ToolStripStatusLabel("") { ForeColor = Mint, TextAlign = ContentAlignment.MiddleRight };
-            statusBar.Items.AddRange(new ToolStripItem[] { lblStatus, lblRows });
-
-            Controls.Add(mainSplit);
-            Controls.Add(topBar);
-            Controls.Add(statusBar);
-        }
-
-        // ── ÁRBOL ────────────────────────────────────────────────────────────
-        private void BuildTreePanel()
-        {
-            var pnl = new Panel { Dock = DockStyle.Fill, BackColor = BgSurface };
-
-            var hdr = new Panel { Height = 36, Dock = DockStyle.Top, BackColor = BgHeader };
-            hdr.Controls.Add(new Label
+            // Botones de conexión
+            btnPostgres = MakeConnBtn("🐘 PostgreSQL", Color.FromArgb(0, 82, 130), Color.FromArgb(95, 189, 235));
+            btnMaria = MakeConnBtn("🌿 MariaDB", Color.FromArgb(0, 72, 50), Color.FromArgb(60, 180, 120));
+            btnActualizar = MakeActionBtn("↻ Actualizar", Color.FromArgb(34, 34, 42), Theme.Accent);
+            btnDesconectar = MakeActionBtn("✕ Desconectar", Color.FromArgb(34, 34, 42), Theme.Danger);
+            lblConexion = new Label
             {
-                Text = "  Tablas",
-                Dock = DockStyle.Fill,
-                ForeColor = Mint,
-                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Text = "● Sin conexión",
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Theme.TextMuted,
+                AutoSize = true,
                 TextAlign = ContentAlignment.MiddleLeft
-            });
-            hdr.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Bottom, BackColor = BorderClr });
-
-            tableTree = new TreeView
-            {
-                Dock = DockStyle.Fill,
-                BackColor = BgSurface,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.None,
-                Font = new Font("Segoe UI", 9f),
-                ShowLines = false,
-                ShowPlusMinus = true,
-                FullRowSelect = true,
-                HotTracking = true,
-                ItemHeight = 26,
-                DrawMode = TreeViewDrawMode.OwnerDrawAll
-            };
-            tableTree.DrawNode += TableTree_DrawNode;
-            tableTree.NodeMouseDoubleClick += async (s, e) =>
-            {
-                if (e.Node?.Tag is string tablaName)
-                    await CargarTablaAsync(tablaName);
-            };
-            tableTree.NodeMouseClick += (s, e) =>
-            {
-                if (e.Button == MouseButtons.Right && e.Node?.Tag is string tablaName)
-                    MostrarMenuTabla(tablaName, e.Location);
             };
 
-            pnl.Controls.Add(tableTree);
-            pnl.Controls.Add(hdr);
-            mainSplit.Panel1.Controls.Add(pnl);
-        }
+            btnPostgres.Click += async (s, e) => await ConectarAsync(DbTipo.Postgres);
+            btnMaria.Click += async (s, e) => await ConectarAsync(DbTipo.Maria);
+            btnActualizar.Click += async (s, e) => await CargarTablasAsync();
+            btnDesconectar.Click += (s, e) => Desconectar();
 
-        private void TableTree_DrawNode(object? sender, DrawTreeNodeEventArgs e)
-        {
-            if (e.Node == null) return;
-            bool sel = (e.State & TreeNodeStates.Selected) != 0;
-            var g = e.Graphics;
-            using var bg = new SolidBrush(sel ? Color.FromArgb(28, 50, 38) : BgSurface);
-            g.FillRectangle(bg, new Rectangle(0, e.Bounds.Top, tableTree.Width, e.Bounds.Height));
-            if (sel)
+            var connFlow = new FlowLayoutPanel
             {
-                using var acc = new SolidBrush(Mint);
-                g.FillRectangle(acc, 0, e.Bounds.Top, 3, e.Bounds.Height);
-            }
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 4, 0, 0)
+            };
+            connFlow.Controls.AddRange(new Control[] { btnPostgres, btnMaria, btnActualizar, btnDesconectar });
 
-            bool isHeader = e.Node.Tag == null;
-            Color fg = isHeader ? TextDim : (sel ? Mint : TextPri);
-            string icon = isHeader ? "⬡" : "▦";
-            FontStyle fs = isHeader ? FontStyle.Bold : FontStyle.Regular;
-            int indent = (e.Node.Level + 1) * 16 + 6;
+            var lblConnPanel = new Panel
+            {
+                Dock = DockStyle.Right,
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 16, 12, 0)
+            };
+            lblConexion.Dock = DockStyle.Fill;
+            lblConnPanel.Controls.Add(lblConexion);
 
-            using var fontIcon = new Font("Segoe UI", 8f);
-            using var fontText = new Font("Segoe UI", 9f, fs);
-            using var brush = new SolidBrush(isHeader ? TextDim : (sel ? Mint : Sky));
-            g.DrawString(icon, fontIcon, brush, indent, e.Bounds.Top + (e.Bounds.Height - 14) / 2);
-            using var brushTxt = new SolidBrush(fg);
-            g.DrawString(e.Node.Text, fontText, brushTxt, indent + 18, e.Bounds.Top + (e.Bounds.Height - 14) / 2);
-        }
+            topBar.Controls.Add(connFlow);
+            topBar.Controls.Add(lblConnPanel);
 
-        // ── EDITOR SQL ───────────────────────────────────────────────────────
-        private void BuildSqlEditor()
-        {
-            var pnl = new Panel { Dock = DockStyle.Fill, BackColor = BgBase };
+            // ── Toolbar SQL ──────────────────────────────────────────────────
+            var sqlBar = new Panel
+            {
+                Height = 48,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgElevated,
+                Padding = new Padding(8, 6, 8, 6)
+            };
 
-            sqlToolbar = new Panel { Height = 36, Dock = DockStyle.Top, BackColor = BgHeader };
-            sqlToolbar.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Bottom, BackColor = BorderClr });
+            var btnEjecutarBtn = new Button
+            {
+                Text = "▶ Ejecutar (F5)",
+                Height = 32,
+                AutoSize = true,
+                Padding = new Padding(10, 0, 10, 0),
+                BackColor = Color.FromArgb(22, 100, 40),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnEjecutarBtn.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
+            btnEjecutarBtn.Click += async (s, e) => await EjecutarConsultaAsync();
 
-            int sx = 8;
-            AddSqlBtn("▶  Ejecutar (F5)", Mint, MintDim, ref sx, async (s, e) => await EjecutarConsultaAsync());
-            AddSqlBtn("⊘  Limpiar", Rose, RoseDim, ref sx, (s, e) => { sqlEditor.Clear(); });
-            sx += 8;
-            AddSqlBtn("⬇  Exportar CSV", Amber, AmbDim, ref sx, ExportarResultadosCSV);
-            AddSqlBtn("⬆  Importar archivo→BD", Sky, SkyDim, ref sx, async (s, e) => await ImportarArchivoABD());
+            btnLimpiar = MakeActionBtn("⊗ Limpiar", Color.FromArgb(44, 44, 54), Color.FromArgb(200, 100, 80));
 
-            var lblHint = new Label
+            // ── Botones de exportación ────────────────────────────────────────
+            btnExportarCsv = MakeExportBtn("↓ Exportar CSV",
+                Color.FromArgb(20, 90, 70), Color.FromArgb(56, 210, 170));
+            btnExportarJson = MakeExportBtn("↓ Exportar JSON",
+                Color.FromArgb(80, 55, 10), Color.FromArgb(230, 160, 40));
+            btnExportarTxt = MakeExportBtn("↓ Exportar TXT",
+                Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240));
+            btnExportarXml = MakeExportBtn("↓ Exportar XML",
+                Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230));
+
+            btnImportar = MakeActionBtn("↑ Importar archivo→BD",
+                Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252));
+
+            lblHint = new Label
             {
                 Text = "Ctrl+Enter o F5 para ejecutar",
                 Dock = DockStyle.Right,
-                AutoSize = false,
-                Width = 200,
+                AutoSize = true,
+                ForeColor = Theme.TextMuted,
+                Font = new Font("Segoe UI", 7.5F),
                 TextAlign = ContentAlignment.MiddleRight,
-                Padding = new Padding(0, 0, 10, 0),
-                ForeColor = TextDim,
-                Font = new Font("Segoe UI", 8f)
+                Padding = new Padding(0, 8, 4, 0)
             };
-            sqlToolbar.Controls.Add(lblHint);
 
-            sqlEditor = new RichTextBox
+            var sqlFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 0, 0, 0)
+            };
+
+            btnLimpiar.Click += (s, e) => { editorSql.Clear(); editorSql.Focus(); };
+            btnExportarCsv.Click += (s, e) => ExportarResultado(".csv");
+            btnExportarJson.Click += (s, e) => ExportarResultado(".json");
+            btnExportarTxt.Click += (s, e) => ExportarResultado(".txt");
+            btnExportarXml.Click += (s, e) => ExportarResultado(".xml");
+            btnImportar.Click += async (s, e) => await ImportarArchivoAsync();
+
+            sqlFlow.Controls.AddRange(new Control[]
+            {
+                btnEjecutarBtn, btnLimpiar,
+                btnExportarCsv, btnExportarJson, btnExportarTxt, btnExportarXml,
+                btnImportar
+            });
+
+            sqlBar.Controls.Add(sqlFlow);
+            sqlBar.Controls.Add(lblHint);
+
+            // ── Panel izquierdo — Tablas ─────────────────────────────────────
+            var leftPanel = new Panel
+            {
+                Width = 200,
+                Dock = DockStyle.Left,
+                BackColor = Theme.BgSurface
+            };
+            var lblTablas = new Label
+            {
+                Text = "Tablas",
+                Height = 32,
+                Dock = DockStyle.Top,
+                Font = Theme.FontBodyBold,
+                ForeColor = Theme.Accent,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(12, 0, 0, 0),
+                BackColor = Theme.BgElevated
+            };
+            listaTablas = new ListBox
             {
                 Dock = DockStyle.Fill,
-                BackColor = BgElevated,
-                ForeColor = Sky,
-                Font = new Font("Cascadia Code", 10f),
+                BackColor = Theme.BgSurface,
+                ForeColor = Theme.TextPrimary,
+                Font = Theme.FontBody,
                 BorderStyle = BorderStyle.None,
-                AcceptsTab = true,
-                WordWrap = false,
-                ScrollBars = RichTextBoxScrollBars.Both,
-                Text = "-- Escribe tu consulta SQL aquí\nSELECT * FROM "
+                IntegralHeight = false
             };
-            sqlEditor.KeyDown += (s, e) =>
+            listaTablas.DoubleClick += ListaTablas_DoubleClick;
+            leftPanel.Controls.Add(listaTablas);
+            leftPanel.Controls.Add(lblTablas);
+
+            // ── Editor SQL ───────────────────────────────────────────────────
+            editorSql = new TextBox
             {
-                if (e.KeyCode == Keys.F5 || (e.Control && e.KeyCode == Keys.Return))
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ScrollBars = ScrollBars.Both,
+                Font = new Font("Cascadia Code", 10F),
+                BackColor = Color.FromArgb(14, 14, 20),
+                ForeColor = Color.FromArgb(220, 220, 230),
+                BorderStyle = BorderStyle.None,
+                AcceptsReturn = true,
+                AcceptsTab = true,
+                WordWrap = false
+            };
+            editorSql.KeyDown += (s, e) =>
+            {
+                if ((e.KeyCode == Keys.F5) || (e.KeyCode == Keys.Enter && e.Control))
                 {
-                    _ = EjecutarConsultaAsync();
                     e.Handled = e.SuppressKeyPress = true;
+                    _ = EjecutarConsultaAsync();
                 }
             };
 
-            pnl.Controls.Add(sqlEditor);
-            pnl.Controls.Add(sqlToolbar);
-            rightSplit.Panel1.Controls.Add(pnl);
-        }
-
-        // ── GRID RESULTADOS ──────────────────────────────────────────────────
-        private void BuildResultGrid()
-        {
-            var pnl = new Panel { Dock = DockStyle.Fill, BackColor = BgBase };
-            var hdr = new Panel { Height = 32, Dock = DockStyle.Top, BackColor = BgHeader };
-            hdr.Controls.Add(new Label
+            var editorWrapper = new Panel
             {
-                Text = "  Resultados",
-                Dock = DockStyle.Fill,
-                ForeColor = TextDim,
-                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleLeft
-            });
-            hdr.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Bottom, BackColor = BorderClr });
+                Height = 130,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(14, 14, 20),
+                Padding = new Padding(8, 6, 8, 6)
+            };
+            editorWrapper.Controls.Add(editorSql);
 
+            // ── Grid resultados ──────────────────────────────────────────────
             grid = new DataGridView
             {
                 Dock = DockStyle.Fill,
-                BackgroundColor = BgBase,
-                GridColor = BorderClr,
-                BorderStyle = BorderStyle.None,
-                AllowUserToAddRows = false,
-                AllowUserToResizeRows = false,
                 ReadOnly = true,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                RowHeadersVisible = false,
-                RowTemplate = { Height = 26 },
+                AllowUserToAddRows = false,
+                RowHeadersVisible = true,
+                RowHeadersWidth = 44,
+                MultiSelect = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
                 ScrollBars = ScrollBars.Both,
-                ClipboardCopyMode = DataGridViewClipboardCopyMode.EnableAlwaysIncludeHeaderText
+                BorderStyle = BorderStyle.None
             };
-            grid.DefaultCellStyle.BackColor = BgBase;
-            grid.DefaultCellStyle.ForeColor = TextPri;
-            grid.DefaultCellStyle.Font = new Font("Cascadia Code", 8.5f);
-            grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(30, 90, 160);
-            grid.DefaultCellStyle.SelectionForeColor = Color.White;
-            grid.AlternatingRowsDefaultCellStyle.BackColor = BgSurface;
-            grid.ColumnHeadersDefaultCellStyle.BackColor = BgSurface;
-            grid.ColumnHeadersDefaultCellStyle.ForeColor = Mint;
-            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            grid.ColumnHeadersHeight = 32;
-            grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
-            grid.EnableHeadersVisualStyles = false;
+            Theme.StyleGrid(grid);
+            grid.RowHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Theme.BgSurface,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.FontSmall
+            };
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.CellFormatting += (s, e) =>
+            {
+                if (grid.RowHeadersVisible && e.RowIndex >= 0)
+                    grid.Rows[e.RowIndex].HeaderCell.Value = (e.RowIndex + 1).ToString();
+            };
 
-            // Double buffer via reflexión
-            typeof(DataGridView)
-                .GetProperty("DoubleBuffered",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.SetValue(grid, true);
+            // ── Barra inferior ───────────────────────────────────────────────
+            var bottomBar = new Panel
+            {
+                Height = 28,
+                Dock = DockStyle.Bottom,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(10, 4, 10, 4)
+            };
+            lblStatus = new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Theme.TextSecondary,
+                Font = Theme.FontSmall
+            };
+            bottomBar.Controls.Add(lblStatus);
 
-            pnl.Controls.Add(grid);
-            pnl.Controls.Add(hdr);
-            rightSplit.Panel2.Controls.Add(pnl);
+            // ── Marcador de "Resultados" ─────────────────────────────────────
+            var lblResultados = new Label
+            {
+                Text = "Resultados",
+                Height = 26,
+                Dock = DockStyle.Top,
+                Font = Theme.FontSmall,
+                ForeColor = Theme.TextMuted,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(10, 0, 0, 0),
+                BackColor = Theme.BgElevated
+            };
+
+            // ── Panel central (editor + grid) ────────────────────────────────
+            var centerPanel = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BgBase };
+            centerPanel.Controls.Add(loadingPanel);
+            centerPanel.Controls.Add(grid);
+            centerPanel.Controls.Add(lblResultados);
+            centerPanel.Controls.Add(editorWrapper);
+
+            loadingPanel.BringToFront();
+
+            Controls.Add(centerPanel);
+            Controls.Add(leftPanel);
+            Controls.Add(sqlBar);
+            Controls.Add(topBar);
+            Controls.Add(bottomBar);
+
+            KeyPreview = true;
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.F5)
+                {
+                    e.Handled = true;
+                    _ = EjecutarConsultaAsync();
+                }
+            };
+
+            SetExportButtonsEnabled(false);
         }
 
         // ════════════════════════════════════════════════════════════════════
         //  CONEXIÓN
         // ════════════════════════════════════════════════════════════════════
-
-        private async void BtnPostgres_Click(object? sender, EventArgs e)
+        private async Task ConectarAsync(DbTipo tipo)
         {
-            using var dlg = new SqlConexionDialog("PostgreSQL");
+            using var dlg = new ConexionDialog(tipo);
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
-            SetStatus("Conectando a PostgreSQL...");
-            bool ok = await Task.Run(() => SqlConnector.ProbarPostgreSQL(dlg.CadenaConexion, out _));
-            if (!ok)
-            {
-                SqlConnector.ProbarPostgreSQL(dlg.CadenaConexion, out string err);
-                MessageBox.Show(err, "Error de conexión", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetStatus("Error al conectar.");
-                return;
-            }
+            connectionString = dlg.ConnectionString;
+            tipoConexion = tipo;
 
-            _cadena = dlg.CadenaConexion;
-            _motor = "PostgreSQL";
-            ActualizarLabelConexion();
-            Text = $"SQL — PostgreSQL · {dlg.BaseDatos}";
-            await RefrescarArbolAsync();
+            ShowLoading("Conectando...");
+            try
+            {
+                await Task.Run(() => TestConexion());
+                lblConexion.Text = $"● {(tipo == DbTipo.Postgres ? "PostgreSQL" : "MariaDB")} conectado";
+                lblConexion.ForeColor = Theme.Success;
+                Text = $"SQL — {(tipo == DbTipo.Postgres ? "PostgreSQL" : "MariaDB")} · datos";
+                await CargarTablasAsync();
+            }
+            catch (Exception ex)
+            {
+                tipoConexion = DbTipo.Ninguno;
+                connectionString = "";
+                MessageBox.Show($"Error de conexión:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally { HideLoading(); }
         }
 
-        private async void BtnMariaDB_Click(object? sender, EventArgs e)
+        private void TestConexion()
         {
-            using var dlg = new SqlConexionDialog("MariaDB");
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-            SetStatus("Conectando a MariaDB...");
-            bool ok = await Task.Run(() => SqlConnector.ProbarMariaDB(dlg.CadenaConexion, out _));
-            if (!ok)
+            if (tipoConexion == DbTipo.Postgres)
             {
-                SqlConnector.ProbarMariaDB(dlg.CadenaConexion, out string err);
-                MessageBox.Show(err, "Error de conexión", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetStatus("Error al conectar.");
-                return;
+                using var conn = new NpgsqlConnection(connectionString);
+                conn.Open();
             }
-
-            _cadena = dlg.CadenaConexion;
-            _motor = "MariaDB";
-            ActualizarLabelConexion();
-            Text = $"SQL — MariaDB · {dlg.BaseDatos}";
-            await RefrescarArbolAsync();
+            else
+            {
+                using var conn = new MySqlConnection(connectionString);
+                conn.Open();
+            }
         }
 
         private void Desconectar()
         {
-            _cadena = "";
-            _motor = "";
-            _tablaActual = "";
-            tableTree.Nodes.Clear();
+            tipoConexion = DbTipo.Ninguno;
+            connectionString = "";
+            listaTablas.Items.Clear();
             grid.DataSource = null;
-            grid.Columns.Clear();
-            Text = "SQL — Sin conexión";
-            ActualizarLabelConexion();
-            SetStatus("Desconectado.");
+            resultadoActual = null;
+            lblConexion.Text = "● Sin conexión";
+            lblConexion.ForeColor = Theme.TextMuted;
+            lblStatus.Text = "";
+            SetExportButtonsEnabled(false);
+            Text = "SQL — visor";
         }
 
-        private void ActualizarLabelConexion()
+        private async Task CargarTablasAsync()
         {
-            var lbl = topBar.Controls.OfType<Label>().FirstOrDefault(l => l.Tag?.ToString() == "lblConexion");
-            if (lbl == null) return;
-            if (string.IsNullOrEmpty(_motor))
+            if (tipoConexion == DbTipo.Ninguno) return;
+            ShowLoading("Cargando tablas...");
+            try
             {
-                lbl.Text = "Sin conexión";
-                lbl.ForeColor = TextDim;
+                var tablas = await Task.Run(() => ObtenerTablas());
+                listaTablas.Items.Clear();
+                foreach (var t in tablas) listaTablas.Items.Add(t);
+                lblStatus.Text = $"  {tablas.Count} tabla(s)";
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = $"  Error: {ex.Message}";
+            }
+            finally { HideLoading(); }
+        }
+
+        private List<string> ObtenerTablas()
+        {
+            var lista = new List<string>();
+            string sql = tipoConexion == DbTipo.Postgres
+                ? "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+                : "SHOW TABLES";
+
+            if (tipoConexion == DbTipo.Postgres)
+            {
+                using var conn = new NpgsqlConnection(connectionString);
+                conn.Open();
+                using var cmd = new NpgsqlCommand(sql, conn);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read()) lista.Add(reader.GetString(0));
             }
             else
             {
-                lbl.Text = $"● {_motor} conectado";
-                lbl.ForeColor = _motor == "PostgreSQL" ? Sky : Amber;
+                using var conn = new MySqlConnection(connectionString);
+                conn.Open();
+                using var cmd = new MySqlCommand(sql, conn);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read()) lista.Add(reader.GetString(0));
             }
+            return lista;
+        }
+
+        private void ListaTablas_DoubleClick(object? sender, EventArgs e)
+        {
+            if (listaTablas.SelectedItem == null) return;
+            string tabla = listaTablas.SelectedItem.ToString()!;
+            // Wrap in quotes for safety
+            string quoted = tipoConexion == DbTipo.Postgres
+                ? $"\"{tabla}\""
+                : $"`{tabla}`";
+            editorSql.Text = $"SELECT * FROM {quoted} LIMIT 10;";
+            _ = EjecutarConsultaAsync();
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ÁRBOL DE TABLAS
+        //  EJECUTAR QUERY
         // ════════════════════════════════════════════════════════════════════
-
-        private async Task RefrescarArbolAsync()
+        private async Task EjecutarConsultaAsync()
         {
-            if (string.IsNullOrEmpty(_cadena)) return;
-            SetStatus("Cargando tablas...");
-
-            var tablas = await Task.Run(() =>
-                _motor == "PostgreSQL"
-                    ? SqlConnector.ObtenerTablasPostgreSQL(_cadena)
-                    : SqlConnector.ObtenerTablasMariaDB(_cadena));
-
-            tableTree.BeginUpdate();
-            tableTree.Nodes.Clear();
-            var root = new TreeNode($"Tablas ({tablas.Count})") { Tag = null };
-            foreach (var t in tablas)
-                root.Nodes.Add(new TreeNode(t) { Tag = t });
-            tableTree.Nodes.Add(root);
-            root.Expand();
-            tableTree.EndUpdate();
-            SetStatus($"{tablas.Count} tabla(s) disponibles.");
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  CARGAR TABLA
-        // ════════════════════════════════════════════════════════════════════
-
-        private async Task CargarTablaAsync(string tabla, int limite = 1000)
-        {
-            if (string.IsNullOrEmpty(_cadena)) return;
-            _tablaActual = tabla;
-
-            string sqlTexto = _motor == "PostgreSQL"
-                ? $"SELECT * FROM \"{tabla}\" LIMIT {limite};"
-                : $"SELECT * FROM `{tabla}` LIMIT {limite};";
-
-            sqlEditor.Text = sqlTexto;
-            await EjecutarConsultaAsync(sqlTexto);
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  EJECUTAR CONSULTA
-        // ════════════════════════════════════════════════════════════════════
-
-        private async Task EjecutarConsultaAsync(string? sqlOverride = null)
-        {
-            if (string.IsNullOrEmpty(_cadena))
-            {
-                MessageBox.Show("No hay conexión activa.\nConéctate a PostgreSQL o MariaDB primero.",
-                    "Sin conexión", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            string sql = sqlOverride ?? sqlEditor.Text.Trim();
-            if (string.IsNullOrEmpty(sql)) return;
-
-            SetStatus("Ejecutando consulta...");
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-
-            try
-            {
-                var dt = await Task.Run(() =>
-                    _motor == "PostgreSQL"
-                        ? SqlConnector.EjecutarConsultaPostgreSQL(_cadena, sql)
-                        : SqlConnector.EjecutarConsultaMariaDB(_cadena, sql));
-
-                sw.Stop();
-                BindGrid(dt);
-                SetStatus($"OK · {dt.Rows.Count} fila(s) · {sw.ElapsedMilliseconds} ms");
-                lblRows.Text = $"{dt.Rows.Count} filas";
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                SetStatus($"Error: {ex.Message}");
-                MessageBox.Show(ex.Message, "Error SQL", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  BIND GRID
-        // ════════════════════════════════════════════════════════════════════
-
-        private void BindGrid(DataTable dt)
-        {
-            grid.DataSource = null;
-            grid.Columns.Clear();
-            grid.AutoGenerateColumns = true;
-            grid.DataSource = dt;
-
-            // Auto-ajustar ancho mínimo
-            foreach (DataGridViewColumn col in grid.Columns)
-            {
-                col.ReadOnly = true;
-                col.MinimumWidth = 60;
-                col.SortMode = DataGridViewColumnSortMode.Automatic;
-                if (col.Width < 80) col.Width = 80;
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  EXPORTAR RESULTADOS
-        // ════════════════════════════════════════════════════════════════════
-
-        private void ExportarResultadosCSV(object? sender, EventArgs e)
-        {
-            if (grid.DataSource is not DataTable dt || dt.Rows.Count == 0)
-            {
-                MessageBox.Show("No hay datos para exportar.", "Sin datos",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            using var dlg = new SaveFileDialog
-            {
-                Title = "Exportar resultados",
-                Filter = "CSV|*.csv|Todos|*.*",
-                FileName = $"sql_export_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
-            };
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-            try
-            {
-                string csv = SqlConnector.DataTableACsv(dt);
-                File.WriteAllText(dlg.FileName, csv, Encoding.UTF8);
-                SetStatus($"Exportado → {Path.GetFileName(dlg.FileName)}  ({dt.Rows.Count} filas)");
-                MessageBox.Show($"Exportado correctamente:\n{dlg.FileName}", "Exportar",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  IMPORTAR CSV → BD
-        // ════════════════════════════════════════════════════════════════════
-
-        // ════════════════════════════════════════════════════════════════════
-        //  IMPORTAR ARCHIVO (CSV / JSON / XML / TXT) → BD
-        // ════════════════════════════════════════════════════════════════════
-
-        private async Task ImportarArchivoABD()
-        {
-            if (string.IsNullOrEmpty(_cadena))
+            if (tipoConexion == DbTipo.Ninguno)
             {
                 MessageBox.Show("No hay conexión activa.", "Sin conexión",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            using var dlgOpen = new OpenFileDialog
-            {
-                Title = "Selecciona el archivo a importar",
-                Filter = "Archivos de datos|*.csv;*.json;*.xml;*.txt|CSV|*.csv|JSON|*.json|XML|*.xml|TXT|*.txt|Todos|*.*"
-            };
-            if (dlgOpen.ShowDialog(this) != DialogResult.OK) return;
+            string sql = editorSql.SelectedText.Length > 0
+                ? editorSql.SelectedText
+                : editorSql.Text.Trim();
 
-            string nombreTabla = Path.GetFileNameWithoutExtension(dlgOpen.FileName)
-                .Replace(" ", "_").ToLowerInvariant();
-            nombreTabla = InputDialog("Nombre de tabla destino", "Tabla:", nombreTabla) ?? nombreTabla;
-            if (string.IsNullOrWhiteSpace(nombreTabla)) return;
+            if (string.IsNullOrWhiteSpace(sql)) return;
 
-            string ext = Path.GetExtension(dlgOpen.FileName).ToLower();
-            SetStatus($"Leyendo {ext.TrimStart('.')}...");
-            DataTable? dt = null;
+            ShowLoading("Ejecutando consulta...");
+            SetExportButtonsEnabled(false);
+            grid.DataSource = null;
+            resultadoActual = null;
+
             try
             {
-                dt = await Task.Run(() => LeerArchivoADataTable(dlgOpen.FileName));
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var result = await Task.Run(() => EjecutarSql(sql));
+                sw.Stop();
+
+                if (result.dt != null)
+                {
+                    resultadoActual = result.dt;
+                    grid.DataSource = resultadoActual;
+                    foreach (DataGridViewColumn col in grid.Columns)
+                        col.Width = Math.Min(260, Math.Max(60, col.Width));
+                    lblStatus.Text = $"  {result.dt.Rows.Count} fila(s)  ·  {sw.ElapsedMilliseconds} ms";
+                    SetExportButtonsEnabled(result.dt.Rows.Count > 0);
+                }
+                else
+                {
+                    lblStatus.Text = $"  {result.filas} fila(s) afectada(s)  ·  {sw.ElapsedMilliseconds} ms";
+                    await CargarTablasAsync(); // Refrescar si fue DDL/DML
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al leer archivo:\n{ex.Message}", "Error",
+                lblStatus.Text = $"  Error: {ex.Message.Split('\n')[0]}";
+                MessageBox.Show(ex.Message, "Error SQL", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally { HideLoading(); }
+        }
+
+        private (DataTable? dt, int filas) EjecutarSql(string sql)
+        {
+            if (tipoConexion == DbTipo.Postgres)
+            {
+                using var conn = new NpgsqlConnection(connectionString);
+                conn.Open();
+                using var cmd = new NpgsqlCommand(sql, conn) { CommandTimeout = 60 };
+
+                if (sql.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
+                    sql.TrimStart().StartsWith("WITH", StringComparison.OrdinalIgnoreCase) ||
+                    sql.TrimStart().StartsWith("SHOW", StringComparison.OrdinalIgnoreCase))
+                {
+                    var adapter = new Npgsql.NpgsqlDataAdapter(cmd);
+                    var dt = new DataTable();
+                    adapter.Fill(dt);
+                    return (dt, 0);
+                }
+                else
+                {
+                    return (null, cmd.ExecuteNonQuery());
+                }
+            }
+            else
+            {
+                using var conn = new MySqlConnection(connectionString);
+                conn.Open();
+                using var cmd = new MySqlCommand(sql, conn) { CommandTimeout = 60 };
+
+                if (sql.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
+                    sql.TrimStart().StartsWith("SHOW", StringComparison.OrdinalIgnoreCase) ||
+                    sql.TrimStart().StartsWith("DESCRIBE", StringComparison.OrdinalIgnoreCase))
+                {
+                    var adapter = new MySqlConnector.MySqlDataAdapter(cmd);
+                    var dt = new DataTable();
+                    adapter.Fill(dt);
+                    return (dt, 0);
+                }
+                else
+                {
+                    return (null, cmd.ExecuteNonQuery());
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  EXPORTAR RESULTADO
+        // ════════════════════════════════════════════════════════════════════
+        private void ExportarResultado(string ext)
+        {
+            if (resultadoActual == null || resultadoActual.Rows.Count == 0)
+            {
+                MessageBox.Show("No hay resultados para exportar.", "Sin datos",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string tipoStr = ext.TrimStart('.').ToUpper();
+            using var dlg = new SaveFileDialog
+            {
+                Title = $"Exportar resultado como {tipoStr}",
+                Filter = $"{tipoStr} (*{ext})|*{ext}|Todos los archivos (*.*)|*.*",
+                FileName = $"resultado_{DateTime.Now:yyyyMMdd_HHmm}{ext}"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                string contenido = SerializarTabla(resultadoActual, ext);
+                File.WriteAllText(dlg.FileName, contenido, Encoding.UTF8);
+                if (MessageBox.Show(
+                    $"Exportado correctamente:\n{dlg.FileName}\n\n¿Abrir?",
+                    "Exportación completa",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information) == DialogResult.Yes)
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = dlg.FileName, UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al exportar:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static string SerializarTabla(DataTable dt, string ext) => ext switch
+        {
+            ".csv" => TablaCsv(dt),
+            ".json" => TablaJson(dt),
+            ".xml" => TablaXml(dt),
+            _ => TablaTxt(dt)
+        };
+
+        private static string TablaCsv(DataTable dt)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",",
+                dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\"")));
+            foreach (DataRow row in dt.Rows)
+                sb.AppendLine(string.Join(",",
+                    row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\"")));
+            return sb.ToString();
+        }
+
+        private static string TablaTxt(DataTable dt)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join("\t",
+                dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName)));
+            foreach (DataRow row in dt.Rows)
+                sb.AppendLine(string.Join("\t",
+                    row.ItemArray.Select(x => x?.ToString() ?? "")));
+            return sb.ToString();
+        }
+
+        private static string TablaJson(DataTable dt)
+        {
+            var rows = new List<Dictionary<string, object?>>();
+            foreach (DataRow row in dt.Rows)
+            {
+                var d = new Dictionary<string, object?>();
+                foreach (DataColumn col in dt.Columns)
+                {
+                    string? val = row[col]?.ToString();
+                    if (double.TryParse(val,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double numVal))
+                        d[col.ColumnName] = numVal;
+                    else if (val == "" || val == null)
+                        d[col.ColumnName] = null;
+                    else
+                        d[col.ColumnName] = val;
+                }
+                rows.Add(d);
+            }
+            return JsonSerializer.Serialize(rows, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+
+        private static string TablaXml(DataTable dt)
+        {
+            dt.TableName = "Resultados";
+            using var sw = new StringWriter();
+            dt.WriteXml(sw);
+            return sw.ToString();
+        }
+
+        private static string Esc(string s) => s.Replace("\"", "\"\"");
+
+        // ════════════════════════════════════════════════════════════════════
+        //  IMPORTAR ARCHIVO → BD
+        // ════════════════════════════════════════════════════════════════════
+        private async Task ImportarArchivoAsync()
+        {
+            if (tipoConexion == DbTipo.Ninguno)
+            {
+                MessageBox.Show("Conéctate primero a una base de datos.", "Sin conexión",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            using var dlg = new OpenFileDialog
+            {
+                Title = "Seleccionar archivo para importar",
+                Filter = "Archivos de datos (*.csv;*.txt;*.json;*.xml)|*.csv;*.txt;*.json;*.xml|Todos|*.*",
+                Multiselect = false
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            // Leer y parsear el archivo
+            ShowLoading("Leyendo archivo...");
+            DataTable? dt = null;
+            try
+            {
+                string ext = Path.GetExtension(dlg.FileName).ToLower();
+                string contenido = await Task.Run(() => File.ReadAllText(dlg.FileName));
+                dt = await Task.Run(() => ParsearArchivo(contenido, ext));
+            }
+            catch (Exception ex)
+            {
+                HideLoading();
+                MessageBox.Show($"Error leyendo archivo:\n{ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             if (dt == null || dt.Rows.Count == 0)
             {
-                MessageBox.Show("El archivo está vacío o no se pudo interpretar.", "Sin datos",
+                HideLoading();
+                MessageBox.Show("El archivo no contiene datos.", "Sin datos",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            SetStatus($"Importando {dt.Rows.Count} filas a '{nombreTabla}'...");
-            var progreso = new Progress<int>(pct => SetStatus($"Importando... {pct}%"));
-
-            var result = await Task.Run(() =>
-                _motor == "PostgreSQL"
-                    ? SqlConnector.InsertarDataTablePostgreSQL(_cadena, nombreTabla, dt, progreso)
-                    : SqlConnector.InsertarDataTableMariaDB(_cadena, nombreTabla, dt, progreso));
-
-            SetStatus(result.Mensaje);
-            MessageBox.Show(
-                $"{result.Mensaje}\n\nTabla:   {nombreTabla}\nColumnas: {dt.Columns.Count}\nFilas:    {result.Insertados:N0}\nErrores: {result.Errores}",
-                "Importar archivo → BD",
-                MessageBoxButtons.OK,
-                result.Exito ? MessageBoxIcon.Information : MessageBoxIcon.Error);
-
-            if (result.Exito)
-                await RefrescarArbolAsync();
+            HideLoading();
+            string nombreSugerido = Path.GetFileNameWithoutExtension(dlg.FileName)
+                .Replace(" ", "_").ToLowerInvariant();
+            await ImportarDataTableABD(dt, nombreSugerido);
         }
 
-        // ── Método público para que FileViewerForm pueda llamarlo directamente ──
-        public async Task ImportarDataTableABD(DataTable dt, string nombreSugerido)
+        /// <summary>Importa un DataTable a la BD conectada. Llamable desde FileViewerForm.</summary>
+        public async Task ImportarDataTableABD(DataTable dt, string nombreTabla)
         {
-            if (string.IsNullOrEmpty(_cadena))
+            using var dlg = new NombreTablaDialog(nombreTabla);
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            nombreTabla = dlg.NombreTabla;
+
+            ShowLoading($"Creando tabla '{nombreTabla}'...");
+            try
             {
-                MessageBox.Show("No hay conexión activa en el visor SQL.\nConéctate primero a PostgreSQL o MariaDB.",
-                    "Sin conexión", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                await Task.Run(() => CrearEInsertarTabla(dt, nombreTabla));
+                HideLoading();
+                await CargarTablasAsync();
+                editorSql.Text = $"SELECT * FROM \"{nombreTabla}\" LIMIT 10;";
+                MessageBox.Show(
+                    $"✅ Tabla '{nombreTabla}' creada con {dt.Rows.Count} fila(s).",
+                    "Importación exitosa",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                _ = EjecutarConsultaAsync();
             }
-
-            string nombreTabla = nombreSugerido.Replace(" ", "_").ToLowerInvariant();
-            nombreTabla = InputDialog("Nombre de tabla destino", "Tabla:", nombreTabla) ?? nombreTabla;
-            if (string.IsNullOrWhiteSpace(nombreTabla)) return;
-
-            SetStatus($"Importando {dt.Rows.Count} filas a '{nombreTabla}'...");
-            var progreso = new Progress<int>(pct => SetStatus($"Importando... {pct}%"));
-
-            var result = await Task.Run(() =>
-                _motor == "PostgreSQL"
-                    ? SqlConnector.InsertarDataTablePostgreSQL(_cadena, nombreTabla, dt, progreso)
-                    : SqlConnector.InsertarDataTableMariaDB(_cadena, nombreTabla, dt, progreso));
-
-            SetStatus(result.Mensaje);
-            MessageBox.Show(
-                $"{result.Mensaje}\n\nTabla:    {nombreTabla}\nColumnas: {dt.Columns.Count}\nFilas:    {result.Insertados:N0}\nErrores:  {result.Errores}",
-                "Exportar a BD",
-                MessageBoxButtons.OK,
-                result.Exito ? MessageBoxIcon.Information : MessageBoxIcon.Error);
-
-            if (result.Exito)
-                await RefrescarArbolAsync();
+            catch (Exception ex)
+            {
+                HideLoading();
+                MessageBox.Show($"Error al importar:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        // ── Leer cualquier formato a DataTable ───────────────────────────────
-
-        public static DataTable LeerArchivoADataTable(string ruta)
+        private void CrearEInsertarTabla(DataTable dt, string nombreTabla)
         {
-            string ext = Path.GetExtension(ruta).ToLower();
+            if (tipoConexion == DbTipo.Postgres)
+                CrearEInsertarPostgres(dt, nombreTabla);
+            else
+                CrearEInsertarMaria(dt, nombreTabla);
+        }
+
+        private void CrearEInsertarPostgres(DataTable dt, string nombreTabla)
+        {
+            using var conn = new NpgsqlConnection(connectionString);
+            conn.Open();
+
+            // Crear tabla
+            var colDefs = dt.Columns.Cast<DataColumn>()
+                .Select(c => $"\"{SanitizarColumna(c.ColumnName)}\" TEXT");
+            string createSql = $"CREATE TABLE IF NOT EXISTS \"{nombreTabla}\" ({string.Join(", ", colDefs)})";
+            using (var cmd = new NpgsqlCommand(createSql, conn)) cmd.ExecuteNonQuery();
+
+            // Insertar filas en lotes
+            using var tx = conn.BeginTransaction();
+            foreach (DataRow row in dt.Rows)
+            {
+                var cols = dt.Columns.Cast<DataColumn>()
+                    .Select(c => $"\"{SanitizarColumna(c.ColumnName)}\"");
+                var parms = Enumerable.Range(1, dt.Columns.Count).Select(i => $"@p{i}");
+                string insertSql = $"INSERT INTO \"{nombreTabla}\" ({string.Join(",", cols)}) VALUES ({string.Join(",", parms)})";
+                using var cmd = new NpgsqlCommand(insertSql, conn, tx);
+                for (int i = 0; i < dt.Columns.Count; i++)
+                    cmd.Parameters.AddWithValue($"@p{i + 1}", row[i]?.ToString() ?? "");
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+
+        private void CrearEInsertarMaria(DataTable dt, string nombreTabla)
+        {
+            using var conn = new MySqlConnection(connectionString);
+            conn.Open();
+
+            var colDefs = dt.Columns.Cast<DataColumn>()
+                .Select(c => $"`{SanitizarColumna(c.ColumnName)}` TEXT");
+            string createSql = $"CREATE TABLE IF NOT EXISTS `{nombreTabla}` ({string.Join(", ", colDefs)})";
+            using (var cmd = new MySqlCommand(createSql, conn)) cmd.ExecuteNonQuery();
+
+            using var tx = conn.BeginTransaction();
+            foreach (DataRow row in dt.Rows)
+            {
+                var cols = dt.Columns.Cast<DataColumn>()
+                    .Select(c => $"`{SanitizarColumna(c.ColumnName)}`");
+                var parms = Enumerable.Range(1, dt.Columns.Count).Select(i => $"@p{i}");
+                string insertSql = $"INSERT INTO `{nombreTabla}` ({string.Join(",", cols)}) VALUES ({string.Join(",", parms)})";
+                using var cmd = new MySqlCommand(insertSql, conn, tx);
+                for (int i = 0; i < dt.Columns.Count; i++)
+                    cmd.Parameters.AddWithValue($"@p{i + 1}", row[i]?.ToString() ?? "");
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+
+        private static DataTable ParsearArchivo(string contenido, string ext)
+        {
             return ext switch
             {
-                ".csv" => LeerCsvADataTable(ruta),
-                ".json" => LeerJsonADataTable(ruta),
-                ".xml" => LeerXmlADataTable(ruta),
-                ".txt" => LeerTxtADataTable(ruta),
-                _ => LeerCsvADataTable(ruta)
+                ".csv" => ParseCsv(contenido),
+                ".json" => ParseJson(contenido),
+                ".xml" => ParseXml(contenido),
+                _ => ParseTxt(contenido)
             };
         }
 
-        private static DataTable LeerCsvADataTable(string ruta)
+        private static DataTable ParseCsv(string contenido)
         {
             var dt = new DataTable();
-            string[] lineas = File.ReadAllLines(ruta, Encoding.UTF8);
+            var lineas = contenido.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
             if (lineas.Length == 0) return dt;
-
-            char sep = ',';
-            if (!lineas[0].Contains(',') && lineas[0].Contains(';')) sep = ';';
-            else if (!lineas[0].Contains(',') && lineas[0].Contains('\t')) sep = '\t';
-
-            var headers = SepararLinea(lineas[0], sep);
-            foreach (string h in headers)
-                dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"col{dt.Columns.Count + 1}");
-
+            var headers = SplitCsvLine(lineas[0]);
+            foreach (var h in headers)
+                dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"Col{dt.Columns.Count + 1}");
             for (int i = 1; i < lineas.Length; i++)
             {
-                if (string.IsNullOrWhiteSpace(lineas[i])) continue;
-                var cols = SepararLinea(lineas[i], sep);
+                var cells = SplitCsvLine(lineas[i]);
                 var row = dt.NewRow();
                 for (int c = 0; c < dt.Columns.Count; c++)
-                    row[c] = c < cols.Count ? cols[c].Trim('"') : "";
+                    row[c] = c < cells.Count ? cells[c].Trim('"') : "";
                 dt.Rows.Add(row);
             }
             return dt;
         }
 
-        private static DataTable LeerJsonADataTable(string ruta)
+        private static List<string> SplitCsvLine(string line)
+        {
+            var result = new List<string>();
+            bool inQuote = false;
+            var cur = new StringBuilder();
+            foreach (char c in line)
+            {
+                if (c == '"') inQuote = !inQuote;
+                else if (c == ',' && !inQuote) { result.Add(cur.ToString()); cur.Clear(); }
+                else cur.Append(c);
+            }
+            result.Add(cur.ToString());
+            return result;
+        }
+
+        private static DataTable ParseTxt(string contenido)
         {
             var dt = new DataTable();
-            string content = File.ReadAllText(ruta, Encoding.UTF8);
-            using var doc = System.Text.Json.JsonDocument.Parse(content);
-            var root = doc.RootElement;
-
-            // Buscar array raíz o primera propiedad array
-            System.Text.Json.JsonElement array = default;
-            if (root.ValueKind == System.Text.Json.JsonValueKind.Array)
-                array = root;
-            else if (root.ValueKind == System.Text.Json.JsonValueKind.Object)
+            var lineas = contenido.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            if (lineas.Length == 0) return dt;
+            char delim = lineas[0].Contains('\t') ? '\t' : lineas[0].Contains('|') ? '|' : ';';
+            var headers = lineas[0].Split(delim);
+            foreach (var h in headers) dt.Columns.Add(h.Trim().Length > 0 ? h.Trim() : $"Col{dt.Columns.Count + 1}");
+            for (int i = 1; i < lineas.Length; i++)
             {
-                foreach (var prop in root.EnumerateObject())
-                    if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.Array)
-                    { array = prop.Value; break; }
-            }
-
-            if (array.ValueKind != System.Text.Json.JsonValueKind.Array) return dt;
-
-            var items = array.EnumerateArray().ToList();
-            if (items.Count == 0) return dt;
-
-            // Columnas desde primer objeto
-            if (items[0].ValueKind == System.Text.Json.JsonValueKind.Object)
-            {
-                foreach (var prop in items[0].EnumerateObject())
-                    if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
-            }
-
-            foreach (var item in items)
-            {
-                if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var cells = lineas[i].Split(delim);
                 var row = dt.NewRow();
-                foreach (var prop in item.EnumerateObject())
-                {
-                    if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
-                    row[prop.Name] = prop.Value.ValueKind == System.Text.Json.JsonValueKind.Null
-                        ? "" : prop.Value.ToString();
-                }
+                for (int c = 0; c < dt.Columns.Count; c++)
+                    row[c] = c < cells.Length ? cells[c].Trim() : "";
                 dt.Rows.Add(row);
             }
             return dt;
         }
 
-        private static DataTable LeerXmlADataTable(string ruta)
+        private static DataTable ParseJson(string contenido)
         {
             var dt = new DataTable();
             try
             {
-                var xmlDoc = new System.Xml.XmlDocument();
-                xmlDoc.Load(ruta);
-                var root = xmlDoc.DocumentElement;
-                if (root == null) return dt;
+                using var doc = JsonDocument.Parse(contenido);
+                var arr = doc.RootElement.ValueKind == JsonValueKind.Array
+                    ? doc.RootElement
+                    : doc.RootElement.EnumerateObject().FirstOrDefault(p => p.Value.ValueKind == JsonValueKind.Array).Value;
 
-                var records = root.FirstChild != null
-                    ? root.SelectNodes(root.FirstChild.Name)
-                    : null;
-                if (records == null || records.Count == 0) return dt;
-
-                // Columnas desde primer elemento
-                var first = records[0]!;
-                foreach (System.Xml.XmlAttribute attr in first.Attributes!)
-                    if (!dt.Columns.Contains("@" + attr.Name)) dt.Columns.Add("@" + attr.Name);
-                foreach (System.Xml.XmlNode child in first.ChildNodes)
-                    if (child.NodeType == System.Xml.XmlNodeType.Element && !dt.Columns.Contains(child.Name))
-                        dt.Columns.Add(child.Name);
-
-                foreach (System.Xml.XmlNode rec in records)
+                foreach (var elem in arr.EnumerateArray())
                 {
+                    if (elem.ValueKind != JsonValueKind.Object) continue;
+                    foreach (var prop in elem.EnumerateObject())
+                        if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
+                }
+                foreach (var elem in arr.EnumerateArray())
+                {
+                    if (elem.ValueKind != JsonValueKind.Object) continue;
                     var row = dt.NewRow();
-                    foreach (System.Xml.XmlAttribute attr in rec.Attributes!)
-                        if (dt.Columns.Contains("@" + attr.Name)) row["@" + attr.Name] = attr.Value;
-                    foreach (System.Xml.XmlNode child in rec.ChildNodes)
-                        if (child.NodeType == System.Xml.XmlNodeType.Element && dt.Columns.Contains(child.Name))
-                            row[child.Name] = child.InnerText;
+                    foreach (var prop in elem.EnumerateObject())
+                        if (dt.Columns.Contains(prop.Name))
+                            row[prop.Name] = prop.Value.ValueKind == JsonValueKind.Null ? "" : prop.Value.ToString();
                     dt.Rows.Add(row);
                 }
             }
@@ -773,443 +908,240 @@ namespace FileExplorerr
             return dt;
         }
 
-        private static DataTable LeerTxtADataTable(string ruta)
+        private static DataTable ParseXml(string contenido)
         {
             var dt = new DataTable();
-            string[] lineas = File.ReadAllLines(ruta, Encoding.UTF8);
-            if (lineas.Length == 0) return dt;
-
-            // Detectar separador: |, tab, ;, coma
-            char sep = '|';
-            if (!lineas[0].Contains('|'))
+            try
             {
-                if (lineas[0].Contains('\t')) sep = '\t';
-                else if (lineas[0].Contains(';')) sep = ';';
-                else if (lineas[0].Contains(',')) sep = ',';
+                var doc = new System.Xml.XmlDocument();
+                doc.LoadXml(contenido);
+                if (doc.DocumentElement == null) return dt;
+                var primer = doc.DocumentElement.FirstChild?.Name;
+                if (primer == null) return dt;
+                var nodos = doc.DocumentElement.SelectNodes(primer);
+                if (nodos == null) return dt;
+                foreach (System.Xml.XmlNode n in nodos)
+                    foreach (System.Xml.XmlNode child in n.ChildNodes)
+                        if (!dt.Columns.Contains(child.Name)) dt.Columns.Add(child.Name);
+                foreach (System.Xml.XmlNode n in nodos)
+                {
+                    var row = dt.NewRow();
+                    foreach (System.Xml.XmlNode child in n.ChildNodes)
+                        if (dt.Columns.Contains(child.Name)) row[child.Name] = child.InnerText;
+                    dt.Rows.Add(row);
+                }
             }
-
-            var headers = lineas[0].Split(sep);
-            foreach (string h in headers)
-                dt.Columns.Add(h.Trim().Trim('"').Length > 0 ? h.Trim().Trim('"') : $"col{dt.Columns.Count + 1}");
-
-            for (int i = 1; i < lineas.Length; i++)
-            {
-                if (string.IsNullOrWhiteSpace(lineas[i])) continue;
-                var cols = lineas[i].Split(sep);
-                var row = dt.NewRow();
-                for (int c = 0; c < dt.Columns.Count; c++)
-                    row[c] = c < cols.Length ? cols[c].Trim().Trim('"') : "";
-                dt.Rows.Add(row);
-            }
+            catch { }
             return dt;
         }
 
-        private static System.Collections.Generic.List<string> SepararLinea(string linea, char sep)
+        private static string SanitizarColumna(string nombre)
         {
-            var campos = new System.Collections.Generic.List<string>();
-            var actual = new StringBuilder();
-            bool enComillas = false;
-            foreach (char c in linea)
-            {
-                if (c == '"') { enComillas = !enComillas; actual.Append(c); }
-                else if (c == sep && !enComillas) { campos.Add(actual.ToString()); actual.Clear(); }
-                else actual.Append(c);
-            }
-            campos.Add(actual.ToString());
-            return campos;
+            return string.IsNullOrWhiteSpace(nombre) ? "col" :
+                new string(nombre.Select(c => char.IsLetterOrDigit(c) || c == '_' ? c : '_').ToArray())
+                    .TrimStart('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  MENÚ CONTEXTUAL TABLA
+        //  HELPERS UI
         // ════════════════════════════════════════════════════════════════════
-
-        private void MostrarMenuTabla(string tabla, Point ubicacion)
+        private void ShowLoading(string texto = "Procesando...")
         {
-            var menu = new ContextMenuStrip { BackColor = BgElevated, ForeColor = TextPri, Font = new Font("Segoe UI", 9f) };
-
-            var miVer = new ToolStripMenuItem("Ver datos (top 1000)") { ForeColor = Sky };
-            miVer.Click += async (s, e) => await CargarTablaAsync(tabla);
-
-            var miContar = new ToolStripMenuItem("Contar filas") { ForeColor = Mint };
-            miContar.Click += async (s, e) =>
-            {
-                string sql = _motor == "PostgreSQL"
-                    ? $"SELECT COUNT(*) FROM \"{tabla}\";"
-                    : $"SELECT COUNT(*) FROM `{tabla}`;";
-                sqlEditor.Text = sql;
-                await EjecutarConsultaAsync(sql);
-            };
-
-            var miDescribir = new ToolStripMenuItem("Describir columnas") { ForeColor = Amber };
-            miDescribir.Click += async (s, e) =>
-            {
-                string sql = _motor == "PostgreSQL"
-                    ? $"SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name='{tabla}' ORDER BY ordinal_position;"
-                    : $"DESCRIBE `{tabla}`;";
-                sqlEditor.Text = sql;
-                await EjecutarConsultaAsync(sql);
-            };
-
-            var miExportar = new ToolStripMenuItem("Exportar tabla completa → CSV") { ForeColor = Mint };
-            miExportar.Click += async (s, e) => await ExportarTablaCompletaAsync(tabla);
-
-            var miEliminar = new ToolStripMenuItem("DROP TABLE (eliminar)") { ForeColor = Rose };
-            miEliminar.Click += async (s, e) =>
-            {
-                if (MessageBox.Show($"¿Eliminar la tabla '{tabla}' definitivamente?", "DROP TABLE",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-                string sql = _motor == "PostgreSQL"
-                    ? $"DROP TABLE IF EXISTS \"{tabla}\";"
-                    : $"DROP TABLE IF EXISTS `{tabla}`;";
-                sqlEditor.Text = sql;
-                await EjecutarConsultaAsync(sql);
-                await RefrescarArbolAsync();
-            };
-
-            menu.Items.AddRange(new ToolStripItem[]
-            {
-                miVer, miContar, miDescribir,
-                new ToolStripSeparator(),
-                miExportar,
-                new ToolStripSeparator(),
-                miEliminar
-            });
-            menu.Show(tableTree, ubicacion);
+            loadingLabel.Text = texto;
+            loadingPanel.Visible = true;
+            CenterLoading();
+            loadingPanel.BringToFront();
         }
 
-        private async Task ExportarTablaCompletaAsync(string tabla)
+        private void HideLoading() => loadingPanel.Visible = false;
+
+        private void CenterLoading()
         {
-            if (string.IsNullOrEmpty(_cadena)) return;
-
-            using var dlg = new SaveFileDialog
-            {
-                Title = "Exportar tabla completa",
-                Filter = "CSV|*.csv|Todos|*.*",
-                FileName = $"{tabla}_{DateTime.Now:yyyyMMdd}.csv"
-            };
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-            SetStatus($"Exportando tabla '{tabla}'...");
-            try
-            {
-                var dt = await Task.Run(() =>
-                    _motor == "PostgreSQL"
-                        ? SqlConnector.LeerTablaPostgreSQL(_cadena, tabla)
-                        : SqlConnector.LeerTablaMariaDB(_cadena, tabla));
-
-                string csv = SqlConnector.DataTableACsv(dt);
-                await File.WriteAllTextAsync(dlg.FileName, csv, Encoding.UTF8);
-                SetStatus($"Exportado '{tabla}' → {Path.GetFileName(dlg.FileName)}  ({dt.Rows.Count} filas)");
-                MessageBox.Show(
-                    $"Tabla '{tabla}' exportada.\nFilas: {dt.Rows.Count:N0}\nArchivo: {dlg.FileName}",
-                    "Exportar", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                SetStatus($"Error: {ex.Message}");
-                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            if (loadingLabel == null || loadingPanel == null) return;
+            loadingLabel.Location = new Point(
+                (loadingPanel.Width - loadingLabel.Width) / 2,
+                (loadingPanel.Height - loadingLabel.Height) / 2);
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        //  HELPERS
-        // ════════════════════════════════════════════════════════════════════
-
-        private void SetStatus(string msg)
+        private void SetExportButtonsEnabled(bool enabled)
         {
-            if (statusBar.InvokeRequired)
-                statusBar.Invoke(() => lblStatus.Text = msg);
-            else
-                lblStatus.Text = msg;
+            btnExportarCsv.Enabled = enabled;
+            btnExportarJson.Enabled = enabled;
+            btnExportarTxt.Enabled = enabled;
+            btnExportarXml.Enabled = enabled;
         }
 
-        private void AddTopBtn(string text, Color fg, Color bg, ref int x, EventHandler click)
+        private static Button MakeConnBtn(string text, Color bg, Color fg)
         {
             var btn = new Button
             {
                 Text = text,
-                Location = new Point(x, 9),
-                Height = 30,
+                Height = 32,
+                AutoSize = true,
+                Padding = new Padding(10, 0, 10, 0),
+                BackColor = bg,
+                ForeColor = fg,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderColor = fg;
+            btn.FlatAppearance.BorderSize = 1;
+            return btn;
+        }
+
+        private static Button MakeActionBtn(string text, Color bg, Color fg)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Height = 32,
                 AutoSize = true,
                 Padding = new Padding(8, 0, 8, 0),
                 BackColor = bg,
                 ForeColor = fg,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.5f),
+                Font = new Font("Segoe UI", 8.5F),
                 Cursor = Cursors.Hand
             };
-            btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = ControlPaint.Light(bg, 0.1f);
-            btn.Click += click;
-            topBar.Controls.Add(btn);
-            btn.PerformLayout();
-            x += btn.Width + 4;
+            btn.FlatAppearance.BorderColor = fg;
+            btn.FlatAppearance.BorderSize = 1;
+            return btn;
         }
 
-        private void AddSqlBtn(string text, Color fg, Color bg, ref int x, EventHandler click)
+        private static Button MakeExportBtn(string text, Color bg, Color fg)
         {
             var btn = new Button
             {
                 Text = text,
-                Location = new Point(x, 4),
-                Height = 28,
+                Height = 32,
                 AutoSize = true,
                 Padding = new Padding(8, 0, 8, 0),
                 BackColor = bg,
                 ForeColor = fg,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.5f),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 Cursor = Cursors.Hand
             };
-            btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = ControlPaint.Light(bg, 0.1f);
-            btn.Click += click;
-            sqlToolbar.Controls.Add(btn);
-            btn.PerformLayout();
-            x += btn.Width + 4;
-        }
-
-        private string? InputDialog(string titulo, string prompt, string def = "")
-        {
-            using var dlg = new Form
-            {
-                Text = titulo,
-                Width = 380,
-                Height = 150,
-                StartPosition = FormStartPosition.CenterParent,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                BackColor = BgSurface,
-                ForeColor = TextPri
-            };
-            var lbl = new Label { Text = prompt, Left = 14, Top = 18, Width = 340, ForeColor = TextDim };
-            var txt = new TextBox
-            {
-                Text = def,
-                Left = 14,
-                Top = 44,
-                Width = 340,
-                BackColor = BgElevated,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            txt.SelectAll();
-            var ok = new Button
-            {
-                Text = "Aceptar",
-                Left = 196,
-                Top = 82,
-                Width = 80,
-                BackColor = MintDim,
-                ForeColor = Mint,
-                FlatStyle = FlatStyle.Flat,
-                DialogResult = DialogResult.OK
-            };
-            ok.FlatAppearance.BorderSize = 0;
-            var cancel = new Button
-            {
-                Text = "Cancelar",
-                Left = 286,
-                Top = 82,
-                Width = 70,
-                BackColor = RoseDim,
-                ForeColor = Rose,
-                FlatStyle = FlatStyle.Flat,
-                DialogResult = DialogResult.Cancel
-            };
-            cancel.FlatAppearance.BorderSize = 0;
-            dlg.Controls.AddRange(new Control[] { lbl, txt, ok, cancel });
-            dlg.AcceptButton = ok;
-            dlg.CancelButton = cancel;
-            return dlg.ShowDialog(this) == DialogResult.OK ? txt.Text.Trim() : null;
+            btn.FlatAppearance.BorderColor = fg;
+            btn.FlatAppearance.BorderSize = 1;
+            return btn;
         }
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  DIÁLOGO DE CONEXIÓN SQL
+    //  DIÁLOGO: Conexión
     // ════════════════════════════════════════════════════════════════════════
-    public class SqlConexionDialog : Form
+    internal class ConexionDialog : Form
     {
-        public string CadenaConexion { get; private set; } = "";
-        public string BaseDatos { get; private set; } = "";
+        public string ConnectionString { get; private set; } = "";
+        private readonly bool esPostgres;
+        private TextBox txtHost = null!, txtPuerto = null!, txtBd = null!,
+                         txtUser = null!, txtPass = null!;
 
-        private readonly TextBox txtHost, txtPuerto, txtBD, txtUsuario, txtPass;
-        private readonly Label lblEstado;
-        private readonly Button btnDetectar;
-        private readonly bool _esPg;
-
-        private static readonly Color BgForm = Color.FromArgb(18, 18, 26);
-        private static readonly Color BgSurface = Color.FromArgb(26, 26, 36);
-        private static readonly Color TextPri = Color.FromArgb(220, 220, 232);
-        private static readonly Color TextDim = Color.FromArgb(100, 100, 130);
-        private static readonly Color Mint = Color.FromArgb(52, 211, 153);
-        private static readonly Color MintDim = Color.FromArgb(13, 50, 35);
-        private static readonly Color Rose = Color.FromArgb(200, 100, 100);
-        private static readonly Color RoseDim = Color.FromArgb(40, 18, 18);
-        private static readonly Color BorderClr = Color.FromArgb(36, 36, 52);
-
-        public SqlConexionDialog(string motor)
+        public ConexionDialog(SqlViewerForm.DbTipo tipo)
         {
-            _esPg = motor == "PostgreSQL";
-            string pd = _esPg ? "5432" : "3306";
-            string ud = _esPg ? "postgres" : "root";
-
-            Text = $"Conexión — {motor}";
-            Size = new Size(440, 360);
-            StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            BackColor = BgForm;
-            ForeColor = TextPri;
-            Font = new Font("Segoe UI", 9f);
-
-            int y = 16;
-            const int lx = 14, cx = 130, cw = 280;
-
-            Label Lbl(string t) => new() { Text = t, AutoSize = true, ForeColor = TextDim };
-            TextBox Txt(string d, bool p = false) => new()
-            {
-                Width = cw,
-                Text = d,
-                BackColor = BgSurface,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.FixedSingle,
-                UseSystemPasswordChar = p
-            };
-
-            var l1 = Lbl("Host:"); l1.Location = new Point(lx, y + 3);
-            txtHost = Txt("localhost"); txtHost.Location = new Point(cx, y); y += 34;
-
-            var l2 = Lbl("Puerto:"); l2.Location = new Point(lx, y + 3);
-            txtPuerto = Txt(pd); txtPuerto.Location = new Point(cx, y); y += 34;
-
-            var l3 = Lbl("Base de datos:"); l3.Location = new Point(lx, y + 3);
-            txtBD = Txt(""); txtBD.Location = new Point(cx, y); y += 34;
-
-            var l4 = Lbl("Usuario:"); l4.Location = new Point(lx, y + 3);
-            txtUsuario = Txt(ud); txtUsuario.Location = new Point(cx, y); y += 34;
-
-            var l5 = Lbl("Contraseña:"); l5.Location = new Point(lx, y + 3);
-            txtPass = Txt("", true); txtPass.Location = new Point(cx, y); y += 38;
-
-            btnDetectar = new Button
-            {
-                Text = "Probar conexión",
-                Location = new Point(cx, y),
-                Width = 130,
-                Height = 28,
-                BackColor = Color.FromArgb(8, 34, 55),
-                ForeColor = Color.FromArgb(125, 211, 252),
-                FlatStyle = FlatStyle.Flat
-            };
-            btnDetectar.FlatAppearance.BorderSize = 0;
-            btnDetectar.Click += BtnProbar_Click;
-            y += 34;
-
-            lblEstado = new Label
-            {
-                Location = new Point(cx, y),
-                Size = new Size(cw, 18),
-                ForeColor = TextDim,
-                Font = new Font("Segoe UI", 7.8f)
-            };
-            y += 28;
-
-            var ok = new Button
-            {
-                Text = "Conectar",
-                Location = new Point(240, y),
-                Width = 88,
-                Height = 28,
-                BackColor = MintDim,
-                ForeColor = Mint,
-                FlatStyle = FlatStyle.Flat,
-                DialogResult = DialogResult.OK
-            };
-            ok.FlatAppearance.BorderSize = 0;
-            ok.Click += (s, e) =>
-            {
-                if (string.IsNullOrWhiteSpace(txtBD.Text))
-                {
-                    MessageBox.Show("Escribe el nombre de la base de datos.", "Requerido",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    DialogResult = DialogResult.None; return;
-                }
-                BaseDatos = txtBD.Text.Trim();
-                string h = string.IsNullOrWhiteSpace(txtHost.Text) ? "localhost" : txtHost.Text.Trim();
-                string p = string.IsNullOrWhiteSpace(txtPuerto.Text) ? (_esPg ? "5432" : "3306") : txtPuerto.Text.Trim();
-                string u = string.IsNullOrWhiteSpace(txtUsuario.Text) ? (_esPg ? "postgres" : "root") : txtUsuario.Text.Trim();
-                CadenaConexion = _esPg
-                    ? $"Host={h};Port={p};Database={BaseDatos};Username={u};Password={txtPass.Text};"
-                    : $"Server={h};Port={p};Database={BaseDatos};User={u};Password={txtPass.Text};";
-            };
-
-            var can = new Button
-            {
-                Text = "Cancelar",
-                Location = new Point(336, y),
-                Width = 80,
-                Height = 28,
-                BackColor = RoseDim,
-                ForeColor = Rose,
-                FlatStyle = FlatStyle.Flat,
-                DialogResult = DialogResult.Cancel
-            };
-            can.FlatAppearance.BorderSize = 0;
-
-            ClientSize = new Size(428, y + 48);
-            Controls.AddRange(new Control[]
-            {
-                l1, txtHost, l2, txtPuerto, l3, txtBD,
-                l4, txtUsuario, l5, txtPass,
-                btnDetectar, lblEstado, ok, can
-            });
-            AcceptButton = ok;
-            CancelButton = can;
+            esPostgres = tipo == SqlViewerForm.DbTipo.Postgres;
+            BuildUI();
         }
 
-        private async void BtnProbar_Click(object? sender, EventArgs e)
+        private void BuildUI()
         {
-            if (string.IsNullOrWhiteSpace(txtBD.Text))
+            Text = esPostgres ? "Conectar a PostgreSQL" : "Conectar a MariaDB";
+            Size = new Size(420, 340);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MaximizeBox = false; MinimizeBox = false;
+            BackColor = Color.FromArgb(18, 18, 22);
+            ForeColor = Color.FromArgb(230, 230, 236);
+            Font = new Font("Segoe UI", 9.5F);
+
+            int y = 56;
+            void AddRow(string label, ref TextBox tb, string def, bool pass = false)
             {
-                lblEstado.Text = "Escribe el nombre de la BD primero.";
-                lblEstado.ForeColor = Color.FromArgb(180, 140, 50);
-                return;
+                Controls.Add(new Label { Text = label, Location = new Point(14, y + 4), AutoSize = true, ForeColor = Color.FromArgb(110, 140, 180) });
+                tb = new TextBox { Location = new Point(120, y), Size = new Size(268, 28), BackColor = Color.FromArgb(34, 34, 42), ForeColor = Color.FromArgb(230, 230, 236), BorderStyle = BorderStyle.FixedSingle, Text = def };
+                if (pass) tb.PasswordChar = '●';
+                Controls.Add(tb);
+                y += 36;
             }
-            string h = string.IsNullOrWhiteSpace(txtHost.Text) ? "localhost" : txtHost.Text.Trim();
-            string p = string.IsNullOrWhiteSpace(txtPuerto.Text) ? (_esPg ? "5432" : "3306") : txtPuerto.Text.Trim();
-            string u = string.IsNullOrWhiteSpace(txtUsuario.Text) ? (_esPg ? "postgres" : "root") : txtUsuario.Text.Trim();
-            string cadena = _esPg
-                ? $"Host={h};Port={p};Database={txtBD.Text.Trim()};Username={u};Password={txtPass.Text};"
-                : $"Server={h};Port={p};Database={txtBD.Text.Trim()};User={u};Password={txtPass.Text};";
 
-            btnDetectar.Enabled = false;
-            lblEstado.Text = "Probando...";
-            lblEstado.ForeColor = Color.FromArgb(180, 140, 30);
+            var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = Color.FromArgb(26, 26, 32) };
+            header.Controls.Add(new Label { Text = esPostgres ? "🐘  Conexión PostgreSQL" : "🌿  Conexión MariaDB", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = esPostgres ? Color.FromArgb(95, 189, 235) : Color.FromArgb(60, 180, 120), TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(14, 0, 0, 0) });
+            Controls.Add(header);
 
-            try
+            AddRow("Host:", ref txtHost, "localhost");
+            AddRow("Puerto:", ref txtPuerto, esPostgres ? "5432" : "3306");
+            AddRow("Base de datos:", ref txtBd, "");
+            AddRow("Usuario:", ref txtUser, esPostgres ? "postgres" : "root");
+            AddRow("Contraseña:", ref txtPass, "", pass: true);
+
+            var btnOk = new Button { Text = "Conectar", Location = new Point(160, y + 8), Size = new Size(110, 36), BackColor = Color.FromArgb(22, 100, 40), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), Cursor = Cursors.Hand, DialogResult = DialogResult.OK };
+            btnOk.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
+            btnOk.Click += BtnOk_Click;
+
+            var btnCancel = new Button { Text = "Cancelar", Location = new Point(280, y + 8), Size = new Size(90, 36), BackColor = Color.FromArgb(34, 34, 42), ForeColor = Color.FromArgb(220, 220, 230), FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F), Cursor = Cursors.Hand, DialogResult = DialogResult.Cancel };
+            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(44, 44, 54);
+
+            Controls.Add(btnOk);
+            Controls.Add(btnCancel);
+            AcceptButton = btnOk;
+            CancelButton = btnCancel;
+        }
+
+        private void BtnOk_Click(object? sender, EventArgs e)
+        {
+            string host = txtHost.Text.Trim();
+            string puerto = txtPuerto.Text.Trim();
+            string bd = txtBd.Text.Trim();
+            string user = txtUser.Text.Trim();
+            string pass = txtPass.Text;
+
+            if (string.IsNullOrWhiteSpace(bd))
+            { MessageBox.Show("Especifica el nombre de la base de datos.", "Campo requerido", MessageBoxButtons.OK, MessageBoxIcon.Warning); DialogResult = DialogResult.None; return; }
+
+            ConnectionString = esPostgres
+                ? $"Host={host};Port={puerto};Database={bd};Username={user};Password={pass};Timeout=10;CommandTimeout=60"
+                : $"Server={host};Port={puerto};Database={bd};User={user};Password={pass};ConnectionTimeout=10;DefaultCommandTimeout=60";
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  DIÁLOGO: Nombre de tabla
+    // ════════════════════════════════════════════════════════════════════════
+    internal class NombreTablaDialog : Form
+    {
+        public string NombreTabla { get; private set; } = "";
+        private TextBox txtNombre = null!;
+
+        public NombreTablaDialog(string sugerido)
+        {
+            Text = "Nombre de tabla";
+            Size = new Size(380, 180);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MaximizeBox = false; MinimizeBox = false;
+            BackColor = Color.FromArgb(18, 18, 22);
+            ForeColor = Color.FromArgb(230, 230, 236);
+            Font = new Font("Segoe UI", 9.5F);
+
+            Controls.Add(new Label { Text = "Nombre para la nueva tabla:", Location = new Point(14, 20), AutoSize = true, ForeColor = Color.FromArgb(110, 140, 180) });
+            txtNombre = new TextBox { Location = new Point(14, 46), Size = new Size(344, 28), BackColor = Color.FromArgb(34, 34, 42), ForeColor = Color.FromArgb(230, 230, 236), BorderStyle = BorderStyle.FixedSingle, Text = sugerido };
+            txtNombre.SelectAll();
+
+            var btnOk = new Button { Text = "Crear", Location = new Point(160, 90), Size = new Size(90, 34), BackColor = Color.FromArgb(22, 100, 40), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), Cursor = Cursors.Hand, DialogResult = DialogResult.OK };
+            btnOk.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
+            btnOk.Click += (s, e) =>
             {
-                bool ok = await Task.Run(() =>
-                    _esPg
-                        ? SqlConnector.ProbarPostgreSQL(cadena, out _)
-                        : SqlConnector.ProbarMariaDB(cadena, out _));
+                NombreTabla = txtNombre.Text.Trim();
+                if (string.IsNullOrWhiteSpace(NombreTabla)) { MessageBox.Show("Ingresa un nombre.", "Requerido", MessageBoxButtons.OK, MessageBoxIcon.Warning); DialogResult = DialogResult.None; }
+            };
 
-                if (ok)
-                {
-                    lblEstado.Text = "✓ Conexión exitosa";
-                    lblEstado.ForeColor = Color.FromArgb(52, 180, 120);
-                }
-                else
-                {
-                    string msg = "";
-                    if (_esPg) SqlConnector.ProbarPostgreSQL(cadena, out msg);
-                    else SqlConnector.ProbarMariaDB(cadena, out msg);
-                    lblEstado.Text = $"✗ {msg}";
-                    lblEstado.ForeColor = Color.FromArgb(200, 80, 80);
-                }
-            }
-            finally { btnDetectar.Enabled = true; }
+            var btnCancel = new Button { Text = "Cancelar", Location = new Point(260, 90), Size = new Size(90, 34), BackColor = Color.FromArgb(34, 34, 42), ForeColor = Color.FromArgb(220, 220, 230), FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F), Cursor = Cursors.Hand, DialogResult = DialogResult.Cancel };
+            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(44, 44, 54);
+
+            Controls.Add(txtNombre); Controls.Add(btnOk); Controls.Add(btnCancel);
+            AcceptButton = btnOk; CancelButton = btnCancel;
         }
     }
 }
