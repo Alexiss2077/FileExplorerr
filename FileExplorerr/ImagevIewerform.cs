@@ -4,6 +4,8 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace FileExplorerr
@@ -47,6 +49,10 @@ namespace FileExplorerr
         private FontStyle textFontStyle = FontStyle.Bold;
         private Color textColor = Color.White;
 
+        // Loading overlay
+        private Panel loadingOverlay = null!;
+        private Label loadingLabel = null!;
+
         internal static readonly string[] SupportedExtensions =
         {
             ".jpg", ".jpeg", ".jfif", ".jpe", ".png", ".gif", ".bmp", ".dib",
@@ -77,14 +83,14 @@ namespace FileExplorerr
             AddTopBtn(ref tx, "1:1", () => ResetZoom());
             AddTopBtn(ref tx, "Ajustar", () => FitToWindow());
             tx += 8;
-            AddTopBtn(ref tx, "↺", () => Rotate(-90));
-            AddTopBtn(ref tx, "↻", () => Rotate(90));
-            AddTopBtn(ref tx, "↔", () => Flip(true, false));
-            AddTopBtn(ref tx, "↕", () => Flip(false, true));
+            AddTopBtn(ref tx, "↺", () => RotateAsync(-90));
+            AddTopBtn(ref tx, "↻", () => RotateAsync(90));
+            AddTopBtn(ref tx, "↔", () => FlipAsync(true, false));
+            AddTopBtn(ref tx, "↕", () => FlipAsync(false, true));
             tx += 8;
-            AddTopBtn(ref tx, "Grises", () => ApplyFilter(FilterType.Grayscale));
-            AddTopBtn(ref tx, "Sepia", () => ApplyFilter(FilterType.Sepia));
-            AddTopBtn(ref tx, "Invertir", () => ApplyFilter(FilterType.Invert));
+            AddTopBtn(ref tx, "Grises", () => _ = ApplyFilterAsync(FilterType.Grayscale));
+            AddTopBtn(ref tx, "Sepia", () => _ = ApplyFilterAsync(FilterType.Sepia));
+            AddTopBtn(ref tx, "Invertir", () => _ = ApplyFilterAsync(FilterType.Invert));
             tx += 8;
             AddTopBtn(ref tx, "Deshacer", () => Undo(), Theme.ButtonKind.Default);
             AddTopBtn(ref tx, "Restaurar", () => RestoreOriginal(), Theme.ButtonKind.Danger);
@@ -129,6 +135,21 @@ namespace FileExplorerr
             canvas.MouseWheel += (s, e) => SetZoom(zoom * (e.Delta > 0 ? 1.15f : 0.87f));
             canvasPanel.Controls.Add(canvas);
 
+            // ═══ LOADING OVERLAY ═════════════════════════════════════════════
+            loadingOverlay = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(180, 12, 12, 16), Visible = false };
+            loadingLabel = new Label
+            {
+                Text = "Procesando...",
+                Font = Theme.FontBodyBold,
+                ForeColor = Theme.Accent,
+                BackColor = Color.Transparent,
+                AutoSize = true
+            };
+            loadingOverlay.Controls.Add(loadingLabel);
+            loadingOverlay.Resize += (s, e) => CenterLoadingLabel();
+            canvasPanel.Controls.Add(loadingOverlay);
+            loadingOverlay.BringToFront();
+
             // ═══ BOTTOM ══════════════════════════════════════════════════════
             var bottomBar = new Panel { Height = 26, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
             infoLabel = new Label { Dock = DockStyle.Fill, Font = Theme.FontSmall, ForeColor = Theme.TextMuted, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0) };
@@ -144,7 +165,6 @@ namespace FileExplorerr
             int gy = 8;
             foreach (var l in new[] { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel }) { l.Left = 12; l.Top = gy; l.Width = 252; infoPanel.Controls.Add(l); gy += 24; }
 
-            // Botón para agregar/editar GPS
             var setGpsBtn = Theme.MakeButton("Agregar GPS", 0, Theme.ButtonKind.Primary);
             setGpsBtn.Dock = DockStyle.Bottom; setGpsBtn.Height = 32;
             setGpsBtn.Click += (s, e) => SetGpsCoordinates();
@@ -161,6 +181,29 @@ namespace FileExplorerr
             gpsPanel.Controls.Add(gpsHeader);
 
             Controls.Add(canvasPanel); Controls.Add(gpsPanel); Controls.Add(leftToolbar); Controls.Add(topToolbar); Controls.Add(bottomBar);
+        }
+
+        private void CenterLoadingLabel()
+        {
+            if (loadingLabel == null || loadingOverlay == null) return;
+            loadingLabel.Location = new Point(
+                (loadingOverlay.Width - loadingLabel.Width) / 2,
+                (loadingOverlay.Height - loadingLabel.Height) / 2);
+        }
+
+        private void ShowLoading(string text = "Procesando...")
+        {
+            if (InvokeRequired) { Invoke(() => ShowLoading(text)); return; }
+            loadingLabel.Text = text;
+            loadingOverlay.Visible = true;
+            CenterLoadingLabel();
+            loadingOverlay.BringToFront();
+        }
+
+        private void HideLoading()
+        {
+            if (InvokeRequired) { Invoke(HideLoading); return; }
+            loadingOverlay.Visible = false;
         }
 
         private void AddTopBtn(ref int x, string text, Action click, Theme.ButtonKind kind = Theme.ButtonKind.Default)
@@ -183,23 +226,68 @@ namespace FileExplorerr
         private static Label MakeGpsLbl(string text) => new() { Text = text, Height = 22, Font = Theme.FontMonoSmall, ForeColor = Theme.TextPrimary, BackColor = Color.Transparent, AutoEllipsis = true };
 
         // ════════════════════════════════════════════════════════════════════
-        //  LOAD
+        //  LOAD — async so UI stays responsive
         // ════════════════════════════════════════════════════════════════════
-        private void LoadImage()
+        private async void LoadImage()
         {
             string ext = Path.GetExtension(imagePath).ToLower();
             try
             {
-                Bitmap? bmp = null;
                 if (ext == ".svg") { LoadSvg(); return; }
-                if (ext == ".ico") { using var ico = new Icon(imagePath, new Size(256, 256)); bmp = ico.ToBitmap(); }
-                else if (ext is ".tiff" or ".tif") { using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); using var tmp = Image.FromStream(fs); bmp = new Bitmap(tmp); }
-                else if (ext is ".emf" or ".wmf") { using var meta = new Metafile(imagePath); bmp = new Bitmap(meta.Width * 2, meta.Height * 2); using var g = Graphics.FromImage(bmp); g.DrawImage(meta, 0, 0, bmp.Width, bmp.Height); }
-                else { using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); using var tmp = Image.FromStream(fs, true, true); bmp = new Bitmap(tmp); }
+
+                ShowLoading("Cargando imagen...");
+                SetToolsEnabled(false);
+
+                Bitmap? bmp = await Task.Run(() =>
+                {
+                    if (ext == ".ico")
+                    {
+                        using var ico = new Icon(imagePath, new Size(256, 256));
+                        return ico.ToBitmap();
+                    }
+                    if (ext is ".tiff" or ".tif")
+                    {
+                        using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var tmp = Image.FromStream(fs);
+                        return new Bitmap(tmp);
+                    }
+                    if (ext is ".emf" or ".wmf")
+                    {
+                        using var meta = new Metafile(imagePath);
+                        var b = new Bitmap(meta.Width * 2, meta.Height * 2);
+                        using var g = Graphics.FromImage(b);
+                        g.DrawImage(meta, 0, 0, b.Width, b.Height);
+                        return b;
+                    }
+                    using var fs2 = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var tmp2 = Image.FromStream(fs2, true, true);
+                    return new Bitmap(tmp2);
+                });
+
                 if (bmp == null) throw new InvalidOperationException("No se pudo decodificar.");
-                original = bmp; working = new Bitmap(original); FitToWindow(); UpdateInfo();
+                original = bmp;
+                working = new Bitmap(original);
+                FitToWindow();
+                UpdateInfo();
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning); Close(); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Close();
+            }
+            finally
+            {
+                HideLoading();
+                SetToolsEnabled(true);
+            }
+        }
+
+        private void SetToolsEnabled(bool enabled)
+        {
+            foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
+                if (btn != null) btn.Enabled = enabled;
+            foreach (Control c in topToolbar.Controls)
+                if (c is Button b) b.Enabled = enabled;
         }
 
         private void LoadSvg()
@@ -214,15 +302,16 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  GPS
         // ════════════════════════════════════════════════════════════════════
-        private void ToggleGpsPanel()
+        private async void ToggleGpsPanel()
         {
             gpsVisible = !gpsVisible; gpsPanel.Visible = gpsVisible;
-            if (gpsVisible && _gpsData == null) LoadGps();
+            if (gpsVisible && _gpsData == null) await LoadGpsAsync();
         }
 
-        private void LoadGps()
+        private async Task LoadGpsAsync()
         {
-            _gpsData = GpsReader.Read(imagePath);
+            _gpsData = await Task.Run(() => GpsReader.Read(imagePath));
+
             if (_gpsData == null || !_gpsData.HasGps)
             {
                 gpsLatLabel.Text = "Sin datos GPS";
@@ -244,9 +333,6 @@ namespace FileExplorerr
             mapBrowser.DocumentText = $@"<!DOCTYPE html><html><head><meta charset='utf-8'/><meta http-equiv='X-UA-Compatible' content='IE=edge'/><link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script><style>*{{margin:0;padding:0}}html,body,#map{{width:100%;height:100%;background:#121216}}</style></head><body><div id='map'></div><script>var map=L.map('map',{{attributionControl:false}}).setView([{ls},{lo}],15);L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}}).addTo(map);L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}°').openPopup();</script></body></html>";
         }
 
-        /// <summary>
-        /// Diálogo para agregar o editar coordenadas GPS en los metadatos EXIF de la imagen
-        /// </summary>
         private void SetGpsCoordinates()
         {
             string extLow = Path.GetExtension(imagePath).ToLower();
@@ -263,11 +349,8 @@ namespace FileExplorerr
             try
             {
                 GpsWriter.WriteGps(imagePath, dlg.Latitude, dlg.Longitude, dlg.Altitude);
-
-                // Recargar GPS
                 _gpsData = null;
-                LoadGps();
-
+                _ = LoadGpsAsync();
                 MessageBox.Show(
                     $"GPS guardado:\nLat: {dlg.Latitude:F6}\nLon: {dlg.Longitude:F6}" +
                     (dlg.Altitude.HasValue ? $"\nAlt: {dlg.Altitude.Value:F1} m" : ""),
@@ -403,33 +486,133 @@ namespace FileExplorerr
         private void PickColorFromImage(Point p) { if (p.X >= 0 && p.Y >= 0 && p.X < working.Width && p.Y < working.Height) { drawColor = working.GetPixel(p.X, p.Y); colorSwatch.BackColor = drawColor; } SelectTool(Tool.None); }
 
         // ════════════════════════════════════════════════════════════════════
-        //  TRANSFORMS & FILTERS
+        //  TRANSFORMS — async for large images
         // ════════════════════════════════════════════════════════════════════
-        private void Rotate(int deg) { PushUndo(); working.RotateFlip(deg == 90 ? RotateFlipType.Rotate90FlipNone : RotateFlipType.Rotate270FlipNone); FitToWindow(); }
-        private void Flip(bool h, bool v) { PushUndo(); working.RotateFlip((h, v) switch { (true, false) => RotateFlipType.RotateNoneFlipX, (false, true) => RotateFlipType.RotateNoneFlipY, _ => RotateFlipType.RotateNoneFlipNone }); canvas.Invalidate(); }
-
-        private enum FilterType { Grayscale, Sepia, Invert, BrightnessUp, BrightnessDown, ContrastUp }
-        private void ApplyFilter(FilterType filter)
+        private async void RotateAsync(int deg)
         {
             PushUndo();
-            var bmp = new Bitmap(working.Width, working.Height);
-            for (int y = 0; y < working.Height; y++) for (int x = 0; x < working.Width; x++)
+            ShowLoading("Rotando...");
+            SetToolsEnabled(false);
+            var src = new Bitmap(working);
+            var rotated = await Task.Run(() =>
             {
-                Color c = working.GetPixel(x, y);
-                Color nc = filter switch
-                {
-                    FilterType.Grayscale => GrayPixel(c),
-                    FilterType.Sepia => SepiaPixel(c),
-                    FilterType.Invert => Color.FromArgb(c.A, 255 - c.R, 255 - c.G, 255 - c.B),
-                    _ => c
-                };
-                bmp.SetPixel(x, y, nc);
-            }
-            working.Dispose(); working = bmp; canvas.Invalidate();
+                src.RotateFlip(deg == 90 ? RotateFlipType.Rotate90FlipNone : RotateFlipType.Rotate270FlipNone);
+                return src;
+            });
+            working.Dispose();
+            working = rotated;
+            HideLoading();
+            SetToolsEnabled(true);
+            FitToWindow();
         }
-        private static Color GrayPixel(Color c) { int g = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114); return Color.FromArgb(c.A, g, g, g); }
-        private static Color SepiaPixel(Color c) => Color.FromArgb(c.A, Clamp255((int)(c.R * .393 + c.G * .769 + c.B * .189)), Clamp255((int)(c.R * .349 + c.G * .686 + c.B * .168)), Clamp255((int)(c.R * .272 + c.G * .534 + c.B * .131)));
-        private static int Clamp255(int v) => Math.Max(0, Math.Min(255, v));
+
+        private async void FlipAsync(bool h, bool v)
+        {
+            PushUndo();
+            ShowLoading("Volteando...");
+            SetToolsEnabled(false);
+            var src = new Bitmap(working);
+            var flipped = await Task.Run(() =>
+            {
+                src.RotateFlip((h, v) switch
+                {
+                    (true, false) => RotateFlipType.RotateNoneFlipX,
+                    (false, true) => RotateFlipType.RotateNoneFlipY,
+                    _ => RotateFlipType.RotateNoneFlipNone
+                });
+                return src;
+            });
+            working.Dispose();
+            working = flipped;
+            HideLoading();
+            SetToolsEnabled(true);
+            canvas.Invalidate();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  FILTERS — async + LockBits (no GetPixel/SetPixel)
+        // ════════════════════════════════════════════════════════════════════
+        private enum FilterType { Grayscale, Sepia, Invert }
+
+        private async Task ApplyFilterAsync(FilterType filter)
+        {
+            PushUndo();
+            ShowLoading("Aplicando filtro...");
+            SetToolsEnabled(false);
+
+            // Copy working bitmap data to byte array in UI thread (safe)
+            int w = working.Width, h = working.Height;
+            byte[] pixels = BitmapToBytes(working, out PixelFormat fmt);
+
+            byte[] result = await Task.Run(() => ApplyFilterToBytes(pixels, w, h, fmt, filter));
+
+            Bitmap newBmp = BytesToBitmap(result, w, h, fmt);
+            working.Dispose();
+            working = newBmp;
+
+            HideLoading();
+            SetToolsEnabled(true);
+            canvas.Invalidate();
+        }
+
+        private static byte[] BitmapToBytes(Bitmap bmp, out PixelFormat fmt)
+        {
+            fmt = bmp.PixelFormat;
+            // Normalize to 32bppArgb for consistent processing
+            fmt = PixelFormat.Format32bppArgb;
+            var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            BitmapData bd = bmp.LockBits(rect, ImageLockMode.ReadOnly, fmt);
+            int bytes = Math.Abs(bd.Stride) * bmp.Height;
+            byte[] data = new byte[bytes];
+            Marshal.Copy(bd.Scan0, data, 0, bytes);
+            bmp.UnlockBits(bd);
+            return data;
+        }
+
+        private static Bitmap BytesToBitmap(byte[] data, int w, int h, PixelFormat fmt)
+        {
+            var bmp = new Bitmap(w, h, fmt);
+            var rect = new Rectangle(0, 0, w, h);
+            BitmapData bd = bmp.LockBits(rect, ImageLockMode.WriteOnly, fmt);
+            Marshal.Copy(data, 0, bd.Scan0, data.Length);
+            bmp.UnlockBits(bd);
+            return bmp;
+        }
+
+        private static byte[] ApplyFilterToBytes(byte[] pixels, int w, int h, PixelFormat fmt, FilterType filter)
+        {
+            // 32bppArgb: B G R A order
+            byte[] result = new byte[pixels.Length];
+            int stride = w * 4;
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    int i = y * stride + x * 4;
+                    byte b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
+
+                    switch (filter)
+                    {
+                        case FilterType.Grayscale:
+                            byte gray = (byte)(r * 0.299 + g * 0.587 + b * 0.114);
+                            result[i] = gray; result[i + 1] = gray; result[i + 2] = gray; result[i + 3] = a;
+                            break;
+                        case FilterType.Sepia:
+                            result[i] = Clamp255((int)(r * 0.272 + g * 0.534 + b * 0.131));
+                            result[i + 1] = Clamp255((int)(r * 0.349 + g * 0.686 + b * 0.168));
+                            result[i + 2] = Clamp255((int)(r * 0.393 + g * 0.769 + b * 0.189));
+                            result[i + 3] = a;
+                            break;
+                        case FilterType.Invert:
+                            result[i] = (byte)(255 - b); result[i + 1] = (byte)(255 - g); result[i + 2] = (byte)(255 - r); result[i + 3] = a;
+                            break;
+                    }
+                }
+            }
+            return result;
+        }
+
+        private static byte Clamp255(int v) => (byte)Math.Max(0, Math.Min(255, v));
 
         // ════════════════════════════════════════════════════════════════════
         //  ZOOM / UNDO / SAVE
@@ -558,67 +741,38 @@ namespace FileExplorerr
         private void BtnSave_Click(object? sender, EventArgs e)
         {
             if (!double.TryParse(txtLat.Text.Trim(), System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out double lat) ||
-                Math.Abs(lat) > 90)
+                System.Globalization.CultureInfo.InvariantCulture, out double lat) || Math.Abs(lat) > 90)
             {
-                MessageBox.Show("Latitud inválida. Debe ser un número entre -90 y 90.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                DialogResult = DialogResult.None;
-                return;
+                MessageBox.Show("Latitud inválida. Debe ser un número entre -90 y 90.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                DialogResult = DialogResult.None; return;
             }
-
             if (!double.TryParse(txtLon.Text.Trim(), System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out double lon) ||
-                Math.Abs(lon) > 180)
+                System.Globalization.CultureInfo.InvariantCulture, out double lon) || Math.Abs(lon) > 180)
             {
-                MessageBox.Show("Longitud inválida. Debe ser un número entre -180 y 180.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                DialogResult = DialogResult.None;
-                return;
+                MessageBox.Show("Longitud inválida. Debe ser un número entre -180 y 180.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                DialogResult = DialogResult.None; return;
             }
-
-            Latitude = lat;
-            Longitude = lon;
-
+            Latitude = lat; Longitude = lon;
             if (!string.IsNullOrWhiteSpace(txtAlt.Text) &&
                 double.TryParse(txtAlt.Text.Trim(), System.Globalization.NumberStyles.Any,
                 System.Globalization.CultureInfo.InvariantCulture, out double alt))
                 Altitude = alt;
-            else
-                Altitude = null;
+            else Altitude = null;
         }
 
-        private void AddLabel(string text, int x, int y)
-        {
-            Controls.Add(new Label
-            {
-                Text = text,
-                Location = new Point(x, y + 4),
-                AutoSize = true,
-                ForeColor = Color.FromArgb(110, 140, 180),
-                Font = new Font("Segoe UI", 9F)
-            });
-        }
+        private void AddLabel(string text, int x, int y) =>
+            Controls.Add(new Label { Text = text, Location = new Point(x, y + 4), AutoSize = true, ForeColor = Color.FromArgb(110, 140, 180), Font = new Font("Segoe UI", 9F) });
 
         private TextBox AddField(int x, int y, int width, string value)
         {
-            var txt = new TextBox
-            {
-                Location = new Point(x, y),
-                Size = new Size(width, 28),
-                BackColor = Color.FromArgb(34, 34, 42),
-                ForeColor = Color.FromArgb(230, 230, 236),
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Cascadia Code", 10F),
-                Text = value
-            };
+            var txt = new TextBox { Location = new Point(x, y), Size = new Size(width, 28), BackColor = Color.FromArgb(34, 34, 42), ForeColor = Color.FromArgb(230, 230, 236), BorderStyle = BorderStyle.FixedSingle, Font = new Font("Cascadia Code", 10F), Text = value };
             Controls.Add(txt);
             return txt;
         }
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  DIÁLOGO DE TEXTO — fuente, tamaño, estilo, color
+    //  DIÁLOGO DE TEXTO
     // ════════════════════════════════════════════════════════════════════════
     internal class TextToolDialog : Form
     {
@@ -646,11 +800,7 @@ namespace FileExplorerr
 
         public TextToolDialog(string fontFamily, float fontSize, FontStyle fontStyle, Color color)
         {
-            SelectedFontFamily = fontFamily;
-            SelectedFontSize = fontSize;
-            SelectedFontStyle = fontStyle;
-            SelectedColor = color;
-            currentColor = color;
+            SelectedFontFamily = fontFamily; SelectedFontSize = fontSize; SelectedFontStyle = fontStyle; SelectedColor = color; currentColor = color;
             BuildUI();
         }
 
@@ -665,69 +815,26 @@ namespace FileExplorerr
             Font = new Font("Segoe UI", 9.5F);
 
             var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = BgHeader };
-            header.Controls.Add(new Label
-            {
-                Text = "✏  Insertar texto en imagen",
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = AccentColor,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(14, 0, 0, 0)
-            });
+            header.Controls.Add(new Label { Text = "✏  Insertar texto en imagen", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = AccentColor, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(14, 0, 0, 0) });
 
             AddLabel("Texto:", 14, 58);
-            txtContent = new TextBox
-            {
-                Location = new Point(110, 56),
-                Size = new Size(384, 28),
-                BackColor = BgField,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 10F)
-            };
+            txtContent = new TextBox { Location = new Point(110, 56), Size = new Size(384, 28), BackColor = BgField, ForeColor = TextPri, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10F) };
             txtContent.TextChanged += (s, e) => UpdatePreview();
 
             AddLabel("Fuente:", 14, 100);
-            cmbFont = new ComboBox
-            {
-                Location = new Point(110, 98),
-                Size = new Size(230, 28),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = BgField,
-                ForeColor = TextPri,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F)
-            };
-            foreach (var fam in new[] {
-                "Segoe UI", "Arial", "Times New Roman", "Courier New", "Verdana",
-                "Georgia", "Trebuchet MS", "Impact", "Comic Sans MS", "Tahoma",
-                "Calibri", "Cambria", "Consolas", "Cascadia Code", "Palatino Linotype"
-            })
+            cmbFont = new ComboBox { Location = new Point(110, 98), Size = new Size(230, 28), DropDownStyle = ComboBoxStyle.DropDownList, BackColor = BgField, ForeColor = TextPri, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F) };
+            foreach (var fam in new[] { "Segoe UI", "Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Trebuchet MS", "Impact", "Comic Sans MS", "Tahoma", "Calibri", "Cambria", "Consolas", "Cascadia Code", "Palatino Linotype" })
                 cmbFont.Items.Add(fam);
-
             int fontIdx = cmbFont.Items.IndexOf(SelectedFontFamily);
             cmbFont.SelectedIndex = fontIdx >= 0 ? fontIdx : 0;
             cmbFont.SelectedIndexChanged += (s, e) => UpdatePreview();
 
             AddLabel("Tamaño:", 354, 100);
-            nudSize = new NumericUpDown
-            {
-                Location = new Point(420, 98),
-                Size = new Size(74, 28),
-                Minimum = 6,
-                Maximum = 200,
-                Value = (decimal)Math.Clamp(SelectedFontSize, 6, 200),
-                BackColor = BgField,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 9.5F)
-            };
+            nudSize = new NumericUpDown { Location = new Point(420, 98), Size = new Size(74, 28), Minimum = 6, Maximum = 200, Value = (decimal)Math.Clamp(SelectedFontSize, 6, 200), BackColor = BgField, ForeColor = TextPri, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9.5F) };
             nudSize.ValueChanged += (s, e) => UpdatePreview();
 
             AddLabel("Estilo:", 14, 142);
-            chkBold = MakeCheck("Negrita", 110, 140);
-            chkItalic = MakeCheck("Cursiva", 188, 140);
-            chkUnderline = MakeCheck("Subrayado", 266, 140);
+            chkBold = MakeCheck("Negrita", 110, 140); chkItalic = MakeCheck("Cursiva", 188, 140); chkUnderline = MakeCheck("Subrayado", 266, 140);
             chkBold.Checked = (SelectedFontStyle & FontStyle.Bold) != 0;
             chkItalic.Checked = (SelectedFontStyle & FontStyle.Italic) != 0;
             chkUnderline.Checked = (SelectedFontStyle & FontStyle.Underline) != 0;
@@ -736,122 +843,40 @@ namespace FileExplorerr
             chkUnderline.CheckedChanged += (s, e) => UpdatePreview();
 
             AddLabel("Color:", 14, 184);
-            colorSwatch = new Panel
-            {
-                Location = new Point(110, 182),
-                Size = new Size(44, 26),
-                BackColor = currentColor,
-                BorderStyle = BorderStyle.FixedSingle,
-                Cursor = Cursors.Hand
-            };
-            colorSwatch.Click += (s, e) =>
-            {
-                using var dlg = new ColorDialog { Color = currentColor, FullOpen = true };
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                {
-                    currentColor = dlg.Color;
-                    colorSwatch.BackColor = currentColor;
-                    UpdatePreview();
-                }
-            };
+            colorSwatch = new Panel { Location = new Point(110, 182), Size = new Size(44, 26), BackColor = currentColor, BorderStyle = BorderStyle.FixedSingle, Cursor = Cursors.Hand };
+            colorSwatch.Click += PickColor;
 
-            var btnColorPick = new Button
-            {
-                Text = "Elegir color...",
-                Location = new Point(162, 181),
-                Size = new Size(110, 28),
-                BackColor = BgField,
-                ForeColor = TextSec,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.5F),
-                Cursor = Cursors.Hand
-            };
+            var btnColorPick = new Button { Text = "Elegir color...", Location = new Point(162, 181), Size = new Size(110, 28), BackColor = BgField, ForeColor = TextSec, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 8.5F), Cursor = Cursors.Hand };
             btnColorPick.FlatAppearance.BorderColor = BorderColor;
-            btnColorPick.Click += (s, e) =>
-            {
-                using var dlg = new ColorDialog { Color = currentColor, FullOpen = true };
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                {
-                    currentColor = dlg.Color;
-                    colorSwatch.BackColor = currentColor;
-                    UpdatePreview();
-                }
-            };
+            btnColorPick.Click += PickColor;
 
-            var previewBox = new Panel
-            {
-                Location = new Point(14, 222),
-                Size = new Size(480, 90),
-                BackColor = Color.FromArgb(10, 10, 14),
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            previewLabel = new Label
-            {
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true,
-                Text = "Vista previa"
-            };
+            var previewBox = new Panel { Location = new Point(14, 222), Size = new Size(480, 90), BackColor = Color.FromArgb(10, 10, 14), BorderStyle = BorderStyle.FixedSingle };
+            previewLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, BackColor = Color.Transparent, AutoEllipsis = true, Text = "Vista previa" };
             previewBox.Controls.Add(previewLabel);
 
-            var lblPreviewHint = new Label
-            {
-                Text = "Vista previa",
-                Location = new Point(14, 208),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 7.5F),
-                ForeColor = TextSec
-            };
+            var lblPreviewHint = new Label { Text = "Vista previa", Location = new Point(14, 208), AutoSize = true, Font = new Font("Segoe UI", 7.5F), ForeColor = TextSec };
 
-            var btnOk = new Button
-            {
-                Text = "Insertar",
-                Location = new Point(280, 326),
-                Size = new Size(100, 36),
-                BackColor = Color.FromArgb(22, 100, 40),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand,
-                DialogResult = DialogResult.OK
-            };
+            var btnOk = new Button { Text = "Insertar", Location = new Point(280, 326), Size = new Size(100, 36), BackColor = Color.FromArgb(22, 100, 40), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), Cursor = Cursors.Hand, DialogResult = DialogResult.OK };
             btnOk.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
             btnOk.Click += BtnOk_Click;
 
-            var btnCancel = new Button
-            {
-                Text = "Cancelar",
-                Location = new Point(390, 326),
-                Size = new Size(100, 36),
-                BackColor = BgField,
-                ForeColor = TextPri,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F),
-                Cursor = Cursors.Hand,
-                DialogResult = DialogResult.Cancel
-            };
+            var btnCancel = new Button { Text = "Cancelar", Location = new Point(390, 326), Size = new Size(100, 36), BackColor = BgField, ForeColor = TextPri, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9.5F), Cursor = Cursors.Hand, DialogResult = DialogResult.Cancel };
             btnCancel.FlatAppearance.BorderColor = BorderColor;
 
-            Controls.Add(header);
-            Controls.Add(txtContent);
-            Controls.Add(cmbFont);
-            Controls.Add(nudSize);
-            Controls.Add(chkBold);
-            Controls.Add(chkItalic);
-            Controls.Add(chkUnderline);
-            Controls.Add(colorSwatch);
-            Controls.Add(btnColorPick);
-            Controls.Add(lblPreviewHint);
-            Controls.Add(previewBox);
-            Controls.Add(btnOk);
-            Controls.Add(btnCancel);
-
-            AcceptButton = btnOk;
-            CancelButton = btnCancel;
-
+            Controls.Add(header); Controls.Add(txtContent); Controls.Add(cmbFont); Controls.Add(nudSize);
+            Controls.Add(chkBold); Controls.Add(chkItalic); Controls.Add(chkUnderline);
+            Controls.Add(colorSwatch); Controls.Add(btnColorPick);
+            Controls.Add(lblPreviewHint); Controls.Add(previewBox);
+            Controls.Add(btnOk); Controls.Add(btnCancel);
+            AcceptButton = btnOk; CancelButton = btnCancel;
             UpdatePreview();
             txtContent.Focus();
+        }
+
+        private void PickColor(object? sender, EventArgs e)
+        {
+            using var dlg = new ColorDialog { Color = currentColor, FullOpen = true };
+            if (dlg.ShowDialog(this) == DialogResult.OK) { currentColor = dlg.Color; colorSwatch.BackColor = currentColor; UpdatePreview(); }
         }
 
         private void UpdatePreview()
@@ -862,10 +887,8 @@ namespace FileExplorerr
                 if (chkBold?.Checked == true) style |= FontStyle.Bold;
                 if (chkItalic?.Checked == true) style |= FontStyle.Italic;
                 if (chkUnderline?.Checked == true) style |= FontStyle.Underline;
-
                 string family = cmbFont?.SelectedItem?.ToString() ?? "Segoe UI";
                 float size = (float)(nudSize?.Value ?? 14);
-
                 previewLabel.Font?.Dispose();
                 previewLabel.Font = new Font(family, Math.Min(size, 40), style);
                 previewLabel.ForeColor = currentColor;
@@ -880,37 +903,18 @@ namespace FileExplorerr
             SelectedFontFamily = cmbFont.SelectedItem?.ToString() ?? "Segoe UI";
             SelectedFontSize = (float)nudSize.Value;
             SelectedColor = currentColor;
-
             SelectedFontStyle = FontStyle.Regular;
             if (chkBold.Checked) SelectedFontStyle |= FontStyle.Bold;
             if (chkItalic.Checked) SelectedFontStyle |= FontStyle.Italic;
             if (chkUnderline.Checked) SelectedFontStyle |= FontStyle.Underline;
         }
 
-        private void AddLabel(string text, int x, int y)
-        {
-            Controls.Add(new Label
-            {
-                Text = text,
-                Location = new Point(x, y + 4),
-                AutoSize = true,
-                ForeColor = TextSec,
-                Font = new Font("Segoe UI", 9F)
-            });
-        }
+        private void AddLabel(string text, int x, int y) =>
+            Controls.Add(new Label { Text = text, Location = new Point(x, y + 4), AutoSize = true, ForeColor = TextSec, Font = new Font("Segoe UI", 9F) });
 
         private CheckBox MakeCheck(string text, int x, int y)
         {
-            var chk = new CheckBox
-            {
-                Text = text,
-                Location = new Point(x, y),
-                AutoSize = true,
-                ForeColor = TextPri,
-                BackColor = Color.Transparent,
-                Font = new Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
-            };
+            var chk = new CheckBox { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = TextPri, BackColor = Color.Transparent, Font = new Font("Segoe UI", 9F), Cursor = Cursors.Hand };
             Controls.Add(chk);
             return chk;
         }

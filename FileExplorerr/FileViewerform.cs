@@ -22,6 +22,8 @@ namespace FileExplorerr
         private ComboBox filterColumnCombo = null!;
         private DataGridView grid = null!;
         private Label statusLabel = null!;
+        private Panel loadingPanel = null!;
+        private Label loadingLabel = null!;
 
         // ── Estado ───────────────────────────────────────────────────────────
         private readonly string filePath;
@@ -42,10 +44,7 @@ namespace FileExplorerr
             new(@"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})\b", RegexOptions.IgnoreCase),
         };
 
-        private static readonly Regex PhoneRegex = new(
-            @"^[\s]*(\+?\d{1,3}[\s\-]?)?(\(?\d{1,4}\)?[\s\-]?)?(\d[\d\s\-\.]{6,14}\d)[\s]*$");
-        private static readonly Regex EmailRegex = new(
-            @"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.IgnoreCase);
+        private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.IgnoreCase);
 
         private static readonly string[] PhoneKeywords =
             { "phone", "telefono", "teléfono", "tel", "celular", "mobile", "cell",
@@ -61,7 +60,7 @@ namespace FileExplorerr
 
         private List<(int Row, int ExpectedCols, int ActualCols)> columnMismatchDetails = new();
 
-        public FileViewerForm(string path) { filePath = path; ext = Path.GetExtension(path).ToLower(); BuildUI(); LoadFile(); }
+        public FileViewerForm(string path) { filePath = path; ext = Path.GetExtension(path).ToLower(); BuildUI(); _ = LoadFileAsync(); }
 
         private void BuildUI()
         {
@@ -71,6 +70,12 @@ namespace FileExplorerr
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.BgBase;
             ForeColor = Theme.TextPrimary;
+
+            // ── Loading overlay ───────────────────────────────────────────────
+            loadingPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(200, 18, 18, 22), Visible = false };
+            loadingLabel = new Label { Text = "Cargando...", Font = Theme.FontBodyBold, ForeColor = Theme.Accent, BackColor = Color.Transparent, AutoSize = true };
+            loadingPanel.Controls.Add(loadingLabel);
+            loadingPanel.Resize += (s, e) => CenterLabel();
 
             // ── Top ──────────────────────────────────────────────────────────
             var topPanel = new Panel { Height = 40, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(12, 0, 0, 0) };
@@ -82,7 +87,6 @@ namespace FileExplorerr
             filterColumnCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Theme.BgElevated, ForeColor = Theme.TextPrimary, Font = Theme.FontBody, Width = 150, Location = new Point(8, 7), FlatStyle = FlatStyle.Flat };
             filterBox = Theme.MakeTextBox("Buscar..."); filterBox.Width = 240; filterBox.Location = new Point(168, 7);
             filterBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
-
             var filterBtn = Theme.MakeButton("Buscar", 70, Theme.ButtonKind.Primary); filterBtn.Location = new Point(418, 5); filterBtn.Click += (s, e) => ApplyFilter();
             var clearBtn = Theme.MakeButton("Limpiar", 70); clearBtn.Location = new Point(494, 5); clearBtn.Click += (s, e) => ClearFilter();
             filterPanel.Controls.AddRange(new Control[] { filterColumnCombo, filterBox, filterBtn, clearBtn });
@@ -97,7 +101,6 @@ namespace FileExplorerr
 
             // ── Bottom ───────────────────────────────────────────────────────
             var bottomPanel = new Panel { Height = 70, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
-
             var rowTop = new Panel { Height = 34, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(10, 4, 8, 0) };
             statusLabel = new Label { Dock = DockStyle.Fill, ForeColor = Theme.TextSecondary, Font = Theme.FontBody, TextAlign = ContentAlignment.MiddleLeft };
             var saveBtn = Theme.MakeButton("Guardar copia corregida", 160, Theme.ButtonKind.Success); saveBtn.Dock = DockStyle.Right; saveBtn.Click += (s, e) => SaveFixedCopy();
@@ -105,55 +108,45 @@ namespace FileExplorerr
 
             var rowBot = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
             var expLabel = new Label { Text = "Exportar:", Dock = DockStyle.Left, Width = 64, ForeColor = Theme.TextMuted, Font = Theme.FontSmall, TextAlign = ContentAlignment.MiddleLeft };
+            var expCsv = MakeExportButton("CSV", Color.FromArgb(20, 90, 70), Color.FromArgb(56, 210, 170)); expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
+            var expJson = MakeExportButton("JSON", Color.FromArgb(80, 55, 10), Color.FromArgb(230, 160, 40)); expJson.Dock = DockStyle.Left; expJson.Click += (s, e) => ExportAs(".json");
+            var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240)); expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
+            var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230)); expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
+            var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252)); expBD.Width = 80; expBD.Dock = DockStyle.Left; expBD.Click += async (s, e) => await ExportarABD();
 
-            var expCsv = MakeExportButton("CSV", Color.FromArgb(20, 90, 70), Color.FromArgb(56, 210, 170));
-            expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
+            rowBot.Controls.Add(expXml); rowBot.Controls.Add(expTxt); rowBot.Controls.Add(expJson); rowBot.Controls.Add(expCsv); rowBot.Controls.Add(expBD); rowBot.Controls.Add(expLabel);
+            bottomPanel.Controls.Add(rowBot); bottomPanel.Controls.Add(rowTop);
 
-            var expJson = MakeExportButton("JSON", Color.FromArgb(80, 55, 10), Color.FromArgb(230, 160, 40));
-            expJson.Dock = DockStyle.Left; expJson.Click += (s, e) => ExportAs(".json");
-
-            var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240));
-            expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
-
-            var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230));
-            expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
-
-            // ── BOTÓN EXPORTAR A BD ──────────────────────────────────────────
-            var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252));
-            expBD.Width = 80;
-            expBD.Dock = DockStyle.Left;
-            expBD.Click += async (s, e) => await ExportarABD();
-
-            rowBot.Controls.Add(expXml);
-            rowBot.Controls.Add(expTxt);
-            rowBot.Controls.Add(expJson);
-            rowBot.Controls.Add(expCsv);
-            rowBot.Controls.Add(expBD);
-            rowBot.Controls.Add(expLabel);
-
-            bottomPanel.Controls.Add(rowBot);
-            bottomPanel.Controls.Add(rowTop);
+            Controls.Add(loadingPanel);
             Controls.Add(grid);
             Controls.Add(filterPanel);
             Controls.Add(topPanel);
             Controls.Add(bottomPanel);
+            loadingPanel.BringToFront();
         }
+
+        private void CenterLabel()
+        {
+            if (loadingLabel == null || loadingPanel == null) return;
+            loadingLabel.Location = new Point(
+                (loadingPanel.Width - loadingLabel.Width) / 2,
+                (loadingPanel.Height - loadingLabel.Height) / 2);
+        }
+
+        private void ShowLoading(string text = "Cargando...")
+        {
+            loadingLabel.Text = text;
+            loadingPanel.Visible = true;
+            CenterLabel();
+            loadingPanel.BringToFront();
+        }
+
+        private void HideLoading() => loadingPanel.Visible = false;
 
         private static Button MakeExportButton(string text, Color bgColor, Color accentColor)
         {
-            var btn = new Button
-            {
-                Text = text,
-                Width = 62,
-                Height = 28,
-                BackColor = bgColor,
-                ForeColor = accentColor,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            btn.FlatAppearance.BorderColor = accentColor;
-            btn.FlatAppearance.BorderSize = 1;
+            var btn = new Button { Text = text, Width = 62, Height = 28, BackColor = bgColor, ForeColor = accentColor, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), Cursor = Cursors.Hand };
+            btn.FlatAppearance.BorderColor = accentColor; btn.FlatAppearance.BorderSize = 1;
             return btn;
         }
 
@@ -164,68 +157,69 @@ namespace FileExplorerr
         {
             if (masterTable == null || masterTable.Rows.Count == 0)
             {
-                MessageBox.Show("No hay datos cargados para exportar.", "Sin datos",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("No hay datos cargados para exportar.", "Sin datos", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-
-            // Buscar si ya hay un SqlViewerForm abierto
             SqlViewerForm? sqlViewer = null;
             foreach (Form f in Application.OpenForms)
                 if (f is SqlViewerForm sv) { sqlViewer = sv; break; }
-
-            // Si no hay uno abierto, crear uno nuevo
             if (sqlViewer == null)
             {
-                var resultado = MessageBox.Show(
-                    "No hay una ventana SQL abierta.\n¿Abrir el visor SQL para conectarte a una base de datos?",
-                    "Exportar a BD", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                var resultado = MessageBox.Show("No hay una ventana SQL abierta.\n¿Abrir el visor SQL para conectarte a una base de datos?", "Exportar a BD", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (resultado != DialogResult.Yes) return;
-
                 sqlViewer = new SqlViewerForm();
                 sqlViewer.Show();
-
-                // Esperar a que el usuario se conecte
-                MessageBox.Show(
-                    "Conéctate a PostgreSQL o MariaDB en la ventana SQL y luego cierra este mensaje para continuar.",
-                    "Paso 1 — Conectar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Conéctate a PostgreSQL o MariaDB en la ventana SQL y luego cierra este mensaje para continuar.", "Paso 1 — Conectar", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
-
-            string nombreSugerido = Path.GetFileNameWithoutExtension(filePath)
-                .Replace(" ", "_").ToLowerInvariant();
-
+            string nombreSugerido = Path.GetFileNameWithoutExtension(filePath).Replace(" ", "_").ToLowerInvariant();
             await sqlViewer.ImportarDataTableABD(masterTable, nombreSugerido);
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CARGA
+        //  CARGA ASÍNCRONA
         // ════════════════════════════════════════════════════════════════════
-        private void LoadFile()
+        private async Task LoadFileAsync()
         {
+            ShowLoading("Leyendo archivo...");
             try
             {
                 var fi = new FileInfo(filePath);
                 fileInfoLabel.Text = $"  {fi.Name}  ·  {FormatSize(fi.Length)}  ·  {fi.LastWriteTime:dd/MM/yyyy HH:mm}";
 
-                if (ext == ".csv")
-                    masterTable = ParseCsvWithMismatch(File.ReadAllText(filePath));
-                else
-                    masterTable = ext switch
-                    {
-                        ".json" => ParseJson(File.ReadAllText(filePath)),
-                        ".xml" => ParseXml(File.ReadAllText(filePath)),
-                        _ => ParseTxt(File.ReadAllText(filePath))
-                    };
+                string content = await Task.Run(() => File.ReadAllText(filePath));
 
-                AnalyzeTable();
+                ShowLoading("Procesando datos...");
+                masterTable = await Task.Run(() =>
+                {
+                    if (ext == ".csv") return ParseCsvWithMismatch(content);
+                    return ext switch
+                    {
+                        ".json" => ParseJson(content),
+                        ".xml" => ParseXml(content),
+                        _ => ParseTxt(content)
+                    };
+                });
+
+                ShowLoading("Analizando calidad...");
+                await Task.Run(() => AnalyzeTable());
+
                 PopulateFilterCombo();
                 ApplyDisplayTable(masterTable);
                 UpdateStatus();
+
                 if (duplicateRows.Count > 0 || dateIssues.Count > 0 || emptyFields.Count > 0 ||
                     phoneIssues.Count > 0 || emailIssues.Count > 0 || columnMismatchRows.Count > 0)
                     ShowAnalysisPopup();
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); Close(); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Close();
+            }
+            finally
+            {
+                HideLoading();
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -236,27 +230,20 @@ namespace FileExplorerr
             var dt = new DataTable();
             var lines = SplitLines(content);
             if (lines.Count == 0) return dt;
-
             var headers = SplitCsvLine(lines[0]);
             expectedColumnCount = headers.Count;
-
             foreach (var h in headers)
                 dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"Col{dt.Columns.Count + 1}");
-
-            columnMismatchRows.Clear();
-            columnMismatchDetails.Clear();
-
+            columnMismatchRows.Clear(); columnMismatchDetails.Clear();
             for (int i = 1; i < lines.Count; i++)
             {
                 if (string.IsNullOrWhiteSpace(lines[i])) continue;
                 var cells = SplitCsvLine(lines[i]);
-
                 if (cells.Count != expectedColumnCount)
                 {
                     columnMismatchRows.Add(i - 1);
                     columnMismatchDetails.Add((i - 1, expectedColumnCount, cells.Count));
                 }
-
                 var row = dt.NewRow();
                 for (int c = 0; c < dt.Columns.Count; c++)
                     row[c] = c < cells.Count ? cells[c].Trim('"') : "";
@@ -287,29 +274,8 @@ namespace FileExplorerr
                 using var doc = JsonDocument.Parse(content);
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
-                    foreach (var elem in doc.RootElement.EnumerateArray())
-                    {
-                        if (elem.ValueKind != JsonValueKind.Object) continue;
-                        foreach (var prop in elem.EnumerateObject())
-                            if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name);
-                    }
-                    foreach (var elem in doc.RootElement.EnumerateArray())
-                    {
-                        if (elem.ValueKind != JsonValueKind.Object) continue;
-                        var row = dt.NewRow();
-                        foreach (var prop in elem.EnumerateObject())
-                        {
-                            if (!dt.Columns.Contains(prop.Name)) continue;
-                            row[prop.Name] = prop.Value.ValueKind switch
-                            {
-                                JsonValueKind.Null => "",
-                                JsonValueKind.Object => prop.Value.GetRawText(),
-                                JsonValueKind.Array => prop.Value.GetRawText(),
-                                _ => prop.Value.ToString()
-                            };
-                        }
-                        dt.Rows.Add(row);
-                    }
+                    foreach (var elem in doc.RootElement.EnumerateArray()) { if (elem.ValueKind != JsonValueKind.Object) continue; foreach (var prop in elem.EnumerateObject()) if (!dt.Columns.Contains(prop.Name)) dt.Columns.Add(prop.Name); }
+                    foreach (var elem in doc.RootElement.EnumerateArray()) { if (elem.ValueKind != JsonValueKind.Object) continue; var row = dt.NewRow(); foreach (var prop in elem.EnumerateObject()) { if (!dt.Columns.Contains(prop.Name)) continue; row[prop.Name] = prop.Value.ValueKind switch { JsonValueKind.Null => "", JsonValueKind.Object => prop.Value.GetRawText(), JsonValueKind.Array => prop.Value.GetRawText(), _ => prop.Value.ToString() }; } dt.Rows.Add(row); }
                 }
                 else if (doc.RootElement.ValueKind == JsonValueKind.Object)
                 {
@@ -318,32 +284,12 @@ namespace FileExplorerr
                     {
                         if (prop.Value.ValueKind == JsonValueKind.Array)
                         {
-                            foreach (var elem in prop.Value.EnumerateArray())
-                            {
-                                if (elem.ValueKind != JsonValueKind.Object) continue;
-                                foreach (var p in elem.EnumerateObject())
-                                    if (!dt.Columns.Contains(p.Name)) dt.Columns.Add(p.Name);
-                            }
-                            foreach (var elem in prop.Value.EnumerateArray())
-                            {
-                                if (elem.ValueKind != JsonValueKind.Object) continue;
-                                var row = dt.NewRow();
-                                foreach (var p in elem.EnumerateObject())
-                                {
-                                    if (!dt.Columns.Contains(p.Name)) continue;
-                                    row[p.Name] = p.Value.ValueKind == JsonValueKind.Null ? "" : p.Value.ToString();
-                                }
-                                dt.Rows.Add(row);
-                            }
+                            foreach (var elem in prop.Value.EnumerateArray()) { if (elem.ValueKind != JsonValueKind.Object) continue; foreach (var p in elem.EnumerateObject()) if (!dt.Columns.Contains(p.Name)) dt.Columns.Add(p.Name); }
+                            foreach (var elem in prop.Value.EnumerateArray()) { if (elem.ValueKind != JsonValueKind.Object) continue; var row = dt.NewRow(); foreach (var p in elem.EnumerateObject()) { if (!dt.Columns.Contains(p.Name)) continue; row[p.Name] = p.Value.ValueKind == JsonValueKind.Null ? "" : p.Value.ToString(); } dt.Rows.Add(row); }
                             foundArray = true; break;
                         }
                     }
-                    if (!foundArray)
-                    {
-                        dt.Columns.Add("Clave"); dt.Columns.Add("Valor");
-                        foreach (var prop in doc.RootElement.EnumerateObject())
-                            dt.Rows.Add(prop.Name, prop.Value.ValueKind == JsonValueKind.Null ? "" : prop.Value.GetRawText());
-                    }
+                    if (!foundArray) { dt.Columns.Add("Clave"); dt.Columns.Add("Valor"); foreach (var prop in doc.RootElement.EnumerateObject()) dt.Rows.Add(prop.Name, prop.Value.ValueKind == JsonValueKind.Null ? "" : prop.Value.GetRawText()); }
                 }
             }
             catch { dt = SingleColumnTable(content); }
@@ -371,8 +317,7 @@ namespace FileExplorerr
         private static void FlattenXml(XmlNode? node, DataTable dt, string prefix)
         {
             if (node == null) return;
-            foreach (XmlNode child in node.ChildNodes)
-            { if (child.NodeType != XmlNodeType.Element) continue; string name = string.IsNullOrEmpty(prefix) ? child.Name : prefix + "/" + child.Name; string val = child.HasChildNodes && child.FirstChild!.NodeType == XmlNodeType.Text ? child.InnerText : ""; dt.Rows.Add(name, val); if (child.HasChildNodes && !(child.FirstChild!.NodeType == XmlNodeType.Text && child.ChildNodes.Count == 1)) FlattenXml(child, dt, name); }
+            foreach (XmlNode child in node.ChildNodes) { if (child.NodeType != XmlNodeType.Element) continue; string name = string.IsNullOrEmpty(prefix) ? child.Name : prefix + "/" + child.Name; string val = child.HasChildNodes && child.FirstChild!.NodeType == XmlNodeType.Text ? child.InnerText : ""; dt.Rows.Add(name, val); if (child.HasChildNodes && !(child.FirstChild!.NodeType == XmlNodeType.Text && child.ChildNodes.Count == 1)) FlattenXml(child, dt, name); }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -400,7 +345,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ANÁLISIS
+        //  ANÁLISIS — corre en hilo de fondo
         // ════════════════════════════════════════════════════════════════════
         private void AnalyzeTable()
         {
@@ -449,14 +394,10 @@ namespace FileExplorerr
             email = email.Trim();
             if (!email.Contains('@')) return false;
             var parts = email.Split('@');
-            if (parts.Length != 2) return false;
-            if (string.IsNullOrWhiteSpace(parts[0])) return false;
-            if (string.IsNullOrWhiteSpace(parts[1])) return false;
-            if (!parts[1].Contains('.')) return false;
-            if (parts[1].StartsWith('.') || parts[1].EndsWith('.')) return false;
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1])) return false;
+            if (!parts[1].Contains('.') || parts[1].StartsWith('.') || parts[1].EndsWith('.')) return false;
             string tld = parts[1].Substring(parts[1].LastIndexOf('.') + 1);
-            if (tld.Length < 2) return false;
-            return true;
+            return tld.Length >= 2;
         }
 
         private static string? DetectAndFixDate(string val)
@@ -569,8 +510,7 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  FILTRADO / ORDEN
         // ════════════════════════════════════════════════════════════════════
-        private void PopulateFilterCombo()
-        { filterColumnCombo.Items.Clear(); filterColumnCombo.Items.Add("Todas"); foreach (DataColumn col in masterTable.Columns) filterColumnCombo.Items.Add(col.ColumnName); filterColumnCombo.SelectedIndex = 0; }
+        private void PopulateFilterCombo() { filterColumnCombo.Items.Clear(); filterColumnCombo.Items.Add("Todas"); foreach (DataColumn col in masterTable.Columns) filterColumnCombo.Items.Add(col.ColumnName); filterColumnCombo.SelectedIndex = 0; }
 
         private void ApplyFilter()
         {
@@ -601,7 +541,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  GUARDAR / EXPORTAR ARCHIVO
+        //  GUARDAR / EXPORTAR
         // ════════════════════════════════════════════════════════════════════
         private void SaveFixedCopy()
         {
@@ -639,21 +579,8 @@ namespace FileExplorerr
             _ => TableToTsv(dt)
         };
 
-        private static string TableToCsv(DataTable dt)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\"")));
-            foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\"")));
-            return sb.ToString();
-        }
-
-        private static string TableToTsv(DataTable dt)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine(string.Join("\t", dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName)));
-            foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join("\t", row.ItemArray.Select(x => x?.ToString() ?? "")));
-            return sb.ToString();
-        }
+        private static string TableToCsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\""))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\""))); return sb.ToString(); }
+        private static string TableToTsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join("\t", dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join("\t", row.ItemArray.Select(x => x?.ToString() ?? ""))); return sb.ToString(); }
 
         private static string TableToJson(DataTable dt)
         {
@@ -661,13 +588,7 @@ namespace FileExplorerr
             foreach (DataRow row in dt.Rows)
             {
                 var d = new Dictionary<string, object?>();
-                foreach (DataColumn col in dt.Columns)
-                {
-                    string? val = row[col]?.ToString();
-                    if (double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numVal)) d[col.ColumnName] = numVal;
-                    else if (val == "" || val == null) d[col.ColumnName] = null;
-                    else d[col.ColumnName] = val;
-                }
+                foreach (DataColumn col in dt.Columns) { string? val = row[col]?.ToString(); if (double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numVal)) d[col.ColumnName] = numVal; else if (val == "" || val == null) d[col.ColumnName] = null; else d[col.ColumnName] = val; }
                 rows.Add(d);
             }
             return JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });

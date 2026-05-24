@@ -2,15 +2,11 @@
 using System.Drawing;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace FileExplorerr
 {
-    // ════════════════════════════════════════════════════════════════════════
-    //  BLOC DE NOTAS NATIVO
-    //  Editor de texto plano con tema oscuro, búsqueda, reemplazar,
-    //  contador de líneas/palabras, zoom y guardado.
-    // ════════════════════════════════════════════════════════════════════════
     public class NotepadForm : Form
     {
         private RichTextBox editor = null!;
@@ -28,11 +24,14 @@ namespace FileExplorerr
         private float fontSize = 11F;
         private Encoding fileEncoding = Encoding.UTF8;
 
+        // Debounce para evitar recalcular estado en cada keystroke
+        private System.Windows.Forms.Timer _statusDebounceTimer = null!;
+
         public NotepadForm(string path)
         {
             filePath = path;
             BuildUI();
-            LoadFile();
+            _ = LoadFileAsync();
         }
 
         private void BuildUI()
@@ -46,18 +45,21 @@ namespace FileExplorerr
             KeyPreview = true;
             KeyDown += OnKeyDown;
 
+            _statusDebounceTimer = new System.Windows.Forms.Timer { Interval = 300 };
+            _statusDebounceTimer.Tick += (s, e) => { _statusDebounceTimer.Stop(); UpdateStatus(); };
+
             // ═══ TOP BAR ═════════════════════════════════════════════════════
             topBar = new Panel { Height = 40, Dock = DockStyle.Top, BackColor = Theme.BgSurface };
 
             var btnSave = Theme.MakeButton("Guardar", 90, Theme.ButtonKind.Success);
             btnSave.Dock = DockStyle.Left;
-            btnSave.Click += (s, e) => Save();
+            btnSave.Click += async (s, e) => await SaveAsync();
 
             var btnSaveAs = Theme.MakeButton("Guardar como...", 120);
             btnSaveAs.Dock = DockStyle.Left;
-            btnSaveAs.Click += (s, e) => SaveAs();
+            btnSaveAs.Click += async (s, e) => await SaveAsAsync();
 
-            var sep1 = new Panel { Width = 1, Dock = DockStyle.Left, BackColor = Theme.Border, Margin = new Padding(4, 6, 4, 6) };
+            var sep1 = new Panel { Width = 1, Dock = DockStyle.Left, BackColor = Theme.Border };
 
             var btnUndo = Theme.MakeButton("Deshacer", 80);
             btnUndo.Dock = DockStyle.Left;
@@ -67,7 +69,7 @@ namespace FileExplorerr
             btnRedo.Dock = DockStyle.Left;
             btnRedo.Click += (s, e) => { if (editor.CanRedo) editor.Redo(); };
 
-            var sep2 = new Panel { Width = 1, Dock = DockStyle.Left, BackColor = Theme.Border, Margin = new Padding(4, 6, 4, 6) };
+            var sep2 = new Panel { Width = 1, Dock = DockStyle.Left, BackColor = Theme.Border };
 
             var btnSearch = Theme.MakeButton("Buscar / Reemplazar", 150, Theme.ButtonKind.Primary);
             btnSearch.Dock = DockStyle.Left;
@@ -92,7 +94,7 @@ namespace FileExplorerr
             topBar.Controls.Add(btnSaveAs);
             topBar.Controls.Add(btnSave);
 
-            // ═══ SEARCH PANEL (oculto por defecto) ═══════════════════════════
+            // ═══ SEARCH PANEL ═══════════════════════════════════════════════
             searchPanel = new Panel { Height = 40, Dock = DockStyle.Top, BackColor = Theme.BgElevated, Visible = false, Padding = new Padding(8, 5, 8, 5) };
 
             searchBox = Theme.MakeTextBox("Buscar...");
@@ -112,7 +114,7 @@ namespace FileExplorerr
 
             var btnReplaceAll = Theme.MakeButton("Reemplazar todo", 120);
             btnReplaceAll.Location = new Point(610, 5);
-            btnReplaceAll.Click += (s, e) => ReplaceAll();
+            btnReplaceAll.Click += async (s, e) => await ReplaceAllAsync();
 
             var btnCloseSearch = Theme.MakeButton("✕", 32);
             btnCloseSearch.Dock = DockStyle.Right;
@@ -137,16 +139,10 @@ namespace FileExplorerr
                 ScrollBars = RichTextBoxScrollBars.Both,
                 DetectUrls = false
             };
-            editor.TextChanged += (s, e) =>
-            {
-                hasChanges = true;
-                UpdateStatus();
-                lineNumberPanel.Invalidate();
-                UpdateTitle();
-            };
+            editor.TextChanged += Editor_TextChanged;
             editor.VScroll += (s, e) => lineNumberPanel.Invalidate();
             editor.Resize += (s, e) => lineNumberPanel.Invalidate();
-            editor.SelectionChanged += (s, e) => UpdateStatus();
+            editor.SelectionChanged += (s, e) => ScheduleStatusUpdate();
 
             // ═══ BOTTOM BAR ══════════════════════════════════════════════════
             bottomBar = new Panel { Height = 28, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
@@ -171,20 +167,14 @@ namespace FileExplorerr
                 Text = "100%"
             };
 
-            var btnZoomIn = Theme.MakeButton("+", 28);
-            btnZoomIn.Dock = DockStyle.Right; btnZoomIn.Height = 28;
-            btnZoomIn.Click += (s, e) => Zoom(1);
-
-            var btnZoomOut = Theme.MakeButton("−", 28);
-            btnZoomOut.Dock = DockStyle.Right; btnZoomOut.Height = 28;
-            btnZoomOut.Click += (s, e) => Zoom(-1);
+            var btnZoomIn = Theme.MakeButton("+", 28); btnZoomIn.Dock = DockStyle.Right; btnZoomIn.Height = 28; btnZoomIn.Click += (s, e) => Zoom(1);
+            var btnZoomOut = Theme.MakeButton("−", 28); btnZoomOut.Dock = DockStyle.Right; btnZoomOut.Height = 28; btnZoomOut.Click += (s, e) => Zoom(-1);
 
             bottomBar.Controls.Add(statusLabel);
             bottomBar.Controls.Add(btnZoomIn);
             bottomBar.Controls.Add(btnZoomOut);
             bottomBar.Controls.Add(zoomLabel);
 
-            // ═══ ASSEMBLY ════════════════════════════════════════════════════
             Controls.Add(editor);
             Controls.Add(lineNumberPanel);
             Controls.Add(searchPanel);
@@ -192,15 +182,29 @@ namespace FileExplorerr
             Controls.Add(bottomBar);
         }
 
+        private void Editor_TextChanged(object? sender, EventArgs e)
+        {
+            hasChanges = true;
+            lineNumberPanel.Invalidate();
+            UpdateTitle();
+            ScheduleStatusUpdate();
+        }
+
+        private void ScheduleStatusUpdate()
+        {
+            _statusDebounceTimer.Stop();
+            _statusDebounceTimer.Start();
+        }
+
         // ════════════════════════════════════════════════════════════════════
-        //  CARGAR ARCHIVO
+        //  CARGA ASÍNCRONA
         // ════════════════════════════════════════════════════════════════════
-        private void LoadFile()
+        private async Task LoadFileAsync()
         {
             try
             {
-                // Detectar encoding
-                byte[] raw = File.ReadAllBytes(filePath);
+                byte[] raw = await Task.Run(() => File.ReadAllBytes(filePath));
+
                 if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
                     fileEncoding = Encoding.UTF8;
                 else if (raw.Length >= 2 && raw[0] == 0xFF && raw[1] == 0xFE)
@@ -210,7 +214,9 @@ namespace FileExplorerr
                 else
                     fileEncoding = Encoding.UTF8;
 
-                editor.Text = File.ReadAllText(filePath, fileEncoding);
+                string content = await Task.Run(() => fileEncoding.GetString(raw));
+
+                editor.Text = content;
                 hasChanges = false;
                 UpdateTitle();
                 UpdateStatus();
@@ -218,8 +224,7 @@ namespace FileExplorerr
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al abrir:\n{ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error al abrir:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Close();
             }
         }
@@ -230,7 +235,6 @@ namespace FileExplorerr
         private void LineNumbers_Paint(object? sender, PaintEventArgs e)
         {
             e.Graphics.Clear(Theme.BgSurface);
-
             int firstCharIndex = editor.GetCharIndexFromPosition(new Point(0, 0));
             int firstLine = editor.GetLineFromCharIndex(firstCharIndex);
             int lastCharIndex = editor.GetCharIndexFromPosition(new Point(0, editor.ClientSize.Height));
@@ -245,37 +249,35 @@ namespace FileExplorerr
                 int charIdx = editor.GetFirstCharIndexFromLine(i);
                 if (charIdx < 0) break;
                 Point pos = editor.GetPositionFromCharIndex(charIdx);
-                float y = pos.Y;
                 float lineHeight = editor.Font.GetHeight(e.Graphics);
-                var rect = new RectangleF(0, y, lineNumberPanel.Width - 6, lineHeight);
-                e.Graphics.DrawString((i + 1).ToString(), font, brush, rect, sf);
+                e.Graphics.DrawString((i + 1).ToString(), font, brush,
+                    new System.Drawing.RectangleF(0, pos.Y, lineNumberPanel.Width - 6, lineHeight), sf);
             }
 
-            // Línea separadora derecha
             using var pen = new Pen(Theme.Border);
             e.Graphics.DrawLine(pen, lineNumberPanel.Width - 1, 0, lineNumberPanel.Width - 1, lineNumberPanel.Height);
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  GUARDAR
+        //  GUARDAR ASÍNCRONO
         // ════════════════════════════════════════════════════════════════════
-        private void Save()
+        private async Task SaveAsync()
         {
             try
             {
-                File.WriteAllText(filePath, editor.Text, fileEncoding);
+                string content = editor.Text;
+                await Task.Run(() => File.WriteAllText(filePath, content, fileEncoding));
                 hasChanges = false;
                 UpdateTitle();
                 statusLabel.Text = "  Guardado.";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al guardar:\n{ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error al guardar:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void SaveAs()
+        private async Task SaveAsAsync()
         {
             using var dlg = new SaveFileDialog
             {
@@ -287,15 +289,15 @@ namespace FileExplorerr
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
             try
             {
-                File.WriteAllText(dlg.FileName, editor.Text, fileEncoding);
+                string content = editor.Text;
+                await Task.Run(() => File.WriteAllText(dlg.FileName, content, fileEncoding));
                 hasChanges = false;
                 Text = $"Bloc de notas — {Path.GetFileName(dlg.FileName)}";
                 statusLabel.Text = $"  Guardado como {Path.GetFileName(dlg.FileName)}";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al guardar:\n{ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error al guardar:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -308,43 +310,25 @@ namespace FileExplorerr
             if (searchPanel.Visible)
             {
                 searchBox.Focus();
-                // Si hay texto seleccionado, ponerlo en el buscador
-                if (editor.SelectionLength > 0)
-                    searchBox.Text = editor.SelectedText;
+                if (editor.SelectionLength > 0) searchBox.Text = editor.SelectedText;
             }
         }
-
-        private int lastSearchIndex = 0;
 
         private void FindNext()
         {
             string query = searchBox.Text;
             if (string.IsNullOrEmpty(query)) return;
-
             int startAt = editor.SelectionStart + editor.SelectionLength;
             if (startAt >= editor.Text.Length) startAt = 0;
-
             int index = editor.Text.IndexOf(query, startAt, StringComparison.OrdinalIgnoreCase);
-
-            if (index < 0)
-            {
-                // Buscar desde el inicio
-                index = editor.Text.IndexOf(query, 0, StringComparison.OrdinalIgnoreCase);
-                if (index < 0)
-                {
-                    MessageBox.Show($"No se encontró \"{query}\".", "Buscar",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-            }
-
+            if (index < 0) index = editor.Text.IndexOf(query, 0, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) { MessageBox.Show($"No se encontró \"{query}\".", "Buscar", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
             editor.SelectionStart = index;
             editor.SelectionLength = query.Length;
             editor.SelectionBackColor = Color.FromArgb(80, 140, 60);
             editor.SelectionColor = Color.White;
             editor.ScrollToCaret();
             editor.Focus();
-            lastSearchIndex = index;
         }
 
         private void ReplaceNext()
@@ -352,7 +336,6 @@ namespace FileExplorerr
             string query = searchBox.Text;
             string replacement = replaceBox.Text;
             if (string.IsNullOrEmpty(query)) return;
-
             if (editor.SelectedText.Equals(query, StringComparison.OrdinalIgnoreCase))
             {
                 editor.SelectedText = replacement;
@@ -361,43 +344,47 @@ namespace FileExplorerr
             FindNext();
         }
 
-        private void ReplaceAll()
+        /// <summary>
+        /// Reemplaza todas las ocurrencias en un hilo de fondo para no bloquear la UI en archivos grandes.
+        /// </summary>
+        private async Task ReplaceAllAsync()
         {
             string query = searchBox.Text;
             string replacement = replaceBox.Text;
             if (string.IsNullOrEmpty(query)) return;
 
-            int count = 0;
-            int pos = 0;
-            string text = editor.Text;
-            var sb = new StringBuilder();
+            statusLabel.Text = "  Reemplazando...";
+            string originalText = editor.Text;
 
-            while (pos < text.Length)
+            var (newText, count) = await Task.Run(() =>
             {
-                int idx = text.IndexOf(query, pos, StringComparison.OrdinalIgnoreCase);
-                if (idx < 0)
+                int c = 0;
+                int pos = 0;
+                string text = originalText;
+                var sb = new StringBuilder();
+                while (pos < text.Length)
                 {
-                    sb.Append(text, pos, text.Length - pos);
-                    break;
+                    int idx = text.IndexOf(query, pos, StringComparison.OrdinalIgnoreCase);
+                    if (idx < 0) { sb.Append(text, pos, text.Length - pos); break; }
+                    sb.Append(text, pos, idx - pos);
+                    sb.Append(replacement);
+                    pos = idx + query.Length;
+                    c++;
                 }
-                sb.Append(text, pos, idx - pos);
-                sb.Append(replacement);
-                pos = idx + query.Length;
-                count++;
-            }
+                return (sb.ToString(), c);
+            });
 
             if (count > 0)
             {
-                editor.Text = sb.ToString();
+                editor.Text = newText;
                 hasChanges = true;
-                MessageBox.Show($"Se reemplazaron {count} ocurrencia(s).", "Reemplazar",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"Se reemplazaron {count} ocurrencia(s).", "Reemplazar", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
-                MessageBox.Show($"No se encontró \"{query}\".", "Reemplazar",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"No se encontró \"{query}\".", "Reemplazar", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+            UpdateStatus();
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -415,21 +402,22 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ESTADO
+        //  ESTADO — conteo de palabras liviano
         // ════════════════════════════════════════════════════════════════════
         private void UpdateStatus()
         {
+            // Trabajar sobre una copia del texto para no bloquear
+            string text = editor.Text;
             int lines = editor.Lines.Length;
-            int chars = editor.Text.Length;
+            int chars = text.Length;
+
+            // Conteo de palabras sencillo sin foreach char a char
             int words = 0;
-            if (chars > 0)
+            bool inWord = false;
+            for (int i = 0; i < text.Length; i++)
             {
-                bool inWord = false;
-                foreach (char c in editor.Text)
-                {
-                    if (char.IsLetterOrDigit(c)) { if (!inWord) { words++; inWord = true; } }
-                    else inWord = false;
-                }
+                if (char.IsLetterOrDigit(text[i])) { if (!inWord) { words++; inWord = true; } }
+                else inWord = false;
             }
 
             int currentLine = editor.GetLineFromCharIndex(editor.SelectionStart) + 1;
@@ -457,7 +445,7 @@ namespace FileExplorerr
                 switch (e.KeyCode)
                 {
                     case Keys.S:
-                        if (e.Shift) SaveAs(); else Save();
+                        if (e.Shift) _ = SaveAsAsync(); else _ = SaveAsync();
                         e.Handled = e.SuppressKeyPress = true;
                         break;
                     case Keys.F:
@@ -483,17 +471,8 @@ namespace FileExplorerr
                         break;
                 }
             }
-            if (e.KeyCode == Keys.F3)
-            {
-                FindNext();
-                e.Handled = true;
-            }
-            if (e.KeyCode == Keys.Escape && searchPanel.Visible)
-            {
-                searchPanel.Visible = false;
-                editor.Focus();
-                e.Handled = true;
-            }
+            if (e.KeyCode == Keys.F3) { FindNext(); e.Handled = true; }
+            if (e.KeyCode == Keys.Escape && searchPanel.Visible) { searchPanel.Visible = false; editor.Focus(); e.Handled = true; }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -501,64 +480,40 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private void GoToLine()
         {
-            using var dlg = new Form
-            {
-                Text = "Ir a línea",
-                Width = 300,
-                Height = 130,
-                StartPosition = FormStartPosition.CenterParent,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                BackColor = Theme.BgSurface,
-                ForeColor = Theme.TextPrimary
-            };
-            var lbl = new Label
-            {
-                Text = $"Número de línea (1 — {editor.Lines.Length}):",
-                Left = 12,
-                Top = 12,
-                Width = 270,
-                ForeColor = Theme.TextSecondary,
-                Font = Theme.FontBody
-            };
-            var txt = Theme.MakeTextBox();
-            txt.Left = 12; txt.Top = 38; txt.Width = 270;
-            var ok = Theme.MakeButton("Ir", 80, Theme.ButtonKind.Primary);
-            ok.Left = 200; ok.Top = 74; ok.DialogResult = DialogResult.OK;
+            using var dlg = new Form { Text = "Ir a línea", Width = 300, Height = 130, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, BackColor = Theme.BgSurface, ForeColor = Theme.TextPrimary };
+            var lbl = new Label { Text = $"Número de línea (1 — {editor.Lines.Length}):", Left = 12, Top = 12, Width = 270, ForeColor = Theme.TextSecondary, Font = Theme.FontBody };
+            var txt = Theme.MakeTextBox(); txt.Left = 12; txt.Top = 38; txt.Width = 270;
+            var ok = Theme.MakeButton("Ir", 80, Theme.ButtonKind.Primary); ok.Left = 200; ok.Top = 74; ok.DialogResult = DialogResult.OK;
             dlg.Controls.AddRange(new Control[] { lbl, txt, ok });
             dlg.AcceptButton = (IButtonControl)ok;
-
-            if (dlg.ShowDialog(this) == DialogResult.OK &&
-                int.TryParse(txt.Text.Trim(), out int line) &&
-                line >= 1 && line <= editor.Lines.Length)
+            if (dlg.ShowDialog(this) == DialogResult.OK && int.TryParse(txt.Text.Trim(), out int line) && line >= 1 && line <= editor.Lines.Length)
             {
                 int idx = editor.GetFirstCharIndexFromLine(line - 1);
-                editor.SelectionStart = idx;
-                editor.SelectionLength = 0;
-                editor.ScrollToCaret();
-                editor.Focus();
+                editor.SelectionStart = idx; editor.SelectionLength = 0;
+                editor.ScrollToCaret(); editor.Focus();
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  PROTEGER CAMBIOS SIN GUARDAR
+        //  CERRAR CON CAMBIOS SIN GUARDAR
         // ════════════════════════════════════════════════════════════════════
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (hasChanges)
             {
-                var result = MessageBox.Show(
-                    "Hay cambios sin guardar. ¿Deseas guardar antes de cerrar?",
-                    "Cambios sin guardar",
-                    MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
-
+                var result = MessageBox.Show("Hay cambios sin guardar. ¿Deseas guardar antes de cerrar?", "Cambios sin guardar", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
                 if (result == DialogResult.Yes)
-                    Save();
+                    _ = SaveAsync();
                 else if (result == DialogResult.Cancel)
                     e.Cancel = true;
             }
             base.OnFormClosing(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _statusDebounceTimer?.Dispose();
+            base.Dispose(disposing);
         }
     }
 }

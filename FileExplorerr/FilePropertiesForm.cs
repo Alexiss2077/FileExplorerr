@@ -3,28 +3,31 @@ using System.Drawing;
 using System.IO;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace FileExplorerr
 {
-    // ════════════════════════════════════════════════════════════════════════
-    //  VENTANA DE PROPIEDADES DE ARCHIVO / CARPETA
-    // ════════════════════════════════════════════════════════════════════════
-   public class FilePropertiesForm : Form
+    public class FilePropertiesForm : Form
     {
         private readonly string _path;
         private readonly bool _isDirectory;
+
+        // Loading overlay
+        private Panel _loadingPanel = null!;
+        private Label _loadingLabel = null!;
 
         public FilePropertiesForm(string path)
         {
             _path = path;
             _isDirectory = Directory.Exists(path);
             BuildUI();
+            // Cargar propiedades en background para no bloquear la UI
+            _ = LoadPropertiesAsync();
         }
 
         private void BuildUI()
         {
-            // ── Ventana ──────────────────────────────────────────────────────
             Text = $"Propiedades — {Path.GetFileName(_path)}";
             Size = new Size(480, 620);
             MinimumSize = new Size(420, 520);
@@ -36,7 +39,7 @@ namespace FileExplorerr
             ForeColor = Color.FromArgb(230, 230, 236);
             Font = new Font("Segoe UI", 9.5F);
 
-            // ── Header con ícono y nombre ────────────────────────────────────
+            // ── Header ───────────────────────────────────────────────────────
             var header = new Panel
             {
                 Height = 72,
@@ -56,7 +59,7 @@ namespace FileExplorerr
             };
 
             string fileName = Path.GetFileName(_path);
-            if (string.IsNullOrEmpty(fileName)) fileName = _path; // raíz de disco
+            if (string.IsNullOrEmpty(fileName)) fileName = _path;
 
             var nameLabel = new Label
             {
@@ -79,7 +82,6 @@ namespace FileExplorerr
 
             header.Controls.AddRange(new Control[] { iconLabel, nameLabel, typeLabel });
 
-            // ── Separador ────────────────────────────────────────────────────
             var divider = new Panel
             {
                 Height = 1,
@@ -87,90 +89,34 @@ namespace FileExplorerr
                 BackColor = Color.FromArgb(44, 44, 54)
             };
 
-            // ── Scroll de propiedades ────────────────────────────────────────
+            // ── Scroll panel (se llenará async) ──────────────────────────────
             var scroll = new Panel
             {
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
                 BackColor = Color.FromArgb(18, 18, 22),
-                Padding = new Padding(16, 12, 16, 12)
+                Padding = new Padding(16, 12, 16, 12),
+                Tag = "scroll"
             };
 
-            var rows = new System.Collections.Generic.List<(string Key, string Value, Color? Color)>();
-            LoadProperties(rows);
-
-            int y = 10;
-            foreach (var (key, value, color) in rows)
+            // ── Loading overlay ───────────────────────────────────────────────
+            _loadingPanel = new Panel
             {
-                if (key == "---")   // separador de sección
-                {
-                    var sep = new Panel
-                    {
-                        Left = 0,
-                        Top = y + 4,
-                        Width = 430,
-                        Height = 1,
-                        BackColor = Color.FromArgb(38, 38, 48)
-                    };
-                    scroll.Controls.Add(sep);
-                    y += 14;
-                    continue;
-                }
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(18, 18, 22),
+                Visible = true
+            };
+            _loadingLabel = new Label
+            {
+                Text = "Cargando propiedades...",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(100, 140, 180),
+                Font = new Font("Segoe UI", 9.5F)
+            };
+            _loadingPanel.Controls.Add(_loadingLabel);
 
-                if (key.StartsWith("##"))  // título de sección
-                {
-                    var secLabel = new Label
-                    {
-                        Text = key.Substring(2),
-                        Left = 0,
-                        Top = y,
-                        Width = 430,
-                        Height = 22,
-                        Font = new Font("Segoe UI", 8F, FontStyle.Bold),
-                        ForeColor = Color.FromArgb(72, 202, 188)
-                    };
-                    scroll.Controls.Add(secLabel);
-                    y += 26;
-                    continue;
-                }
-
-                // Fila clave / valor
-                var lKey = new Label
-                {
-                    Text = key,
-                    Left = 0,
-                    Top = y,
-                    Width = 140,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.5F),
-                    ForeColor = Color.FromArgb(100, 130, 170)
-                };
-
-                var lVal = new Label
-                {
-                    Text = value,
-                    Left = 148,
-                    Top = y,
-                    Width = 282,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                    ForeColor = color ?? Color.FromArgb(220, 220, 230),
-                    AutoEllipsis = true,
-                    Cursor = Cursors.IBeam
-                };
-
-                // Permitir copiar al hacer doble clic en el valor
-                lVal.DoubleClick += (s, e) =>
-                {
-                    Clipboard.SetText(lVal.Text);
-                    ShowCopiedToast(lVal.Text);
-                };
-
-                scroll.Controls.AddRange(new Control[] { lKey, lVal });
-                y += 24;
-            }
-
-            // ── Botón cerrar ─────────────────────────────────────────────────
+            // ── Bottom ───────────────────────────────────────────────────────
             var bottomPanel = new Panel
             {
                 Height = 48,
@@ -208,13 +154,104 @@ namespace FileExplorerr
             bottomPanel.Controls.AddRange(new Control[] { btnClose, hintLabel });
 
             Controls.Add(scroll);
+            Controls.Add(_loadingPanel);
             Controls.Add(divider);
             Controls.Add(header);
             Controls.Add(bottomPanel);
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CARGAR PROPIEDADES
+        //  CARGA ASÍNCRONA
+        // ════════════════════════════════════════════════════════════════════
+        private async Task LoadPropertiesAsync()
+        {
+            var rows = new System.Collections.Generic.List<(string Key, string Value, Color? Color)>();
+
+            try
+            {
+                // Todas las operaciones de I/O en background
+                await Task.Run(() => LoadProperties(rows));
+            }
+            catch (Exception ex)
+            {
+                rows.Add(("Error", ex.Message, Color.FromArgb(220, 95, 85)));
+            }
+
+            // Volver al hilo UI para construir los controles
+            if (!IsHandleCreated || IsDisposed) return;
+
+            // Buscar el panel scroll
+            Panel? scroll = null;
+            foreach (Control c in Controls)
+                if (c is Panel p && p.Tag?.ToString() == "scroll") { scroll = p; break; }
+
+            if (scroll == null) return;
+
+            scroll.SuspendLayout();
+            int y = 10;
+
+            foreach (var (key, value, color) in rows)
+            {
+                if (key == "---")
+                {
+                    var sep = new Panel { Left = 0, Top = y + 4, Width = 430, Height = 1, BackColor = Color.FromArgb(38, 38, 48) };
+                    scroll.Controls.Add(sep);
+                    y += 14;
+                    continue;
+                }
+
+                if (key.StartsWith("##"))
+                {
+                    var secLabel = new Label
+                    {
+                        Text = key.Substring(2),
+                        Left = 0,
+                        Top = y,
+                        Width = 430,
+                        Height = 22,
+                        Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                        ForeColor = Color.FromArgb(72, 202, 188)
+                    };
+                    scroll.Controls.Add(secLabel);
+                    y += 26;
+                    continue;
+                }
+
+                var lKey = new Label
+                {
+                    Text = key,
+                    Left = 0,
+                    Top = y,
+                    Width = 140,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.5F),
+                    ForeColor = Color.FromArgb(100, 130, 170)
+                };
+
+                var lVal = new Label
+                {
+                    Text = value,
+                    Left = 148,
+                    Top = y,
+                    Width = 282,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                    ForeColor = color ?? Color.FromArgb(220, 220, 230),
+                    AutoEllipsis = true,
+                    Cursor = Cursors.IBeam
+                };
+                lVal.DoubleClick += (s, e) => { Clipboard.SetText(lVal.Text); ShowCopiedToast(lVal.Text); };
+
+                scroll.Controls.AddRange(new Control[] { lKey, lVal });
+                y += 24;
+            }
+
+            scroll.ResumeLayout(true);
+            _loadingPanel.Visible = false;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  CARGAR PROPIEDADES (se ejecuta en background thread)
         // ════════════════════════════════════════════════════════════════════
         private void LoadProperties(System.Collections.Generic.List<(string, string, Color?)> rows)
         {
@@ -224,7 +261,6 @@ namespace FileExplorerr
 
             try
             {
-                // ── GENERAL ──────────────────────────────────────────────────
                 Section("General");
 
                 if (_isDirectory)
@@ -237,6 +273,7 @@ namespace FileExplorerr
                     Sep();
 
                     Section("Contenido");
+                    // CountContents ya es síncrono pero ahora corre en background
                     (int files, int dirs, long totalSize) = CountContents(di);
                     Add("Archivos", files.ToString("N0"));
                     Add("Subcarpetas", dirs.ToString("N0"));
@@ -267,23 +304,19 @@ namespace FileExplorerr
                     Add("Ruta completa", fi.FullName);
                     Sep();
 
-                    // ── TAMAÑO ───────────────────────────────────────────────
                     Section("Tamaño");
-                    Add("En disco", FormatSize(fi.Length),
-                        Color.FromArgb(140, 210, 170));
+                    Add("En disco", FormatSize(fi.Length), Color.FromArgb(140, 210, 170));
                     Add("Bytes exactos", $"{fi.Length:N0} bytes");
                     Add("Kilobytes", $"{fi.Length / 1024.0:N2} KB");
                     Add("Megabytes", $"{fi.Length / 1048576.0:N4} MB");
                     Sep();
 
-                    // ── FECHAS ───────────────────────────────────────────────
                     Section("Fechas");
                     Add("Creación", fi.CreationTime.ToString("dd/MM/yyyy   HH:mm:ss"));
                     Add("Modificación", fi.LastWriteTime.ToString("dd/MM/yyyy   HH:mm:ss"));
                     Add("Último acceso", fi.LastAccessTime.ToString("dd/MM/yyyy   HH:mm:ss"));
                     Sep();
 
-                    // ── ATRIBUTOS ────────────────────────────────────────────
                     Section("Atributos");
                     Add("Solo lectura", fi.IsReadOnly ? "Sí" : "No",
                         fi.IsReadOnly ? Color.FromArgb(220, 160, 80) : null);
@@ -296,13 +329,11 @@ namespace FileExplorerr
                             ? Color.FromArgb(220, 160, 80) : null);
                     Sep();
 
-                    // ── PROPIEDADES ESPECÍFICAS POR TIPO ─────────────────────
                     if (IsImage(ext)) LoadImageProps(fi, rows);
                     else if (IsAudio(ext)) LoadAudioProps(fi, rows);
                     else if (IsVideo(ext)) LoadVideoProps(fi, rows);
                     else if (IsText(ext)) LoadTextProps(fi, rows);
 
-                    // ── SEGURIDAD / PROPIETARIO ──────────────────────────────
                     Section("Seguridad");
                     try
                     {
@@ -310,10 +341,7 @@ namespace FileExplorerr
                         var owner = acl.GetOwner(typeof(NTAccount));
                         Add("Propietario", owner?.ToString() ?? "Desconocido");
                     }
-                    catch
-                    {
-                        Add("Propietario", "Sin acceso");
-                    }
+                    catch { Add("Propietario", "Sin acceso"); }
                 }
             }
             catch (Exception ex)
@@ -392,14 +420,12 @@ namespace FileExplorerr
             rows.Add(("##Contenido de texto", "", null));
             try
             {
-                // Leer solo los primeros 512 KB para no bloquear con archivos enormes
                 long readBytes = Math.Min(fi.Length, 512 * 1024);
                 byte[] buffer = new byte[readBytes];
                 using var fs = new FileStream(fi.FullName, FileMode.Open,
                                                 FileAccess.Read, FileShare.ReadWrite);
                 fs.Read(buffer, 0, (int)readBytes);
 
-                // Detectar encoding
                 string enc = "UTF-8";
                 if (buffer.Length >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF)
                     enc = "UTF-8 (con BOM)";
@@ -409,8 +435,7 @@ namespace FileExplorerr
                     enc = "UTF-16 BE";
 
                 string content = System.Text.Encoding.UTF8.GetString(buffer);
-                int lines = 1;
-                int words = 0;
+                int lines = 1, words = 0;
                 bool inWord = false;
                 foreach (char c in content)
                 {
@@ -443,9 +468,7 @@ namespace FileExplorerr
                 TopMost = true,
                 Opacity = 0.92
             };
-            toast.Location = new Point(
-                Left + (Width - toast.Width) / 2,
-                Top + Height - 70);
+            toast.Location = new Point(Left + (Width - toast.Width) / 2, Top + Height - 70);
             toast.Controls.Add(new Label
             {
                 Text = "✔  Copiado al portapapeles",
@@ -558,8 +581,8 @@ namespace FileExplorerr
             ".md" => "Documento Markdown",
             ".log" => "Archivo de registro (log)",
             _ => string.IsNullOrEmpty(ext)
-                                    ? "Archivo sin extensión"
-                                    : $"Archivo {ext.ToUpper()}"
+                    ? "Archivo sin extensión"
+                    : $"Archivo {ext.ToUpper()}"
         };
 
         private static bool IsImage(string ext) =>
