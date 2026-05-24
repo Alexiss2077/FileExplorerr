@@ -44,6 +44,10 @@ namespace FileExplorerr
             new(@"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})\b", RegexOptions.IgnoreCase),
         };
 
+        // Regex para detectar valores que son claramente fechas (no teléfonos)
+        private static readonly Regex DateValueRegex = new(
+            @"^\s*(\d{1,4})[/\-\.](\d{1,2})[/\-\.](\d{1,4})\s*$");
+
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.IgnoreCase);
 
         private static readonly string[] PhoneKeywords =
@@ -321,13 +325,53 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
+        //  DETECCIÓN DE FECHA — helper para identificar valores de fecha
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Devuelve true si el valor parece ser una fecha (dd-mm-yyyy, yyyy-mm-dd, etc.)
+        /// Usado para excluir valores de fecha de la detección de teléfono.
+        /// </summary>
+        private static bool LooksLikeDate(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            return DateValueRegex.IsMatch(value.Trim());
+        }
+
+        /// <summary>
+        /// Devuelve true si la mayoría de los valores no vacíos de la columna son fechas.
+        /// </summary>
+        private static bool IsDateColumn(DataTable dt, int colIndex)
+        {
+            var nonEmpty = dt.Rows.Cast<DataRow>()
+                .Select(r => r[colIndex]?.ToString()?.Trim() ?? "")
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToList();
+            if (nonEmpty.Count == 0) return false;
+            int dateCount = nonEmpty.Count(v => LooksLikeDate(v));
+            return (double)dateCount / nonEmpty.Count >= 0.5;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         //  DETECCIÓN DE TELÉFONO
         // ════════════════════════════════════════════════════════════════════
         private static bool IsPhoneColumn(DataTable dt, int colIndex)
         {
             string colName = dt.Columns[colIndex].ColumnName.ToLower();
+
+            // Si el nombre de la columna contiene palabras clave de fecha, no es teléfono
+            string[] dateKeywords = { "fecha", "date", "fec", "dia", "día", "nacimiento", "birth", "created", "updated", "modified" };
+            if (dateKeywords.Any(k => colName.Contains(k))) return false;
+
+            // Si la columna es predominantemente fechas, no es teléfono
+            if (IsDateColumn(dt, colIndex)) return false;
+
             if (PhoneKeywords.Any(k => colName.Contains(k))) return true;
-            var nonEmpty = dt.Rows.Cast<DataRow>().Select(r => r[colIndex]?.ToString()?.Trim() ?? "").Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
+
+            var nonEmpty = dt.Rows.Cast<DataRow>()
+                .Select(r => r[colIndex]?.ToString()?.Trim() ?? "")
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToList();
             if (nonEmpty.Count == 0) return false;
             int phoneCount = nonEmpty.Count(v => LooksLikePhone(v));
             return (double)phoneCount / nonEmpty.Count >= 0.6;
@@ -336,9 +380,25 @@ namespace FileExplorerr
         private static bool LooksLikePhone(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return false;
+
+            // Excluir explícitamente valores que parezcan fechas (dd-mm-yyyy, yyyy/mm/dd, etc.)
+            if (LooksLikeDate(value)) return false;
+
             if (!Regex.IsMatch(value, @"^[\d\s\+\-\(\)\.ext]{7,20}$", RegexOptions.IgnoreCase)) return false;
             string digitsOnly = new string(value.Where(char.IsDigit).ToArray());
             if (digitsOnly.Length < 7 || digitsOnly.Length > 15) return false;
+
+            // Descartar si tiene exactamente el patrón de fecha: dos grupos pequeños + año largo
+            // ej. "05-02-2010" → partes: 05, 02, 2010
+            var parts = Regex.Split(value.Trim(), @"[/\-\.]");
+            if (parts.Length == 3)
+            {
+                bool part0Short = parts[0].Length <= 2;
+                bool part1Short = parts[1].Length <= 2;
+                bool part2Year = parts[2].Length == 4 || parts[0].Length == 4;
+                if (part0Short && part1Short && part2Year) return false;
+            }
+
             var dotMatch = Regex.Match(value, @"\.(\d+)");
             if (dotMatch.Success && dotMatch.Groups[1].Value.TrimEnd('0').Length > 0) return false;
             return true;
@@ -352,27 +412,48 @@ namespace FileExplorerr
             duplicateRows.Clear(); dateIssues.Clear(); emptyFields.Clear(); phoneIssues.Clear(); emailIssues.Clear();
             var phoneColumns = new HashSet<int>();
             var emailColumns = new HashSet<int>();
+            var dateColumns = new HashSet<int>(); // columnas identificadas como fecha
+
             for (int c = 0; c < masterTable.Columns.Count; c++)
             {
-                if (IsPhoneColumn(masterTable, c)) phoneColumns.Add(c);
+                // Primero verificar si es columna de fecha para protegerla de la detección de teléfono
+                if (IsDateColumn(masterTable, c)) dateColumns.Add(c);
+
+                if (!dateColumns.Contains(c) && IsPhoneColumn(masterTable, c)) phoneColumns.Add(c);
+
                 string colName = masterTable.Columns[c].ColumnName.ToLower();
                 if (EmailKeywords.Any(k => colName.Contains(k))) emailColumns.Add(c);
             }
+
             var seen = new Dictionary<string, int>();
             for (int r = 0; r < masterTable.Rows.Count; r++)
             {
                 string key = string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? ""));
                 if (seen.TryGetValue(key, out int orig)) { if (!duplicateRows.Contains(orig)) duplicateRows.Add(orig); duplicateRows.Add(r); } else seen[key] = r;
             }
+
             for (int r = 0; r < masterTable.Rows.Count; r++)
             {
                 for (int c = 0; c < masterTable.Columns.Count; c++)
                 {
                     string val = masterTable.Rows[r][c]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(val)) { emptyFields.Add((r, c)); continue; }
-                    if (phoneColumns.Contains(c)) { string? fixedPhone = ValidateAndFixPhone(val); if (fixedPhone != null) phoneIssues.Add((r, c, val, fixedPhone)); }
+
+                    // Teléfono: solo si la columna fue clasificada como phone y NO como fecha
+                    if (phoneColumns.Contains(c) && !dateColumns.Contains(c))
+                    {
+                        string? fixedPhone = ValidateAndFixPhone(val);
+                        if (fixedPhone != null) phoneIssues.Add((r, c, val, fixedPhone));
+                    }
+
                     if (emailColumns.Contains(c)) { if (!IsValidEmail(val)) emailIssues.Add((r, c, val)); }
-                    if (!phoneColumns.Contains(c)) { string? fixedDate = DetectAndFixDate(val); if (fixedDate != null && fixedDate != val) dateIssues.Add((r, c, val, fixedDate)); }
+
+                    // Fechas: solo en columnas que no sean teléfono
+                    if (!phoneColumns.Contains(c))
+                    {
+                        string? fixedDate = DetectAndFixDate(val);
+                        if (fixedDate != null && fixedDate != val) dateIssues.Add((r, c, val, fixedDate));
+                    }
                 }
             }
         }
