@@ -22,6 +22,9 @@ namespace FileExplorerr
         private Button btnEjecutar = null!, btnLimpiar = null!;
         private Button btnExportarCsv = null!, btnExportarJson = null!;
         private Button btnExportarTxt = null!, btnExportarXml = null!;
+        // Exportación Office
+        private Button btnExportarXlsx = null!, btnExportarDocx = null!;
+        private Button btnExportarPptx = null!, btnExportarPdf = null!;
         private Button btnImportar = null!;
         private Label lblConexion = null!, lblHint = null!;
         private Panel tablaPanel = null!;
@@ -165,6 +168,16 @@ namespace FileExplorerr
             btnExportarXml = MakeExportBtn("↓ Exportar XML",
                 Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230));
 
+            // ── Botones de exportación Office ─────────────────────────────────
+            btnExportarXlsx = MakeExportBtn("📊 Excel",
+                Color.FromArgb(16, 72, 32), Color.FromArgb(80, 200, 100));
+            btnExportarDocx = MakeExportBtn("📝 Word",
+                Color.FromArgb(12, 48, 96), Color.FromArgb(80, 150, 240));
+            btnExportarPptx = MakeExportBtn("📋 PowerPoint",
+                Color.FromArgb(80, 30, 10), Color.FromArgb(230, 100, 60));
+            btnExportarPdf = MakeExportBtn("🗒 PDF",
+                Color.FromArgb(70, 10, 10), Color.FromArgb(220, 70, 70));
+
             btnImportar = MakeActionBtn("↑ Importar archivo→BD",
                 Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252));
 
@@ -195,11 +208,20 @@ namespace FileExplorerr
             btnExportarTxt.Click += (s, e) => ExportarResultado(".txt");
             btnExportarXml.Click += (s, e) => ExportarResultado(".xml");
             btnImportar.Click += async (s, e) => await ImportarArchivoAsync();
+            btnExportarXlsx.Click += (s, e) =>
+                ExportadorOffice.ExportarConDialogo(resultadoActual!, ObtenerTituloQuery(), ".xlsx", this);
+            btnExportarDocx.Click += (s, e) =>
+                ExportadorOffice.ExportarConDialogo(resultadoActual!, ObtenerTituloQuery(), ".docx", this);
+            btnExportarPptx.Click += (s, e) =>
+                ExportadorOffice.ExportarConDialogo(resultadoActual!, ObtenerTituloQuery(), ".pptx", this);
+            btnExportarPdf.Click += (s, e) =>
+                ExportadorOffice.ExportarConDialogo(resultadoActual!, ObtenerTituloQuery(), ".pdf", this);
 
             sqlFlow.Controls.AddRange(new Control[]
             {
                 btnEjecutarBtn, btnLimpiar,
                 btnExportarCsv, btnExportarJson, btnExportarTxt, btnExportarXml,
+                btnExportarXlsx, btnExportarDocx, btnExportarPptx, btnExportarPdf,
                 btnImportar
             });
 
@@ -969,6 +991,21 @@ namespace FileExplorerr
             btnExportarJson.Enabled = enabled;
             btnExportarTxt.Enabled = enabled;
             btnExportarXml.Enabled = enabled;
+            btnExportarXlsx.Enabled = enabled;
+            btnExportarDocx.Enabled = enabled;
+            btnExportarPptx.Enabled = enabled;
+            btnExportarPdf.Enabled = enabled;
+        }
+
+        private string ObtenerTituloQuery()
+        {
+            // Intenta extraer el nombre de la tabla del SELECT para un título descriptivo
+            string sql = editorSql.Text.Trim();
+            var match = System.Text.RegularExpressions.Regex.Match(sql,
+                @"FROM\s+[`""\[]?(\w+)[`""\]]?",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups[1].Value;
+            return "resultado_sql";
         }
 
         private static Button MakeConnBtn(string text, Color bg, Color fg)
