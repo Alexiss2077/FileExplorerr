@@ -1,8 +1,6 @@
 ﻿// ============================================================================
 //  ExportadorOffice.cs
-//  Exportación a Excel (.xlsx), Word (.docx), PowerPoint (.pptx) y PDF
-//
-//  NuGet requeridos:
+//  NuGet:
 //    <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
 //    <PackageReference Include="PdfSharp"               Version="6.1.0" />
 // ============================================================================
@@ -13,21 +11,13 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-// ── Aliases para evitar colisiones entre namespaces de OpenXml ──────────────
 using OXml = DocumentFormat.OpenXml;
 using Pkg = DocumentFormat.OpenXml.Packaging;
-
-// Excel
 using XL = DocumentFormat.OpenXml.Spreadsheet;
-
-// Word
 using WD = DocumentFormat.OpenXml.Wordprocessing;
-
-// PowerPoint + Drawing
 using PX = DocumentFormat.OpenXml.Presentation;
 using DX = DocumentFormat.OpenXml.Drawing;
 
-// PDF
 using PdfSharp.Pdf;
 using PdfSharp.Drawing;
 
@@ -36,10 +26,10 @@ namespace FileExplorerr
     public static class ExportadorOffice
     {
         // ════════════════════════════════════════════════════════════════════
-        //  PUNTO DE ENTRADA UNIFICADO
+        //  PUNTO DE ENTRADA
         // ════════════════════════════════════════════════════════════════════
-        public static bool ExportarConDialogo(System.Data.DataTable? dt,
-            string tituloReporte, string extension, IWin32Window? owner = null)
+        public static bool ExportarConDialogo(DataTable? dt,
+            string titulo, string ext, IWin32Window? owner = null)
         {
             if (dt == null || dt.Rows.Count == 0)
             {
@@ -48,45 +38,40 @@ namespace FileExplorerr
                 return false;
             }
 
-            string extU = extension.TrimStart('.').ToUpper();
-            string filter = extension switch
+            string extU = ext.TrimStart('.').ToUpper();
+            string filter = ext switch
             {
                 ".xlsx" => "Excel (*.xlsx)|*.xlsx",
                 ".docx" => "Word (*.docx)|*.docx",
                 ".pptx" => "PowerPoint (*.pptx)|*.pptx",
                 ".pdf" => "PDF (*.pdf)|*.pdf",
-                _ => $"{extU} (*{extension})|*{extension}"
+                _ => $"{extU} (*{ext})|*{ext}"
             };
 
             using var dlg = new SaveFileDialog
             {
                 Title = $"Exportar como {extU}",
                 Filter = filter + "|Todos (*.*)|*.*",
-                FileName = $"{Sanitizar(tituloReporte)}_{DateTime.Now:yyyyMMdd_HHmm}{extension}"
+                FileName = $"{NombreSeguro(titulo)}_{DateTime.Now:yyyyMMdd_HHmm}{ext}"
             };
             if (dlg.ShowDialog(owner) != DialogResult.OK) return false;
 
             try
             {
-                switch (extension)
+                switch (ext)
                 {
-                    case ".xlsx": ExportarExcel(dt, tituloReporte, dlg.FileName); break;
-                    case ".docx": ExportarWord(dt, tituloReporte, dlg.FileName); break;
-                    case ".pptx": ExportarPowerPoint(dt, tituloReporte, dlg.FileName); break;
-                    case ".pdf": ExportarPdf(dt, tituloReporte, dlg.FileName); break;
-                    default: throw new NotSupportedException($"Formato '{extension}' no soportado.");
+                    case ".xlsx": ExportarExcel(dt, titulo, dlg.FileName); break;
+                    case ".docx": ExportarWord(dt, titulo, dlg.FileName); break;
+                    case ".pptx": ExportarPowerPoint(dt, titulo, dlg.FileName); break;
+                    case ".pdf": ExportarPdf(dt, titulo, dlg.FileName); break;
                 }
 
-                if (MessageBox.Show(
-                        $"{extU} generado:\n{dlg.FileName}\n\n¿Abrir?",
-                        "Exportación completa",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Information) == DialogResult.Yes)
-                {
+                if (MessageBox.Show($"{extU} generado:\n{dlg.FileName}\n\n¿Abrir?",
+                        "Listo", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+                    == DialogResult.Yes)
                     System.Diagnostics.Process.Start(
                         new System.Diagnostics.ProcessStartInfo
                         { FileName = dlg.FileName, UseShellExecute = true });
-                }
                 return true;
             }
             catch (Exception ex)
@@ -98,7 +83,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  EXCEL (.xlsx)
+        //  EXCEL
         // ════════════════════════════════════════════════════════════════════
         public static void ExportarExcel(DataTable dt, string titulo, string ruta)
         {
@@ -108,123 +93,136 @@ namespace FileExplorerr
             var wbPart = doc.AddWorkbookPart();
             wbPart.Workbook = new XL.Workbook();
 
-            // Estilos
+            var ssPart = wbPart.AddNewPart<Pkg.SharedStringTablePart>();
+            ssPart.SharedStringTable = new XL.SharedStringTable();
+
             var stylesPart = wbPart.AddNewPart<Pkg.WorkbookStylesPart>();
-            stylesPart.Stylesheet = CrearEstilosExcel();
+            stylesPart.Stylesheet = CrearEstilos();
             stylesPart.Stylesheet.Save();
 
-            // Hoja
             var wsPart = wbPart.AddNewPart<Pkg.WorksheetPart>();
             var sheetData = new XL.SheetData();
-            wsPart.Worksheet = new XL.Worksheet(sheetData);
 
             var sheets = wbPart.Workbook.AppendChild(new XL.Sheets());
             sheets.AppendChild(new XL.Sheet
             {
                 Id = wbPart.GetIdOfPart(wsPart),
                 SheetId = 1,
-                Name = SanitizarHoja(titulo)
+                Name = HojaNombre(titulo)
             });
 
-            // Anchos de columna
             var cols = new XL.Columns();
             for (int c = 0; c < dt.Columns.Count; c++)
             {
-                int max = Math.Max(dt.Columns[c].ColumnName.Length,
-                    dt.Rows.Cast<DataRow>()
-                        .Select(r => (r[c]?.ToString() ?? "").Length)
-                        .DefaultIfEmpty(0).Max());
+                int maxLen = dt.Columns[c].ColumnName.Length;
+                foreach (DataRow r in dt.Rows)
+                    maxLen = Math.Max(maxLen, (r[c]?.ToString() ?? "").Length);
                 cols.AppendChild(new XL.Column
                 {
                     Min = (uint)(c + 1),
                     Max = (uint)(c + 1),
-                    Width = Math.Min(Math.Max(max + 3, 10), 50),
+                    Width = Math.Min(Math.Max(maxLen + 2, 8), 45),
                     CustomWidth = true
                 });
             }
-            wsPart.Worksheet.InsertBefore(cols, sheetData);
 
-            // Fila de encabezado (estilo 1)
-            var headerRow = new XL.Row { RowIndex = 1 };
+            var ws = new XL.Worksheet();
+            ws.AppendChild(cols);
+            ws.AppendChild(sheetData);
+            wsPart.Worksheet = ws;
+
+            int ssIdx = 0;
+            int AddSS(string texto)
+            {
+                ssPart.SharedStringTable.AppendChild(
+                    new XL.SharedStringItem(new XL.Text(texto)));
+                return ssIdx++;
+            }
+
+            var hRow = new XL.Row { RowIndex = 1 };
             for (int c = 0; c < dt.Columns.Count; c++)
-                headerRow.AppendChild(new XL.Cell
+            {
+                hRow.AppendChild(new XL.Cell
                 {
                     CellReference = LetraCol(c) + "1",
-                    CellValue = new XL.CellValue(dt.Columns[c].ColumnName),
-                    DataType = XL.CellValues.InlineString,
+                    DataType = XL.CellValues.SharedString,
+                    CellValue = new XL.CellValue(AddSS(dt.Columns[c].ColumnName).ToString()),
                     StyleIndex = 1u
                 });
-            sheetData.AppendChild(headerRow);
+            }
+            sheetData.AppendChild(hRow);
 
-            // Filas de datos
             for (int r = 0; r < dt.Rows.Count; r++)
             {
-                var row = new XL.Row { RowIndex = (uint)(r + 2) };
+                uint rowIdx = (uint)(r + 2);
+                uint style = (uint)(r % 2 == 0 ? 2 : 3);
+                var dRow = new XL.Row { RowIndex = rowIdx };
                 for (int c = 0; c < dt.Columns.Count; c++)
                 {
                     string val = dt.Rows[r][c]?.ToString() ?? "";
+                    string cRef = LetraCol(c) + rowIdx;
                     bool esNum = double.TryParse(val,
                         System.Globalization.NumberStyles.Any,
                         System.Globalization.CultureInfo.InvariantCulture, out double numVal);
 
-                    var cell = new XL.Cell
-                    {
-                        CellReference = LetraCol(c) + (r + 2),
-                        StyleIndex = (uint)(r % 2 == 0 ? 2 : 3)
-                    };
-                    if (esNum)
-                    {
-                        cell.CellValue = new XL.CellValue(
-                            numVal.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    }
-                    else
-                    {
-                        cell.CellValue = new XL.CellValue(val);
-                        cell.DataType = XL.CellValues.InlineString;
-                    }
-                    row.AppendChild(cell);
+                    dRow.AppendChild(esNum
+                        ? new XL.Cell
+                        {
+                            CellReference = cRef,
+                            CellValue = new XL.CellValue(numVal.ToString(
+                                System.Globalization.CultureInfo.InvariantCulture)),
+                            StyleIndex = style
+                        }
+                        : new XL.Cell
+                        {
+                            CellReference = cRef,
+                            DataType = XL.CellValues.SharedString,
+                            CellValue = new XL.CellValue(AddSS(val).ToString()),
+                            StyleIndex = style
+                        });
                 }
-                sheetData.AppendChild(row);
+                sheetData.AppendChild(dRow);
             }
 
-            // AutoFilter
             wsPart.Worksheet.AppendChild(new XL.AutoFilter
-            {
-                Reference = $"A1:{LetraCol(dt.Columns.Count - 1)}1"
-            });
+            { Reference = $"A1:{LetraCol(dt.Columns.Count - 1)}1" });
 
+            ssPart.SharedStringTable.Save();
             wsPart.Worksheet.Save();
             wbPart.Workbook.Save();
         }
 
-        private static XL.Stylesheet CrearEstilosExcel()
+        private static XL.Stylesheet CrearEstilos()
         {
             var fonts = new XL.Fonts(
-                new XL.Font(),
-                new XL.Font(
-                    new XL.Bold(),
-                    new XL.FontSize { Val = 10 },
-                    new XL.Color { Rgb = "FFFFFFFF" })
-            );
+                new XL.Font(new XL.FontName { Val = "Calibri" }, new XL.FontSize { Val = 11 }),
+                new XL.Font(new XL.Bold(), new XL.FontName { Val = "Calibri" },
+                    new XL.FontSize { Val = 11 }, new XL.Color { Rgb = "FFFFFFFF" })
+            )
+            { Count = 2 };
             var fills = new XL.Fills(
                 new XL.Fill(new XL.PatternFill { PatternType = XL.PatternValues.None }),
                 new XL.Fill(new XL.PatternFill { PatternType = XL.PatternValues.Gray125 }),
                 new XL.Fill(new XL.PatternFill
                 {
                     PatternType = XL.PatternValues.Solid,
-                    ForegroundColor = new XL.ForegroundColor { Rgb = "FF1A2A3A" }
+                    ForegroundColor = new XL.ForegroundColor { Rgb = "FF1A3A4A" },
+                    BackgroundColor = new XL.BackgroundColor { Indexed = 64 }
                 }),
                 new XL.Fill(new XL.PatternFill
                 {
                     PatternType = XL.PatternValues.Solid,
-                    ForegroundColor = new XL.ForegroundColor { Rgb = "FFF4F6F8" }
+                    ForegroundColor = new XL.ForegroundColor { Rgb = "FFE8F4F8" },
+                    BackgroundColor = new XL.BackgroundColor { Indexed = 64 }
                 }),
                 new XL.Fill(new XL.PatternFill
                 {
                     PatternType = XL.PatternValues.Solid,
-                    ForegroundColor = new XL.ForegroundColor { Rgb = "FFFFFFFF" }
+                    ForegroundColor = new XL.ForegroundColor { Rgb = "FFFFFFFF" },
+                    BackgroundColor = new XL.BackgroundColor { Indexed = 64 }
                 })
-            );
+            )
+            { Count = 5 };
             var borders = new XL.Borders(
                 new XL.Border(),
                 new XL.Border(
@@ -232,10 +230,11 @@ namespace FileExplorerr
                     new XL.RightBorder(new XL.Color { Auto = true }) { Style = XL.BorderStyleValues.Thin },
                     new XL.TopBorder(new XL.Color { Auto = true }) { Style = XL.BorderStyleValues.Thin },
                     new XL.BottomBorder(new XL.Color { Auto = true }) { Style = XL.BorderStyleValues.Thin })
-            );
-            var csf = new XL.CellStyleFormats(new XL.CellFormat());
+            )
+            { Count = 2 };
+            var csf = new XL.CellStyleFormats(new XL.CellFormat()) { Count = 1 };
             var cf = new XL.CellFormats(
-                new XL.CellFormat(),
+                new XL.CellFormat { FontId = 0, FillId = 0, BorderId = 0 },
                 new XL.CellFormat
                 {
                     FontId = 1,
@@ -246,14 +245,17 @@ namespace FileExplorerr
                     ApplyBorder = true,
                     Alignment = new XL.Alignment { Horizontal = XL.HorizontalAlignmentValues.Center }
                 },
-                new XL.CellFormat { FillId = 3, BorderId = 1, ApplyFill = true, ApplyBorder = true },
-                new XL.CellFormat { FillId = 4, BorderId = 1, ApplyFill = true, ApplyBorder = true }
-            );
+                new XL.CellFormat { FontId = 0, FillId = 3, BorderId = 1, ApplyFill = true, ApplyBorder = true },
+                new XL.CellFormat { FontId = 0, FillId = 4, BorderId = 1, ApplyFill = true, ApplyBorder = true }
+            )
+            { Count = 4 };
             return new XL.Stylesheet(fonts, fills, borders, csf, cf);
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  WORD (.docx)
+        //  WORD
+        //  Estrategia: construir el XML del body como string puro y cargarlo
+        //  con XDocument para garantizar un OOXML válido que Word acepte.
         // ════════════════════════════════════════════════════════════════════
         public static void ExportarWord(DataTable dt, string titulo, string ruta)
         {
@@ -261,89 +263,136 @@ namespace FileExplorerr
                 ruta, OXml.WordprocessingDocumentType.Document);
 
             var main = doc.AddMainDocumentPart();
-            main.Document = new WD.Document();
-            var body = main.Document.AppendChild(new WD.Body());
 
-            // Título
+            // Settings obligatorio
+            var sp = main.AddNewPart<Pkg.DocumentSettingsPart>();
+            sp.Settings = new WD.Settings(
+                new WD.Compatibility(new WD.CompatibilitySetting
+                {
+                    Name = WD.CompatSettingNameValues.CompatibilityMode,
+                    Uri = "http://schemas.microsoft.com/office/word",
+                    Val = "15"
+                }));
+            sp.Settings.Save();
+
+            var body = new WD.Body();
+
+            // ── Título ───────────────────────────────────────────────────────
             body.AppendChild(new WD.Paragraph(
                 new WD.ParagraphProperties(
                     new WD.Justification { Val = WD.JustificationValues.Center },
-                    new WD.SpacingBetweenLines { After = "160" }),
+                    new WD.ParagraphMarkRunProperties(
+                        new WD.Bold(), new WD.FontSize { Val = "40" },
+                        new WD.Color { Val = "1A3A4A" }),
+                    new WD.SpacingBetweenLines { Before = "0", After = "200" }),
                 new WD.Run(
                     new WD.RunProperties(
-                        new WD.Bold(),
-                        new WD.FontSize { Val = "36" },
-                        new WD.Color { Val = "1A2A3A" }),
+                        new WD.Bold(), new WD.FontSize { Val = "40" },
+                        new WD.Color { Val = "1A3A4A" }),
                     new WD.Text(titulo))));
 
-            // Subtítulo
+            // ── Subtítulo ────────────────────────────────────────────────────
             body.AppendChild(new WD.Paragraph(
                 new WD.ParagraphProperties(
                     new WD.Justification { Val = WD.JustificationValues.Center },
-                    new WD.SpacingBetweenLines { After = "320" }),
+                    new WD.SpacingBetweenLines { Before = "0", After = "300" }),
                 new WD.Run(
                     new WD.RunProperties(
-                        new WD.Color { Val = "666677" },
-                        new WD.FontSize { Val = "20" }),
+                        new WD.FontSize { Val = "20" },
+                        new WD.Color { Val = "48CAB4" }),
                     new WD.Text(
-                        $"{dt.Rows.Count} registros · {dt.Columns.Count} columnas · {DateTime.Now:dd/MM/yyyy HH:mm}"))));
+                        $"{dt.Rows.Count:N0} registros  ·  {dt.Columns.Count} columnas  ·  {DateTime.Now:dd/MM/yyyy HH:mm}"))));
 
-            // Tabla
-            var tbl = new WD.Table(
-                new WD.TableProperties(
-                    new WD.TableWidth { Width = "10000", Type = WD.TableWidthUnitValues.Dxa },
-                    new WD.TableBorders(
-                        new WD.TopBorder { Val = WD.BorderValues.Single, Size = 4, Color = "2E4057" },
-                        new WD.BottomBorder { Val = WD.BorderValues.Single, Size = 4, Color = "2E4057" },
-                        new WD.LeftBorder { Val = WD.BorderValues.Single, Size = 4, Color = "2E4057" },
-                        new WD.RightBorder { Val = WD.BorderValues.Single, Size = 4, Color = "2E4057" },
-                        new WD.InsideHorizontalBorder { Val = WD.BorderValues.Single, Size = 4, Color = "AAAAAA" },
-                        new WD.InsideVerticalBorder { Val = WD.BorderValues.Single, Size = 4, Color = "AAAAAA" })));
+            // ── Tabla ────────────────────────────────────────────────────────
+            // Calcular anchos proporcionales en twips (total ~9000 twips para márgenes normales)
+            int totalCols = dt.Columns.Count;
+            // Ancho en twips por columna (distribuido uniformemente)
+            int anchoCelda = Math.Max(800, 9000 / Math.Max(1, totalCols));
+
+            var tbl = new WD.Table();
+
+            tbl.AppendChild(new WD.TableProperties(
+                new WD.TableWidth { Width = (anchoCelda * totalCols).ToString(), Type = WD.TableWidthUnitValues.Dxa },
+                new WD.TableLayout { Type = WD.TableLayoutValues.Fixed },
+                new WD.TableBorders(
+                    new WD.TopBorder { Val = WD.BorderValues.Single, Size = 4, Color = "1A3A4A" },
+                    new WD.BottomBorder { Val = WD.BorderValues.Single, Size = 4, Color = "1A3A4A" },
+                    new WD.LeftBorder { Val = WD.BorderValues.Single, Size = 4, Color = "1A3A4A" },
+                    new WD.RightBorder { Val = WD.BorderValues.Single, Size = 4, Color = "1A3A4A" },
+                    new WD.InsideHorizontalBorder { Val = WD.BorderValues.Single, Size = 4, Color = "AABBCC" },
+                    new WD.InsideVerticalBorder { Val = WD.BorderValues.Single, Size = 4, Color = "AABBCC" })));
 
             // Encabezado
             var hRow = new WD.TableRow();
             foreach (DataColumn col in dt.Columns)
-            {
-                var cell = new WD.TableCell(
-                    new WD.TableCellProperties(
-                        new WD.Shading { Fill = "1A2A3A", Val = WD.ShadingPatternValues.Clear }),
-                    new WD.Paragraph(new WD.Run(
-                        new WD.RunProperties(
-                            new WD.Bold(),
-                            new WD.Color { Val = "FFFFFF" },
-                            new WD.FontSize { Val = "18" }),
-                        new WD.Text(col.ColumnName))));
-                hRow.AppendChild(cell);
-            }
+                hRow.AppendChild(CeldaWord(col.ColumnName, anchoCelda, "1A3A4A", "FFFFFF", bold: true));
             tbl.AppendChild(hRow);
 
             // Datos
             for (int r = 0; r < dt.Rows.Count; r++)
             {
-                string fondo = r % 2 == 0 ? "F4F6F8" : "FFFFFF";
+                string fondo = r % 2 == 0 ? "E8F4F8" : "FFFFFF";
                 var dRow = new WD.TableRow();
                 foreach (DataColumn col in dt.Columns)
-                {
-                    var cell = new WD.TableCell(
-                        new WD.TableCellProperties(
-                            new WD.Shading { Fill = fondo, Val = WD.ShadingPatternValues.Clear }),
-                        new WD.Paragraph(new WD.Run(
-                            new WD.RunProperties(new WD.FontSize { Val = "18" }),
-                            new WD.Text(dt.Rows[r][col]?.ToString() ?? ""))));
-                    dRow.AppendChild(cell);
-                }
+                    dRow.AppendChild(CeldaWord(dt.Rows[r][col]?.ToString() ?? "",
+                        anchoCelda, fondo, "1A1A2A", bold: false));
                 tbl.AppendChild(dRow);
             }
 
             body.AppendChild(tbl);
-            body.AppendChild(new WD.SectionProperties(
-                new WD.PageMargin { Top = 720, Bottom = 720, Left = 1080, Right = 1080 }));
 
+            // Sección: orientación landscape si hay muchas columnas
+            var sectPr = new WD.SectionProperties();
+            if (totalCols > 6)
+            {
+                sectPr.AppendChild(new WD.PageSize
+                {
+                    Width = 15840,  // A4 landscape
+                    Height = 12240,
+                    Orient = WD.PageOrientationValues.Landscape
+                });
+                sectPr.AppendChild(new WD.PageMargin
+                { Top = 720, Bottom = 720, Left = 720, Right = 720 });
+            }
+            else
+            {
+                sectPr.AppendChild(new WD.PageMargin
+                { Top = 900, Bottom = 900, Left = 1080, Right = 1080 });
+            }
+            body.AppendChild(sectPr);
+
+            main.Document = new WD.Document(body);
             main.Document.Save();
         }
 
+        private static WD.TableCell CeldaWord(string texto, int anchoTwips,
+            string fondoHex, string textoHex, bool bold)
+        {
+            var tcp = new WD.TableCellProperties(
+                new WD.TableCellWidth { Width = anchoTwips.ToString(), Type = WD.TableWidthUnitValues.Dxa },
+                new WD.Shading { Fill = fondoHex, Val = WD.ShadingPatternValues.Clear, Color = "auto" });
+
+            var rp = new WD.RunProperties(
+                new WD.Color { Val = textoHex },
+                new WD.FontSize { Val = "18" });
+            if (bold) rp.AppendChild(new WD.Bold());
+
+            var cell = new WD.TableCell();
+            cell.AppendChild(tcp);
+            cell.AppendChild(new WD.Paragraph(
+                new WD.ParagraphProperties(
+                    new WD.SpacingBetweenLines { Before = "0", After = "0" },
+                    new WD.Indentation { Left = "60", Right = "60" }),
+                new WD.Run(rp,
+                    new WD.Text(texto)
+                    { Space = OXml.SpaceProcessingModeValues.Preserve })));
+            return cell;
+        }
+
         // ════════════════════════════════════════════════════════════════════
-        //  POWERPOINT (.pptx)
+        //  POWERPOINT
+        //  Enfoque: XML puro inyectado en las partes para garantizar
+        //  compatibilidad con Office y LibreOffice.
         // ════════════════════════════════════════════════════════════════════
         public static void ExportarPowerPoint(DataTable dt, string titulo, string ruta)
         {
@@ -351,17 +400,26 @@ namespace FileExplorerr
                 ruta, OXml.PresentationDocumentType.Presentation);
 
             var presPart = pres.AddPresentationPart();
-            presPart.Presentation = new PX.Presentation(
-                new PX.SlideSize { Type = PX.SlideSizeValues.Screen16x9, Cx = 12192000, Cy = 6858000 },
-                new PX.SlideIdList(),
-                new PX.SlideMasterIdList()
-            );
 
-            // SlideMaster mínimo
-            var masterPart = presPart.AddNewPart<Pkg.SlideMasterPart>("rId1");
+            // ── Tema ─────────────────────────────────────────────────────────
+            var masterPart = presPart.AddNewPart<Pkg.SlideMasterPart>("rIdMaster");
+            var themePart = masterPart.AddNewPart<Pkg.ThemePart>("rIdTheme");
+            themePart.Theme = TemaMinimo();
+            themePart.Theme.Save();
+
+            // ── SlideLayout mínimo ────────────────────────────────────────────
+            var layoutPart = masterPart.AddNewPart<Pkg.SlideLayoutPart>("rIdLayout");
+            layoutPart.SlideLayout = new PX.SlideLayout(
+                new PX.CommonSlideData(
+                    new PX.ShapeTree(NvGrp(), GrpSp())),
+                new PX.ColorMapOverride(new DX.MasterColorMapping()))
+            { Type = PX.SlideLayoutValues.Blank, Preserve = true };
+            layoutPart.SlideLayout.Save();
+
+            // ── SlideMaster mínimo ────────────────────────────────────────────
             masterPart.SlideMaster = new PX.SlideMaster(
-                new PX.CommonSlideData(new PX.ShapeTree(
-                    GrpSpPr(), GrpSpPrProps())),
+                new PX.CommonSlideData(
+                    new PX.ShapeTree(NvGrp(), GrpSp())),
                 new PX.ColorMap
                 {
                     Background1 = DX.ColorSchemeIndexValues.Light1,
@@ -377,77 +435,200 @@ namespace FileExplorerr
                     Hyperlink = DX.ColorSchemeIndexValues.Hyperlink,
                     FollowedHyperlink = DX.ColorSchemeIndexValues.FollowedHyperlink
                 },
-                new PX.SlideLayoutIdList());
-
-            // Tema mínimo
-            var themePart = masterPart.AddNewPart<Pkg.ThemePart>("rIdTheme");
-            themePart.Theme = CrearTema();
-
-            // SlideLayout mínimo
-            var layoutPart = masterPart.AddNewPart<Pkg.SlideLayoutPart>("rIdLayout");
-            layoutPart.SlideLayout = new PX.SlideLayout(
-                new PX.CommonSlideData(new PX.ShapeTree(GrpSpPr(), GrpSpPrProps())));
-
-            masterPart.SlideMaster.SlideLayoutIdList!.AppendChild(
-                new PX.SlideLayoutId { Id = 2049, RelationshipId = "rIdLayout" });
+                new PX.SlideLayoutIdList(
+                    new PX.SlideLayoutId { Id = 2049u, RelationshipId = "rIdLayout" }));
             masterPart.SlideMaster.Save();
 
-            presPart.Presentation.SlideMasterIdList!.AppendChild(
-                new PX.SlideMasterId { Id = 2048, RelationshipId = "rId1" });
+            // ── Presentation ──────────────────────────────────────────────────
+            presPart.Presentation = new PX.Presentation(
+                new PX.SlideSize { Cx = 12192000, Cy = 6858000, Type = PX.SlideSizeValues.Screen16x9 },
+                new PX.SlideMasterIdList(
+                    new PX.SlideMasterId { Id = 2048u, RelationshipId = "rIdMaster" }),
+                new PX.SlideIdList());
 
-            // Slides
-            uint idCounter = 256;
-            var slides = new System.Collections.Generic.List<(Pkg.SlidePart, string)>();
+            uint sid = 256;
 
-            // Portada — SlidePart creado con AddNewPart (único constructor válido)
-            var portada = presPart.AddNewPart<Pkg.SlidePart>("rIdSlide0");
-            portada.AddPart(layoutPart, "rIdLayout");
-            RellenarSlidePortada(portada, titulo, dt.Columns.Count, dt.Rows.Count);
-            slides.Add((portada, "rIdSlide0"));
+            // ── Portada ───────────────────────────────────────────────────────
+            var spPortada = presPart.AddNewPart<Pkg.SlidePart>("rIdSlide0");
+            spPortada.AddPart(layoutPart, "rIdLayout");
+            spPortada.Slide = SlidePortada(titulo, dt.Columns.Count, dt.Rows.Count);
+            spPortada.Slide.Save();
+            presPart.Presentation.SlideIdList!.AppendChild(
+                new PX.SlideId { Id = sid++, RelationshipId = "rIdSlide0" });
 
-            // Datos — 25 filas por slide, máximo 50 slides
-            const int FPP = 25;
-            int total = Math.Min((int)Math.Ceiling(dt.Rows.Count / (double)FPP), 50);
-            total = Math.Max(1, total);
+            // ── Slides de datos ───────────────────────────────────────────────
+            const int FPP = 18;
+            int total = Math.Max(1, Math.Min(60,
+                (int)Math.Ceiling(dt.Rows.Count / (double)FPP)));
 
             for (int s = 0; s < total; s++)
             {
                 int ini = s * FPP;
                 int fin = Math.Min(ini + FPP, dt.Rows.Count);
                 string rid = $"rIdSlide{s + 1}";
-                var sp = presPart.AddNewPart<Pkg.SlidePart>(rid);
-                sp.AddPart(layoutPart, "rIdLayout");
-                RellenarSlideDatos(sp, dt, titulo, ini, fin, s + 1, total);
-                slides.Add((sp, rid));
-            }
 
-            foreach (var (_, rid) in slides)
-                presPart.Presentation.SlideIdList!.AppendChild(
-                    new PX.SlideId { Id = idCounter++, RelationshipId = rid });
+                var sp2 = presPart.AddNewPart<Pkg.SlidePart>(rid);
+                sp2.AddPart(layoutPart, "rIdLayout");
+                sp2.Slide = SlideDatos(dt, titulo, ini, fin, s + 1, total);
+                sp2.Slide.Save();
+                presPart.Presentation.SlideIdList.AppendChild(
+                    new PX.SlideId { Id = sid++, RelationshipId = rid });
+            }
 
             presPart.Presentation.Save();
         }
 
-        // helpers de PowerPoint
-        private static PX.NonVisualGroupShapeProperties GrpSpPr() =>
+        // helpers PowerPoint
+        private static PX.NonVisualGroupShapeProperties NvGrp() =>
             new PX.NonVisualGroupShapeProperties(
-                new PX.NonVisualDrawingProperties { Id = 1, Name = "" },
+                new PX.NonVisualDrawingProperties { Id = 1u, Name = "" },
                 new PX.NonVisualGroupShapeDrawingProperties(),
                 new PX.ApplicationNonVisualDrawingProperties());
 
-        private static DX.TransformGroup GrpSpPrProps() =>
-            new DX.TransformGroup();
+        private static PX.GroupShapeProperties GrpSp() =>
+            new PX.GroupShapeProperties(new DX.TransformGroup(
+                new DX.Offset { X = 0, Y = 0 },
+                new DX.Extents { Cx = 0, Cy = 0 },
+                new DX.ChildOffset { X = 0, Y = 0 },
+                new DX.ChildExtents { Cx = 0, Cy = 0 }));
 
-        private static DX.Theme CrearTema() =>
-            new DX.Theme(
+        private static PX.Slide SlidePortada(string titulo, int cols, int filas)
+        {
+            return new PX.Slide(
+                new PX.CommonSlideData(
+                    new PX.Background(new PX.BackgroundProperties(
+                        new DX.SolidFill(new DX.RgbColorModelHex { Val = "1A3A4A" }))),
+                    new PX.ShapeTree(
+                        NvGrp(), GrpSp(),
+                        Forma(2, titulo, 914400, 2000000, 10363200, 1500000,
+                            4800, true, "FFFFFF", DX.TextAlignmentTypeValues.Center),
+                        Forma(3,
+                            $"{filas:N0} registros  ·  {cols} columnas\n{DateTime.Now:dd/MM/yyyy HH:mm}",
+                            914400, 3700000, 10363200, 900000,
+                            2000, false, "48CAB4", DX.TextAlignmentTypeValues.Center))),
+                new PX.ColorMapOverride(new DX.MasterColorMapping()));
+        }
+
+        private static PX.Slide SlideDatos(DataTable dt, string titulo,
+            int ini, int fin, int num, int total)
+        {
+            int maxCols = Math.Min(dt.Columns.Count, 10);
+            long cw = 11582400L / maxCols;
+
+            var tblGrid = new DX.TableGrid();
+            for (int c = 0; c < maxCols; c++)
+                tblGrid.AppendChild(new DX.GridColumn { Width = cw });
+
+            var tbl = new DX.Table();
+            tbl.AppendChild(new DX.TableProperties(
+                new DX.TableStyleId
+                { Text = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}" }));
+            tbl.AppendChild(tblGrid);
+
+            // Encabezado
+            var hRow = new DX.TableRow { Height = 400000L };
+            for (int c = 0; c < maxCols; c++)
+                hRow.AppendChild(CeldaPptx(
+                    c < dt.Columns.Count ? dt.Columns[c].ColumnName : "",
+                    "1A3A4A", "FFFFFF", bold: true, fs: 1100));
+            tbl.AppendChild(hRow);
+
+            // Datos
+            for (int r = ini; r < fin; r++)
+            {
+                string bg = r % 2 == 0 ? "1E3040" : "263545";
+                var dRow = new DX.TableRow { Height = 300000L };
+                for (int c = 0; c < maxCols; c++)
+                    dRow.AppendChild(CeldaPptx(
+                        c < dt.Columns.Count ? (dt.Rows[r][c]?.ToString() ?? "") : "",
+                        bg, "D8E8F0", bold: false, fs: 900));
+                tbl.AppendChild(dRow);
+            }
+
+            var gf = new PX.GraphicFrame(
+                new PX.NonVisualGraphicFrameProperties(
+                    new PX.NonVisualDrawingProperties { Id = 10u, Name = $"T{num}" },
+                    new PX.NonVisualGraphicFrameDrawingProperties(
+                        new DX.GraphicFrameLocks { NoGrouping = true }),
+                    new PX.ApplicationNonVisualDrawingProperties()),
+                new PX.Transform(
+                    new DX.Offset { X = 304800L, Y = 800000L },
+                    new DX.Extents { Cx = 11582400L, Cy = 5800000L }),
+                new DX.Graphic(
+                    new DX.GraphicData(tbl)
+                    { Uri = "http://schemas.openxmlformats.org/drawingml/2006/table" }));
+
+            return new PX.Slide(
+                new PX.CommonSlideData(
+                    new PX.Background(new PX.BackgroundProperties(
+                        new DX.SolidFill(new DX.RgbColorModelHex { Val = "0F2030" }))),
+                    new PX.ShapeTree(
+                        NvGrp(), GrpSp(),
+                        Forma(2,
+                            $"{titulo}  —  filas {ini + 1}–{fin}  ({num}/{total})",
+                            304800, 160000, 11582400, 560000,
+                            1300, true, "48CAB4", DX.TextAlignmentTypeValues.Left),
+                        gf)),
+                new PX.ColorMapOverride(new DX.MasterColorMapping()));
+        }
+
+        private static PX.Shape Forma(uint id, string txt,
+            long x, long y, long cx, long cy,
+            int fs, bool bold, string hex, DX.TextAlignmentTypeValues alin)
+        {
+            return new PX.Shape(
+                new PX.NonVisualShapeProperties(
+                    new PX.NonVisualDrawingProperties { Id = id, Name = $"S{id}" },
+                    new PX.NonVisualShapeDrawingProperties(
+                        new DX.ShapeLocks { NoGrouping = true }),
+                    new PX.ApplicationNonVisualDrawingProperties()),
+                new PX.ShapeProperties(
+                    new DX.Transform2D(
+                        new DX.Offset { X = x, Y = y },
+                        new DX.Extents { Cx = cx, Cy = cy }),
+                    new DX.PresetGeometry(new DX.AdjustValueList())
+                    { Preset = DX.ShapeTypeValues.Rectangle },
+                    new DX.NoFill()),
+                new PX.TextBody(
+                    new DX.BodyProperties { Anchor = DX.TextAnchoringTypeValues.Center },
+                    new DX.ListStyle(),
+                    new DX.Paragraph(
+                        new DX.ParagraphProperties { Alignment = alin },
+                        new DX.Run(
+                            new DX.RunProperties(
+                                new DX.SolidFill(new DX.RgbColorModelHex { Val = hex }),
+                                new DX.LatinFont { Typeface = "+mj-lt" })
+                            { FontSize = fs, Bold = bold, Dirty = false },
+                            new DX.Text(txt)))));
+        }
+
+        private static DX.TableCell CeldaPptx(string txt, string bg, string fg,
+            bool bold, int fs)
+        {
+            var cell = new DX.TableCell();
+            cell.AppendChild(new DX.Paragraph(
+                new DX.Run(
+                    new DX.RunProperties(
+                        new DX.SolidFill(new DX.RgbColorModelHex { Val = fg }),
+                        new DX.LatinFont { Typeface = "+mn-lt" })
+                    { FontSize = fs, Bold = bold, Dirty = false },
+                    new DX.Text(Trunc(txt, 25)))));
+            cell.AppendChild(new DX.TableCellProperties(
+                new DX.SolidFill(new DX.RgbColorModelHex { Val = bg })));
+            return cell;
+        }
+
+        private static DX.Theme TemaMinimo()
+        {
+            return new DX.Theme(
                 new DX.ThemeElements(
                     new DX.ColorScheme(
                         new DX.Dark1Color(new DX.SystemColor
                         { LastColor = "000000", Val = DX.SystemColorValues.WindowText }),
                         new DX.Light1Color(new DX.SystemColor
                         { LastColor = "FFFFFF", Val = DX.SystemColorValues.Window }),
-                        new DX.Dark2Color(new DX.RgbColorModelHex { Val = "1A2A3A" }),
-                        new DX.Light2Color(new DX.RgbColorModelHex { Val = "F4F6F8" }),
+                        new DX.Dark2Color(new DX.RgbColorModelHex { Val = "1A3A4A" }),
+                        new DX.Light2Color(new DX.RgbColorModelHex { Val = "E8F4F8" }),
                         new DX.Accent1Color(new DX.RgbColorModelHex { Val = "48CAB4" }),
                         new DX.Accent2Color(new DX.RgbColorModelHex { Val = "3B82F6" }),
                         new DX.Accent3Color(new DX.RgbColorModelHex { Val = "F59E0B" }),
@@ -455,20 +636,20 @@ namespace FileExplorerr
                         new DX.Accent5Color(new DX.RgbColorModelHex { Val = "8B5CF6" }),
                         new DX.Accent6Color(new DX.RgbColorModelHex { Val = "10B981" }),
                         new DX.Hyperlink(new DX.RgbColorModelHex { Val = "3B82F6" }))
-                    { Name = "ArcticFrost" },
+                    { Name = "Arctic" },
                     new DX.FontScheme(
-                        new DX.MajorFont(new DX.LatinFont { Typeface = "Segoe UI" }),
-                        new DX.MinorFont(new DX.LatinFont { Typeface = "Segoe UI" }))
+                        new DX.MajorFont(new DX.LatinFont { Typeface = "Calibri" }),
+                        new DX.MinorFont(new DX.LatinFont { Typeface = "Calibri" }))
                     { Name = "Arctic" },
                     new DX.FormatScheme(
                         new DX.FillStyleList(
                             new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor }),
-                            new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor }),
-                            new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor })),
+                            new DX.GradientFill(new DX.GradientStopList()),
+                            new DX.GradientFill(new DX.GradientStopList())),
                         new DX.LineStyleList(
-                            new DX.Outline(new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor })),
-                            new DX.Outline(new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor })),
-                            new DX.Outline(new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor }))),
+                            new DX.Outline { Width = 6350 },
+                            new DX.Outline { Width = 12700 },
+                            new DX.Outline { Width = 19050 }),
                         new DX.EffectStyleList(
                             new DX.EffectStyle(new DX.EffectList()),
                             new DX.EffectStyle(new DX.EffectList()),
@@ -479,273 +660,143 @@ namespace FileExplorerr
                             new DX.SolidFill(new DX.SchemeColor { Val = DX.SchemeColorValues.PhColor })))
                     { Name = "Arctic" }))
             { Name = "Arctic" };
-
-        private static void RellenarSlidePortada(Pkg.SlidePart sp, string titulo, int cols, int filas)
-        {
-            sp.Slide = new PX.Slide(
-                new PX.CommonSlideData(
-                    new PX.Background(new PX.BackgroundProperties(
-                        new DX.SolidFill(new DX.RgbColorModelHex { Val = "1A2A3A" }))),
-                    new PX.ShapeTree(GrpSpPr(), GrpSpPrProps(),
-                        CajaTexto(2, titulo,
-                            609600, 2200000, 10972800, 1400000,
-                            4400, true, "FFFFFF", DX.TextAlignmentTypeValues.Center),
-                        CajaTexto(3,
-                            $"{filas:N0} registros  ·  {cols} columnas\n{DateTime.Now:dd/MM/yyyy HH:mm}",
-                            609600, 3750000, 10972800, 800000,
-                            2000, false, "48CAB4", DX.TextAlignmentTypeValues.Center))));
-            sp.Slide.Save();
-        }
-
-        private static void RellenarSlideDatos(Pkg.SlidePart sp, DataTable dt, string titulo,
-            int ini, int fin, int numSlide, int totalSlides)
-        {
-            var tree = new PX.ShapeTree(GrpSpPr(), GrpSpPrProps(),
-                CajaTexto(2,
-                    $"{titulo}  (filas {ini + 1}–{fin}  /  slide {numSlide}/{totalSlides})",
-                    304800, 180000, 11582400, 480000,
-                    1300, true, "48CAB4", DX.TextAlignmentTypeValues.Left));
-
-            // Tabla OpenXml Drawing
-            int numCols = Math.Min(dt.Columns.Count, 12);
-            long anchoCelda = 11582400L / numCols;
-
-            var tblGrid = new DX.TableGrid();
-            for (int c = 0; c < numCols; c++)
-                tblGrid.AppendChild(new DX.GridColumn { Width = anchoCelda });
-
-            var tbl = new DX.Table(
-                new DX.TableProperties(
-                    new DX.TableStyleId { Text = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}" }),
-                tblGrid);
-
-            // Encabezado
-            var hRow = new DX.TableRow { Height = 370000L };
-            for (int c = 0; c < numCols; c++)
-            {
-                string txt = c < dt.Columns.Count ? dt.Columns[c].ColumnName : "";
-                hRow.AppendChild(CeldaTabla(txt, "1A2A3A", "FFFFFF", true, 1000));
-            }
-            tbl.AppendChild(hRow);
-
-            // Datos
-            for (int r = ini; r < fin; r++)
-            {
-                string fondo = r % 2 == 0 ? "1E2D3D" : "243040";
-                var dRow = new DX.TableRow { Height = 300000L };
-                for (int c = 0; c < numCols; c++)
-                {
-                    string val = c < dt.Columns.Count
-                        ? dt.Rows[r][c]?.ToString() ?? "" : "";
-                    dRow.AppendChild(CeldaTabla(val, fondo, "E2E8F0", false, 900));
-                }
-                tbl.AppendChild(dRow);
-            }
-
-            var gf = new PX.GraphicFrame(
-                new PX.NonVisualGraphicFrameProperties(
-                    new PX.NonVisualDrawingProperties { Id = 100, Name = $"Tabla{numSlide}" },
-                    new PX.NonVisualGraphicFrameDrawingProperties(
-                        new DX.GraphicFrameLocks { NoGrouping = true }),
-                    new PX.ApplicationNonVisualDrawingProperties()),
-                new PX.Transform(
-                    new DX.Offset { X = 304800L, Y = 700000L },
-                    new DX.Extents { Cx = 11582400L, Cy = 6100000L }),
-                new DX.Graphic(
-                    new DX.GraphicData(tbl)
-                    { Uri = "http://schemas.openxmlformats.org/drawingml/2006/table" }));
-
-            tree.AppendChild(gf);
-
-            sp.Slide = new PX.Slide(
-                new PX.CommonSlideData(
-                    new PX.Background(new PX.BackgroundProperties(
-                        new DX.SolidFill(new DX.RgbColorModelHex { Val = "0F1A24" }))),
-                    tree));
-            sp.Slide.Save();
-        }
-
-        private static PX.Shape CajaTexto(uint id, string texto,
-            long x, long y, long cx, long cy,
-            int fontSize, bool bold, string colorHex,
-            DX.TextAlignmentTypeValues align)
-        {
-            return new PX.Shape(
-                new PX.NonVisualShapeProperties(
-                    new PX.NonVisualDrawingProperties { Id = id, Name = $"TB{id}" },
-                    new PX.NonVisualShapeDrawingProperties(
-                        new DX.ShapeLocks { NoGrouping = true }),
-                    new PX.ApplicationNonVisualDrawingProperties()),
-                new PX.ShapeProperties(
-                    new DX.Transform2D(
-                        new DX.Offset { X = x, Y = y },
-                        new DX.Extents { Cx = cx, Cy = cy }),
-                    new DX.PresetGeometry(new DX.AdjustValueList())
-                    { Preset = DX.ShapeTypeValues.Rectangle }),
-                new PX.TextBody(
-                    new DX.BodyProperties { Anchor = DX.TextAnchoringTypeValues.Center },
-                    new DX.ListStyle(),
-                    new DX.Paragraph(
-                        new DX.ParagraphProperties { Alignment = align },
-                        new DX.Run(
-                            new DX.RunProperties(
-                                new DX.SolidFill(new DX.RgbColorModelHex { Val = colorHex }),
-                                new DX.LatinFont { Typeface = "Segoe UI" })
-                            { FontSize = fontSize, Bold = bold, Dirty = false },
-                            new DX.Text(texto)))));
-        }
-
-        private static DX.TableCell CeldaTabla(string texto,
-            string fondoHex, string textoHex, bool bold, int fontSize)
-        {
-            var cell = new DX.TableCell();
-            cell.AppendChild(new DX.Paragraph(
-                new DX.Run(
-                    new DX.RunProperties(
-                        new DX.SolidFill(new DX.RgbColorModelHex { Val = textoHex }),
-                        new DX.LatinFont { Typeface = "Segoe UI" })
-                    { FontSize = fontSize, Bold = bold, Dirty = false },
-                    new DX.Text(Trunc(texto, 30)))));
-            cell.AppendChild(new DX.TableCellProperties(
-                new DX.SolidFill(new DX.RgbColorModelHex { Val = fondoHex }),
-                new DX.TableCellBorders(
-                    new DX.BottomBorder(
-                        new DX.Outline(
-                            new DX.SolidFill(new DX.RgbColorModelHex { Val = "2E4057" }))
-                        { Width = 6350 }))));
-            return cell;
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  PDF — PdfSharp 6.x
+        //  PDF — paginación correcta, una celda por línea
         // ════════════════════════════════════════════════════════════════════
         public static void ExportarPdf(DataTable dt, string titulo, string ruta)
         {
-            var cFondo = XColor.FromArgb(0x1A, 0x2A, 0x3A);
-            var cAccent = XColor.FromArgb(0x48, 0xCA, 0xB4);
-            var cBlanco = XColors.White;
-            var cPar = XColor.FromArgb(0xF4, 0xF6, 0xF8);
-            var cImpar = XColors.White;
-            var cTexto = XColor.FromArgb(0x1A, 0x2A, 0x3A);
-            var cBorde = XColor.FromArgb(0xCC, 0xCC, 0xDD);
-
             using var pdf = new PdfDocument();
             pdf.Info.Title = titulo;
-            pdf.Info.Author = "FileExplorerr";
-            pdf.Info.Creator = "FileExplorerr / PdfSharp";
+            pdf.Info.Creator = "FileExplorerr";
 
-            var fTitulo = new XFont("Arial", 16, XFontStyleEx.Bold);
-            var fSub = new XFont("Arial", 8, XFontStyleEx.Regular);
-            var fHdr = new XFont("Arial", 7, XFontStyleEx.Bold);
+            var fTit = new XFont("Arial", 14, XFontStyleEx.Bold);
+            var fSub = new XFont("Arial", 7.5, XFontStyleEx.Regular);
+            var fHdr = new XFont("Arial", 7.5, XFontStyleEx.Bold);
             var fDat = new XFont("Arial", 6.5, XFontStyleEx.Regular);
 
-            const double margen = 28;
-            const double altoCab = 60;
-            const double altoHdr = 20;
-            const double altoCelda = 14;
-            const double altoPie = 18;
+            var cHdrBg = XColor.FromArgb(26, 58, 74);
+            var cPar = XColor.FromArgb(232, 244, 248);
+            var cImp = XColors.White;
+            var cTxtD = XColor.FromArgb(20, 20, 40);
+            var cAccent = XColor.FromArgb(72, 202, 180);
+            var cBorde = XColor.FromArgb(180, 200, 215);
 
-            int numCols = dt.Columns.Count;
-            double anchoUtil = 842 - margen * 2;   // A4 landscape ~842 pt
+            const double MRG = 25;
+            const double ALT_BND = 52;
+            const double ALT_HDR = 17;
+            const double ALT_ROW = 13;
+            const double ALT_PIE = 15;
 
-            // Anchos proporcionales
-            var maxLen = new double[numCols];
-            for (int c = 0; c < numCols; c++)
-                maxLen[c] = dt.Columns[c].ColumnName.Length;
+            int n = dt.Columns.Count;
+
+            // Calcular anchos de columna una sola vez
+            // (se ajustan en cada página según pw)
+            var maxCh = new double[n];
+            for (int c = 0; c < n; c++)
+                maxCh[c] = Math.Max(dt.Columns[c].ColumnName.Length, 4);
             foreach (DataRow row in dt.Rows)
-                for (int c = 0; c < numCols; c++)
-                    maxLen[c] = Math.Max(maxLen[c], (row[c]?.ToString() ?? "").Length);
+                for (int c = 0; c < n; c++)
+                    maxCh[c] = Math.Max(maxCh[c], (row[c]?.ToString() ?? "").Length);
 
-            double sumLen = maxLen.Sum();
-            var anchos = maxLen.Select(a => Math.Max(28, Math.Min(180,
-                (a / Math.Max(sumLen, 1)) * anchoUtil))).ToArray();
-            double totalAncho = anchos.Sum();
-            if (totalAncho > anchoUtil)
+            int rowIdx = 0;
+            int pageNum = 0;
+            int totalR = dt.Rows.Count;
+
+            while (rowIdx < totalR || pageNum == 0)
             {
-                double f = anchoUtil / totalAncho;
-                for (int c = 0; c < numCols; c++) anchos[c] *= f;
-            }
-            double anchoTabla = anchos.Sum();
-
-            double altoUtil = 595 - altoCab - altoHdr - altoPie - margen * 2;
-            int fpPag = Math.Max(1, (int)(altoUtil / altoCelda));
-            int totalPags = Math.Max(1, (int)Math.Ceiling(dt.Rows.Count / (double)fpPag));
-
-            for (int p = 0; p < totalPags; p++)
-            {
+                // Crear página A4 landscape
                 var pag = pdf.AddPage();
                 pag.Orientation = PdfSharp.PageOrientation.Landscape;
                 pag.Size = PdfSharp.PageSize.A4;
+                pageNum++;
+
+                double pw = pag.Width.Point;   // ~841.9
+                double ph = pag.Height.Point;  // ~595.3
 
                 using var g = XGraphics.FromPdfPage(pag);
-                double pw = pag.Width.Point;
-                double ph = pag.Height.Point;
 
-                // Encabezado de página
-                g.DrawRectangle(new XSolidBrush(cFondo), 0, 0, pw, altoCab);
-                g.DrawString(titulo, fTitulo, new XSolidBrush(cBlanco),
-                    new XRect(margen, margen, pw - margen * 2, 24),
-                    XStringFormats.CenterLeft);
+                double wu = pw - MRG * 2;
+
+                // Anchos proporcionales ajustados a wu
+                double suma = maxCh.Sum();
+                var anchP = maxCh.Select(ch =>
+                    Math.Max(22.0, Math.Min(140.0, (ch / suma) * wu))).ToArray();
+                double tAncho = anchP.Sum();
+                if (tAncho > wu)
+                {
+                    double f = wu / tAncho;
+                    for (int i = 0; i < n; i++) anchP[i] *= f;
+                    tAncho = wu;
+                }
+
+                // Banda encabezado de página
+                g.DrawRectangle(new XSolidBrush(cHdrBg), 0, 0, pw, ALT_BND);
+                g.DrawString(titulo, fTit, new XSolidBrush(XColors.White),
+                    new XRect(MRG, 8, pw - MRG * 2, 20), XStringFormats.TopLeft);
                 g.DrawString(
-                    $"{dt.Rows.Count:N0} registros · {numCols} columnas · " +
-                    $"{DateTime.Now:dd/MM/yyyy HH:mm} · Página {p + 1}/{totalPags}",
+                    $"{totalR:N0} registros · {n} columnas · {DateTime.Now:dd/MM/yyyy HH:mm} · Pág. {pageNum}",
                     fSub, new XSolidBrush(cAccent),
-                    new XRect(margen, margen + 26, pw - margen * 2, 16),
-                    XStringFormats.CenterLeft);
+                    new XRect(MRG, 30, pw - MRG * 2, 14), XStringFormats.TopLeft);
 
-                double y = altoCab + 4;
+                double y = ALT_BND + 3;
 
                 // Encabezado de tabla
-                g.DrawRectangle(new XSolidBrush(cFondo), margen, y, anchoTabla, altoHdr);
-                double x = margen;
-                for (int c = 0; c < numCols; c++)
+                g.DrawRectangle(new XSolidBrush(cHdrBg), MRG, y, tAncho, ALT_HDR);
+                double x = MRG;
+                for (int c = 0; c < n; c++)
                 {
-                    g.DrawString(Trunc(dt.Columns[c].ColumnName, 20), fHdr,
-                        new XSolidBrush(cBlanco),
-                        new XRect(x + 2, y + 2, anchos[c] - 4, altoHdr - 2),
+                    string h = Trunc(dt.Columns[c].ColumnName, 18);
+                    g.DrawString(h, fHdr, new XSolidBrush(XColors.White),
+                        new XRect(x + 2, y + 2, anchP[c] - 4, ALT_HDR - 2),
                         XStringFormats.TopLeft);
-                    x += anchos[c];
+                    if (c < n - 1)
+                        g.DrawLine(new XPen(XColor.FromArgb(50, 100, 120), 0.4),
+                            x + anchP[c], y, x + anchP[c], y + ALT_HDR);
+                    x += anchP[c];
                 }
-                y += altoHdr;
+                y += ALT_HDR;
 
-                // Filas
-                int iniF = p * fpPag;
-                int finF = Math.Min(iniF + fpPag, dt.Rows.Count);
+                double yMax = ph - ALT_PIE - MRG;
 
-                for (int r = iniF; r < finF; r++)
+                // Filas de datos
+                while (rowIdx < totalR && y + ALT_ROW <= yMax)
                 {
-                    var fondo = r % 2 == 0 ? cPar : cImpar;
-                    g.DrawRectangle(new XSolidBrush(fondo), margen, y, anchoTabla, altoCelda);
-                    g.DrawLine(new XPen(cBorde, 0.25), margen, y + altoCelda, margen + anchoTabla, y + altoCelda);
+                    var cFondo = rowIdx % 2 == 0 ? cPar : cImp;
+                    g.DrawRectangle(new XSolidBrush(cFondo), MRG, y, tAncho, ALT_ROW);
 
-                    x = margen;
-                    for (int c = 0; c < numCols; c++)
+                    x = MRG;
+                    for (int c = 0; c < n; c++)
                     {
-                        string val = dt.Rows[r][c]?.ToString() ?? "";
-                        g.DrawString(Trunc(val, 22), fDat, new XSolidBrush(cTexto),
-                            new XRect(x + 2, y + 1, anchos[c] - 4, altoCelda),
+                        string val = Trunc(dt.Rows[rowIdx][c]?.ToString() ?? "", 28);
+                        g.DrawString(val, fDat, new XSolidBrush(cTxtD),
+                            new XRect(x + 2, y + 1, anchP[c] - 4, ALT_ROW - 1),
                             XStringFormats.TopLeft);
-                        // separador vertical
-                        g.DrawLine(new XPen(cBorde, 0.25), x + anchos[c], y, x + anchos[c], y + altoCelda);
-                        x += anchos[c];
+                        if (c < n - 1)
+                            g.DrawLine(new XPen(cBorde, 0.25),
+                                x + anchP[c], y, x + anchP[c], y + ALT_ROW);
+                        x += anchP[c];
                     }
-                    y += altoCelda;
+                    g.DrawLine(new XPen(cBorde, 0.25), MRG, y + ALT_ROW, MRG + tAncho, y + ALT_ROW);
+
+                    y += ALT_ROW;
+                    rowIdx++;
                 }
 
                 // Borde exterior tabla
-                g.DrawRectangle(new XPen(cAccent, 0.8),
-                    margen, altoCab + 4, anchoTabla,
-                    altoHdr + (finF - iniF) * altoCelda);
+                g.DrawRectangle(new XPen(cAccent, 0.7),
+                    MRG, ALT_BND + 3, tAncho, y - (ALT_BND + 3));
 
                 // Pie
-                g.DrawString($"FileExplorerr SQL Viewer  ·  {titulo}  ·  {DateTime.Now:yyyy}",
+                g.DrawString($"FileExplorerr · {titulo} · {DateTime.Now:yyyy}",
                     fSub, new XSolidBrush(cAccent),
-                    new XRect(margen, ph - margen - 12, pw - margen * 2, 14),
-                    XStringFormats.BottomLeft);
-                g.DrawString($"{p + 1} / {totalPags}",
+                    new XRect(MRG, ph - MRG - 11, pw - MRG * 2, 12), XStringFormats.BottomLeft);
+                g.DrawString($"Pág. {pageNum}",
                     fSub, new XSolidBrush(cAccent),
-                    new XRect(margen, ph - margen - 12, pw - margen * 2, 14),
-                    XStringFormats.BottomRight);
+                    new XRect(MRG, ph - MRG - 11, pw - MRG * 2, 12), XStringFormats.BottomRight);
+
+                if (rowIdx >= totalR) break;
             }
 
             pdf.Save(ruta);
@@ -762,17 +813,16 @@ namespace FileExplorerr
             return r;
         }
 
-        private static string SanitizarHoja(string s)
+        private static string HojaNombre(string s)
         {
-            var limpio = new string(s.Where(c =>
+            var v = new string(s.Where(c =>
                 c != '/' && c != '\\' && c != '[' && c != ']' &&
                 c != '*' && c != '?' && c != ':').ToArray());
-            return limpio.Length > 31 ? limpio[..31] : (limpio.Length > 0 ? limpio : "Hoja1");
+            return v.Length > 31 ? v[..31] : (v.Length > 0 ? v : "Hoja1");
         }
 
-        private static string Sanitizar(string s) =>
-            new string(s.Select(c =>
-                Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+        private static string NombreSeguro(string s) =>
+            new string(s.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
 
         private static string Trunc(string s, int max) =>
             s.Length > max ? s[..max] + "…" : s;
