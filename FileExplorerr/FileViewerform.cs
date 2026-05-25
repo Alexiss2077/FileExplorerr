@@ -44,10 +44,6 @@ namespace FileExplorerr
             new(@"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})\b", RegexOptions.IgnoreCase),
         };
 
-        // Regex para detectar valores que son claramente fechas (no teléfonos)
-        private static readonly Regex DateValueRegex = new(
-            @"^\s*(\d{1,4})[/\-\.](\d{1,2})[/\-\.](\d{1,4})\s*$");
-
         private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.IgnoreCase);
 
         private static readonly string[] PhoneKeywords =
@@ -104,7 +100,7 @@ namespace FileExplorerr
             grid.ColumnHeaderMouseClick += (s, e) => SortByColumn(e.ColumnIndex);
 
             // ── Bottom ───────────────────────────────────────────────────────
-            var bottomPanel = new Panel { Height = 70, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
+            var bottomPanel = new Panel { Height = 108, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
             var rowTop = new Panel { Height = 34, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(10, 4, 8, 0) };
             statusLabel = new Label { Dock = DockStyle.Fill, ForeColor = Theme.TextSecondary, Font = Theme.FontBody, TextAlign = ContentAlignment.MiddleLeft };
             var saveBtn = Theme.MakeButton("Guardar copia corregida", 160, Theme.ButtonKind.Success); saveBtn.Dock = DockStyle.Right; saveBtn.Click += (s, e) => SaveFixedCopy();
@@ -119,7 +115,16 @@ namespace FileExplorerr
             var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252)); expBD.Width = 80; expBD.Dock = DockStyle.Left; expBD.Click += async (s, e) => await ExportarABD();
 
             rowBot.Controls.Add(expXml); rowBot.Controls.Add(expTxt); rowBot.Controls.Add(expJson); rowBot.Controls.Add(expCsv); rowBot.Controls.Add(expBD); rowBot.Controls.Add(expLabel);
-            bottomPanel.Controls.Add(rowBot); bottomPanel.Controls.Add(rowTop);
+
+            // ── Segunda fila: exportación Office ─────────────────────────────
+            var rowOffice = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
+            var offLabel = new Label { Text = "Office/PDF:", Dock = DockStyle.Left, Width = 72, ForeColor = Theme.TextMuted, Font = Theme.FontSmall, TextAlign = ContentAlignment.MiddleLeft };
+            var expXlsx = MakeExportButton("📊 Excel", Color.FromArgb(16, 72, 32), Color.FromArgb(80, 200, 100)); expXlsx.Dock = DockStyle.Left; expXlsx.Click += (s, e) => ExportarOffice(".xlsx");
+            var expDocx = MakeExportButton("📝 Word", Color.FromArgb(12, 48, 96), Color.FromArgb(80, 150, 240)); expDocx.Dock = DockStyle.Left; expDocx.Click += (s, e) => ExportarOffice(".docx");
+            var expPptx = MakeExportButton("📋 PowerPoint", Color.FromArgb(80, 30, 10), Color.FromArgb(230, 100, 60)); expPptx.Dock = DockStyle.Left; expPptx.Click += (s, e) => ExportarOffice(".pptx");
+            var expPdf = MakeExportButton("🗒 PDF", Color.FromArgb(70, 10, 10), Color.FromArgb(220, 70, 70)); expPdf.Dock = DockStyle.Left; expPdf.Click += (s, e) => ExportarOffice(".pdf");
+            rowOffice.Controls.Add(expPdf); rowOffice.Controls.Add(expPptx); rowOffice.Controls.Add(expDocx); rowOffice.Controls.Add(expXlsx); rowOffice.Controls.Add(offLabel);
+            bottomPanel.Controls.Add(rowOffice); bottomPanel.Controls.Add(rowBot); bottomPanel.Controls.Add(rowTop);
 
             Controls.Add(loadingPanel);
             Controls.Add(grid);
@@ -325,53 +330,13 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  DETECCIÓN DE FECHA — helper para identificar valores de fecha
-        // ════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Devuelve true si el valor parece ser una fecha (dd-mm-yyyy, yyyy-mm-dd, etc.)
-        /// Usado para excluir valores de fecha de la detección de teléfono.
-        /// </summary>
-        private static bool LooksLikeDate(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value)) return false;
-            return DateValueRegex.IsMatch(value.Trim());
-        }
-
-        /// <summary>
-        /// Devuelve true si la mayoría de los valores no vacíos de la columna son fechas.
-        /// </summary>
-        private static bool IsDateColumn(DataTable dt, int colIndex)
-        {
-            var nonEmpty = dt.Rows.Cast<DataRow>()
-                .Select(r => r[colIndex]?.ToString()?.Trim() ?? "")
-                .Where(v => !string.IsNullOrWhiteSpace(v))
-                .ToList();
-            if (nonEmpty.Count == 0) return false;
-            int dateCount = nonEmpty.Count(v => LooksLikeDate(v));
-            return (double)dateCount / nonEmpty.Count >= 0.5;
-        }
-
-        // ════════════════════════════════════════════════════════════════════
         //  DETECCIÓN DE TELÉFONO
         // ════════════════════════════════════════════════════════════════════
         private static bool IsPhoneColumn(DataTable dt, int colIndex)
         {
             string colName = dt.Columns[colIndex].ColumnName.ToLower();
-
-            // Si el nombre de la columna contiene palabras clave de fecha, no es teléfono
-            string[] dateKeywords = { "fecha", "date", "fec", "dia", "día", "nacimiento", "birth", "created", "updated", "modified" };
-            if (dateKeywords.Any(k => colName.Contains(k))) return false;
-
-            // Si la columna es predominantemente fechas, no es teléfono
-            if (IsDateColumn(dt, colIndex)) return false;
-
             if (PhoneKeywords.Any(k => colName.Contains(k))) return true;
-
-            var nonEmpty = dt.Rows.Cast<DataRow>()
-                .Select(r => r[colIndex]?.ToString()?.Trim() ?? "")
-                .Where(v => !string.IsNullOrWhiteSpace(v))
-                .ToList();
+            var nonEmpty = dt.Rows.Cast<DataRow>().Select(r => r[colIndex]?.ToString()?.Trim() ?? "").Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
             if (nonEmpty.Count == 0) return false;
             int phoneCount = nonEmpty.Count(v => LooksLikePhone(v));
             return (double)phoneCount / nonEmpty.Count >= 0.6;
@@ -380,25 +345,9 @@ namespace FileExplorerr
         private static bool LooksLikePhone(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return false;
-
-            // Excluir explícitamente valores que parezcan fechas (dd-mm-yyyy, yyyy/mm/dd, etc.)
-            if (LooksLikeDate(value)) return false;
-
             if (!Regex.IsMatch(value, @"^[\d\s\+\-\(\)\.ext]{7,20}$", RegexOptions.IgnoreCase)) return false;
             string digitsOnly = new string(value.Where(char.IsDigit).ToArray());
             if (digitsOnly.Length < 7 || digitsOnly.Length > 15) return false;
-
-            // Descartar si tiene exactamente el patrón de fecha: dos grupos pequeños + año largo
-            // ej. "05-02-2010" → partes: 05, 02, 2010
-            var parts = Regex.Split(value.Trim(), @"[/\-\.]");
-            if (parts.Length == 3)
-            {
-                bool part0Short = parts[0].Length <= 2;
-                bool part1Short = parts[1].Length <= 2;
-                bool part2Year = parts[2].Length == 4 || parts[0].Length == 4;
-                if (part0Short && part1Short && part2Year) return false;
-            }
-
             var dotMatch = Regex.Match(value, @"\.(\d+)");
             if (dotMatch.Success && dotMatch.Groups[1].Value.TrimEnd('0').Length > 0) return false;
             return true;
@@ -412,48 +361,27 @@ namespace FileExplorerr
             duplicateRows.Clear(); dateIssues.Clear(); emptyFields.Clear(); phoneIssues.Clear(); emailIssues.Clear();
             var phoneColumns = new HashSet<int>();
             var emailColumns = new HashSet<int>();
-            var dateColumns = new HashSet<int>(); // columnas identificadas como fecha
-
             for (int c = 0; c < masterTable.Columns.Count; c++)
             {
-                // Primero verificar si es columna de fecha para protegerla de la detección de teléfono
-                if (IsDateColumn(masterTable, c)) dateColumns.Add(c);
-
-                if (!dateColumns.Contains(c) && IsPhoneColumn(masterTable, c)) phoneColumns.Add(c);
-
+                if (IsPhoneColumn(masterTable, c)) phoneColumns.Add(c);
                 string colName = masterTable.Columns[c].ColumnName.ToLower();
                 if (EmailKeywords.Any(k => colName.Contains(k))) emailColumns.Add(c);
             }
-
             var seen = new Dictionary<string, int>();
             for (int r = 0; r < masterTable.Rows.Count; r++)
             {
                 string key = string.Join("│", masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? ""));
                 if (seen.TryGetValue(key, out int orig)) { if (!duplicateRows.Contains(orig)) duplicateRows.Add(orig); duplicateRows.Add(r); } else seen[key] = r;
             }
-
             for (int r = 0; r < masterTable.Rows.Count; r++)
             {
                 for (int c = 0; c < masterTable.Columns.Count; c++)
                 {
                     string val = masterTable.Rows[r][c]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(val)) { emptyFields.Add((r, c)); continue; }
-
-                    // Teléfono: solo si la columna fue clasificada como phone y NO como fecha
-                    if (phoneColumns.Contains(c) && !dateColumns.Contains(c))
-                    {
-                        string? fixedPhone = ValidateAndFixPhone(val);
-                        if (fixedPhone != null) phoneIssues.Add((r, c, val, fixedPhone));
-                    }
-
+                    if (phoneColumns.Contains(c)) { string? fixedPhone = ValidateAndFixPhone(val); if (fixedPhone != null) phoneIssues.Add((r, c, val, fixedPhone)); }
                     if (emailColumns.Contains(c)) { if (!IsValidEmail(val)) emailIssues.Add((r, c, val)); }
-
-                    // Fechas: solo en columnas que no sean teléfono
-                    if (!phoneColumns.Contains(c))
-                    {
-                        string? fixedDate = DetectAndFixDate(val);
-                        if (fixedDate != null && fixedDate != val) dateIssues.Add((r, c, val, fixedDate));
-                    }
+                    if (!phoneColumns.Contains(c)) { string? fixedDate = DetectAndFixDate(val); if (fixedDate != null && fixedDate != val) dateIssues.Add((r, c, val, fixedDate)); }
                 }
             }
         }
@@ -650,6 +578,12 @@ namespace FileExplorerr
             catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
+        private void ExportarOffice(string ext)
+        {
+            string titulo = Path.GetFileNameWithoutExtension(filePath);
+            ExportadorOffice.ExportarConDialogo(displayTable, titulo, ext, this);
+        }
+
         private string GetSaveFilter() => ext switch { ".csv" => "CSV|*.csv|Todos|*.*", ".txt" => "Texto|*.txt|Todos|*.*", ".json" => "JSON|*.json|Todos|*.*", ".xml" => "XML|*.xml|Todos|*.*", _ => "Todos|*.*" };
 
         private static string SerializeTable(DataTable dt, string ext) => ext switch
@@ -659,7 +593,7 @@ namespace FileExplorerr
             ".xml" => TableToXml(dt),
             _ => TableToTsv(dt)
         };
-        
+
         private static string TableToCsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\""))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\""))); return sb.ToString(); }
         private static string TableToTsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join("\t", dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join("\t", row.ItemArray.Select(x => x?.ToString() ?? ""))); return sb.ToString(); }
 
