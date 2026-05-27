@@ -24,6 +24,7 @@ namespace FileExplorerr
         private ListView listView = null!;
         private Label[] propValues = null!;
 
+
         // ── Estado ───────────────────────────────────────────────────────────
         private readonly string initialPath;
         private string _currentPath;
@@ -42,6 +43,7 @@ namespace FileExplorerr
         private bool gpsVisible;
         private GpsReader.GpsData? _gpsData;
         private int _gpsLoadedFor = -1;
+        
 
         public VideoPlayerForm(string path)
         {

@@ -33,6 +33,10 @@ namespace FileExplorerr
         private int currentIndex = -1;
         private bool isDraggingSeek;
         private System.Windows.Forms.Timer uiTimer = null!;
+        private WaveInEvent? waveIn;
+        private WaveFileWriter? waveWriter;
+        private string recordAudioPath = "";
+        private Button btnRecordAudio = null!, btnStopRecordAudio = null!;
 
         // ── Modos ────────────────────────────────────────────────────────────
         private bool shuffleMode;
@@ -254,6 +258,23 @@ namespace FileExplorerr
             volBar = new TrackBar { Location = new Point(cx, 12), Size = new Size(100, 26), Minimum = 0, Maximum = 100, Value = 70, TickStyle = TickStyle.None, BackColor = Theme.BgSurface };
             volBar.ValueChanged += (s, e) => { if (outputDevice != null) outputDevice.Volume = volBar.Value / 100f; };
             controlBar.Controls.Add(volBar);
+
+            // ── NUEVOS BOTONES DE GRABACIÓN DE AUDIO ─────────────────────────
+            cx += 120;
+            btnRecordAudio = Theme.MakeIconButton("🎙");
+            btnRecordAudio.Location = new Point(cx, 9);
+            btnRecordAudio.Size = new Size(36, 32);
+            btnRecordAudio.ForeColor = Theme.Danger;
+            btnRecordAudio.Click += BtnRecordAudio_Click;
+            controlBar.Controls.Add(btnRecordAudio);
+
+            cx += 40;
+            btnStopRecordAudio = Theme.MakeIconButton("⏹");
+            btnStopRecordAudio.Location = new Point(cx, 9);
+            btnStopRecordAudio.Size = new Size(36, 32);
+            btnStopRecordAudio.Enabled = false;
+            btnStopRecordAudio.Click += BtnStopRecordAudio_Click;
+            controlBar.Controls.Add(btnStopRecordAudio);
 
             // ═══ ASSEMBLY ════════════════════════════════════════════════════
             Controls.Add(grid);
@@ -595,6 +616,47 @@ namespace FileExplorerr
                 case Keys.Right: if (audioFile != null) audioFile.CurrentTime = TimeSpan.FromSeconds(Math.Min(audioFile.TotalTime.TotalSeconds, audioFile.CurrentTime.TotalSeconds + 5)); break;
                 case Keys.Up: volBar.Value = Math.Min(100, volBar.Value + 5); break;
                 case Keys.Down: volBar.Value = Math.Max(0, volBar.Value - 5); break;
+            }
+        }
+        // ════════════════════════════════════════════════════════════════════
+        //  GRABACIÓN DE AUDIO
+        // ════════════════════════════════════════════════════════════════════
+        private void BtnRecordAudio_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                StopPlayback(); // Detenemos cualquier canción actual
+                                // Generamos una ruta en tu carpeta de Música
+                recordAudioPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), $"Audio_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
+
+                waveIn = new WaveInEvent { WaveFormat = new WaveFormat(44100, 1) }; // Calidad estándar mono
+                waveIn.DataAvailable += (s, args) => waveWriter?.Write(args.Buffer, 0, args.BytesRecorded);
+                waveIn.RecordingStopped += (s, args) => {
+                    waveWriter?.Dispose(); waveWriter = null;
+                    waveIn?.Dispose(); waveIn = null;
+                };
+
+                waveWriter = new WaveFileWriter(recordAudioPath, waveIn.WaveFormat);
+                waveIn.StartRecording();
+
+                btnRecordAudio.Enabled = false;
+                btnStopRecordAudio.Enabled = true;
+                lblNowPlaying.Text = "🔴 Grabando audio del micrófono...";
+            }
+            catch (Exception ex) { MessageBox.Show("Error al grabar: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void BtnStopRecordAudio_Click(object? sender, EventArgs e)
+        {
+            waveIn?.StopRecording();
+            btnRecordAudio.Enabled = true;
+            btnStopRecordAudio.Enabled = false;
+            lblNowPlaying.Text = "Grabación finalizada y guardada";
+
+            if (File.Exists(recordAudioPath))
+            {
+                AddFileToGrid(recordAudioPath); // Lo agrega a tu DataGridView actual
+                _ = PlayTrack(grid.Rows.Count - 1); // Reproduce lo grabado
             }
         }
 
