@@ -24,6 +24,7 @@ namespace FileExplorerr
         private Label statusLabel = null!;
         private Panel loadingPanel = null!;
         private Label loadingLabel = null!;
+        private Button btnShareEmail = null!;
 
         // ── Estado ───────────────────────────────────────────────────────────
         private readonly string filePath;
@@ -113,7 +114,20 @@ namespace FileExplorerr
             var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240)); expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
             var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230)); expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
             var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252)); expBD.Width = 80; expBD.Dock = DockStyle.Left; expBD.Click += async (s, e) => await ExportarABD();
+            
+            btnShareEmail = MakeExportButton("✉ Email", Color.FromArgb(20, 60, 90), Color.FromArgb(100, 180, 255));
+            btnShareEmail.Width = 75;
+            btnShareEmail.Dock = DockStyle.Left;
+            btnShareEmail.Click += btnShareEmail_Click;
 
+       
+            rowBot.Controls.Add(btnShareEmail);
+            rowBot.Controls.Add(expXml);
+            rowBot.Controls.Add(expTxt);
+            rowBot.Controls.Add(expJson);
+            rowBot.Controls.Add(expCsv);
+            rowBot.Controls.Add(expBD);
+            rowBot.Controls.Add(expLabel);
             rowBot.Controls.Add(expXml); rowBot.Controls.Add(expTxt); rowBot.Controls.Add(expJson); rowBot.Controls.Add(expCsv); rowBot.Controls.Add(expBD); rowBot.Controls.Add(expLabel);
 
             // ── Segunda fila: exportación Office ─────────────────────────────
@@ -134,6 +148,24 @@ namespace FileExplorerr
             loadingPanel.BringToFront();
         }
 
+        private void btnShareEmail_Click(object? sender, EventArgs e)
+        {
+            // Tomamos la ruta real del archivo que estamos viendo actualmente en el visor
+            string archivoSeleccionado = this.filePath;
+
+            // Verificamos que el archivo realmente exista antes de abrir la ventana
+            if (!System.IO.File.Exists(archivoSeleccionado))
+            {
+                MessageBox.Show("Por favor, selecciona un archivo válido primero.", "Archivo no encontrado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Instanciar y abrir la ventana emergente
+            using (var emailForm = new EmailForm(archivoSeleccionado))
+            {
+                emailForm.ShowDialog(this);
+            }
+        }
         private void CenterLabel()
         {
             if (loadingLabel == null || loadingPanel == null) return;
@@ -610,6 +642,7 @@ namespace FileExplorerr
         }
 
         private static string TableToXml(DataTable dt) { dt.TableName = "Records"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
+       
 
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS

@@ -43,7 +43,23 @@ namespace FileExplorerr
         private bool gpsVisible;
         private GpsReader.GpsData? _gpsData;
         private int _gpsLoadedFor = -1;
-        
+
+        // ── Grabación de webcam ───────────────────────────────────────────
+        // ── Grabación de webcam (OpenCV) ──────────────────────────────────
+        private OpenCvSharp.VideoCapture? _videoCapture;
+        private OpenCvSharp.VideoWriter? _videoWriter;
+        private System.Windows.Forms.Timer? _frameTimer;
+        private PictureBox? _camPictureBox;
+
+        private bool _isCamRecording;
+        private string? _camFilePath;
+        private Button btnCamRecord = null!;
+        private Label lblCamStatus = null!;
+        private System.Windows.Forms.Timer _camTimer = null!;
+        private int _camSeconds;
+        private Form? _camForm;
+
+
 
         public VideoPlayerForm(string path)
         {
@@ -66,13 +82,15 @@ namespace FileExplorerr
             KeyPreview = true;
             KeyDown += Form_KeyDown;
 
-            // ── LibVLC init ──────────────────────────────────────────────────
-            _libVLC = new LibVLC("--no-xlib");
+            // ── LibVLC init principal ─────────────────────────────
+            // ── LibVLC init principal ─────────────────────────────
+            _libVLC = new LibVLC("--no-xlib"); // 👈 TE FALTABA ESTA LÍNEA
+
+            
             _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
             _mediaPlayer.EndReached += (s, e) => BeginInvoke(() => OnEndReached());
-            _mediaPlayer.TimeChanged += (s, e) => { /* handled by timer */ };
 
-            // ── VideoView ────────────────────────────────────────────────────
+            // ── VideoView ─────────────────────────────────────────
             videoView = new VideoView
             {
                 Dock = DockStyle.Fill,
@@ -80,9 +98,17 @@ namespace FileExplorerr
                 MediaPlayer = _mediaPlayer
             };
 
-            // ── Seek ─────────────────────────────────────────────────────────
+            // ── Seek ──────────────────────────────────────────────
             var seekPanel = new Panel { Height = 20, Dock = DockStyle.Bottom, BackColor = Theme.BgBase };
-            seekBar = new TrackBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 1000, TickStyle = TickStyle.None, BackColor = Theme.BgBase };
+            seekBar = new TrackBar
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 0,
+                Maximum = 1000,
+                TickStyle = TickStyle.None,
+                BackColor = Theme.BgBase
+            };
+
             seekBar.MouseDown += (s, e) => isSeeking = true;
             seekBar.MouseUp += (s, e) =>
             {
@@ -90,25 +116,27 @@ namespace FileExplorerr
                 if (_mediaPlayer.Length > 0)
                     _mediaPlayer.Position = seekBar.Value / 1000f;
             };
+
             seekPanel.Controls.Add(seekBar);
 
-            // ── Control bar ──────────────────────────────────────────────────
+            // ── Control bar ───────────────────────────────────────
             controlBar = new Panel { Height = 48, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
             BuildControlBar();
 
-            // ── Playlist ─────────────────────────────────────────────────────
+            // ── Playlist ──────────────────────────────────────────
             playlistPanel = new Panel { Height = 120, Dock = DockStyle.Bottom, BackColor = Theme.BgBase };
             BuildPlaylist();
 
-            // ── Right panel ──────────────────────────────────────────────────
+            // ── Right panel ───────────────────────────────────────
             rightPanel = new Panel { Width = 260, Dock = DockStyle.Right, BackColor = Theme.BgSurface };
             BuildPropsPanel();
             BuildGpsPanel();
+
             gpsPanel.Visible = false;
             rightPanel.Controls.Add(gpsPanel);
             rightPanel.Controls.Add(propsPanel);
 
-            // ── Assembly ─────────────────────────────────────────────────────
+            // ── Main content ───────────────────────────────────────
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(videoView);
 
@@ -118,6 +146,7 @@ namespace FileExplorerr
             Controls.Add(controlBar);
             Controls.Add(playlistPanel);
 
+            // ── UI Timer ──────────────────────────────────────────
             uiTimer = new System.Windows.Forms.Timer { Interval = 400 };
             uiTimer.Tick += (s, e) => UpdateProgress();
             uiTimer.Start();
@@ -152,6 +181,43 @@ namespace FileExplorerr
                 _mediaPlayer.SetRate(rates[speedCombo.SelectedIndex]);
             };
             controlBar.Controls.Add(speedCombo);
+            // ── Grabación webcam ──────────────────────────────────────────
+            cx += (speedCombo.Width + 18);
+            var camSep = new Panel
+            {
+                Location = new Point(cx, 10),
+                Size = new Size(1, 28),
+                BackColor = Theme.Border
+            };
+            controlBar.Controls.Add(camSep);
+            cx += 10;
+
+            btnCamRecord = new Button
+            {
+                Text = "📷 Webcam",
+                Location = new Point(cx, 8),
+                Size = new Size(92, 32),
+                BackColor = Color.FromArgb(18, 38, 58),
+                ForeColor = Color.FromArgb(80, 160, 220),
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontBody,
+                Cursor = Cursors.Hand
+            };
+            btnCamRecord.FlatAppearance.BorderColor = Color.FromArgb(80, 160, 220);
+            btnCamRecord.Click += (s, e) => ToggleWebcam();
+            controlBar.Controls.Add(btnCamRecord);
+            cx += 96;
+
+            lblCamStatus = new Label
+            {
+                Text = "",
+                Location = new Point(cx, 15),
+                Size = new Size(110, 20),
+                ForeColor = Color.FromArgb(82, 196, 120),
+                Font = Theme.FontMonoSmall,
+                BackColor = Color.Transparent
+            };
+            controlBar.Controls.Add(lblCamStatus);
 
             btnLoop = Theme.MakeIconButton("↻"); btnLoop.ForeColor = Theme.TextMuted;
             btnFullscreen = Theme.MakeIconButton("⛶"); btnFullscreen.ForeColor = Theme.TextMuted;
@@ -588,6 +654,215 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{lat:F5}°, {lon:F5}°').openPopup()
             }
         }
 
+        private void ToggleWebcam()
+        {
+            if (_camForm != null && !_camForm.IsDisposed)
+            {
+                if (_isCamRecording) StopCamRecording(autoAdd: false);
+
+                _frameTimer?.Stop(); _frameTimer?.Dispose();
+                _videoCapture?.Release(); _videoCapture?.Dispose();
+                _videoCapture = null;
+
+                _camTimer?.Stop(); _camTimer?.Dispose(); _camTimer = null;
+                _camForm.Close();
+                _camForm = null;
+
+                btnCamRecord.Text = "📷 Webcam";
+                btnCamRecord.BackColor = Color.FromArgb(18, 38, 58);
+                btnCamRecord.ForeColor = Color.FromArgb(80, 160, 220);
+                btnCamRecord.FlatAppearance.BorderColor = Color.FromArgb(80, 160, 220);
+                lblCamStatus.Text = "";
+                return;
+            }
+
+            OpenWebcamWindow();
+        }
+
+        private void OpenWebcamWindow()
+        {
+            _camForm = new Form
+            {
+                Text = "Webcam — Grabación",
+                Size = new Size(640, 500),
+                MinimumSize = new Size(480, 380),
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(Left + Width + 10, Top),
+                BackColor = Color.FromArgb(10, 10, 14),
+                ForeColor = Color.FromArgb(220, 220, 236),
+                Font = Theme.FontBody
+            };
+
+            // En OpenCV usamos un PictureBox clásico, mucho más estable
+            _camPictureBox = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Black,
+                SizeMode = PictureBoxSizeMode.Zoom
+            };
+
+            var bottomBar = new Panel { Height = 50, Dock = DockStyle.Bottom, BackColor = Color.FromArgb(20, 20, 26), Padding = new Padding(10, 8, 10, 8) };
+
+            var btnPreview = new Button { Text = "▶ Ver", Location = new Point(10, 10), Size = new Size(80, 30), Cursor = Cursors.Hand };
+            btnPreview.Click += (s, e) => StartCamPreview();
+
+            var btnRec = new Button { Text = "⏺ Grabar", Location = new Point(100, 10), Size = new Size(88, 30), Cursor = Cursors.Hand };
+
+            var lblTimer = new Label { Text = "", Location = new Point(200, 16), Size = new Size(110, 20), ForeColor = Color.Red, Font = Theme.FontMonoSmall };
+
+            _camTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _camTimer.Tick += (s, e) =>
+            {
+                _camSeconds++;
+                lblTimer.Text = $"● REC {_camSeconds / 60:D2}:{_camSeconds % 60:D2}";
+                lblCamStatus.Text = lblTimer.Text;
+            };
+
+            btnRec.Click += (s, e) =>
+            {
+                if (!_isCamRecording)
+                {
+                    StartCamRecording();
+                    if (_isCamRecording) btnRec.Text = "⏹ Detener";
+                }
+                else
+                {
+                    StopCamRecording(true);
+                    btnRec.Text = "⏺ Grabar";
+                }
+            };
+
+            bottomBar.Controls.Add(btnPreview);
+            bottomBar.Controls.Add(btnRec);
+            bottomBar.Controls.Add(lblTimer);
+
+            _camForm.Controls.Add(_camPictureBox);
+            _camForm.Controls.Add(bottomBar);
+
+            _camForm.FormClosed += (s, e) =>
+            {
+                StopCamRecording(false);
+                _frameTimer?.Stop(); _frameTimer?.Dispose();
+                _videoCapture?.Release(); _videoCapture?.Dispose();
+                _videoCapture = null;
+                _camForm = null;
+                lblCamStatus.Text = "";
+                btnCamRecord.Text = "📷 Webcam";
+            };
+
+            _camForm.Show(this);
+
+            // Auto-iniciar la cámara al abrir la ventana
+            StartCamPreview();
+        }
+
+        private void StartCamPreview()
+        {
+            if (_videoCapture != null && _videoCapture.IsOpened()) return;
+
+            try
+            {
+                _videoCapture = new OpenCvSharp.VideoCapture(0); // 0 = Cámara por defecto de Windows
+                _videoCapture.Open(0);
+
+                if (!_videoCapture.IsOpened())
+                {
+                    MessageBox.Show("No se pudo conectar a la cámara.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                _frameTimer = new System.Windows.Forms.Timer { Interval = 33 }; // 30 FPS
+                _frameTimer.Tick += (s, e) =>
+                {
+                    if (_videoCapture != null && _videoCapture.IsOpened())
+                    {
+                        using var frame = new OpenCvSharp.Mat();
+                        _videoCapture.Read(frame);
+
+                        if (!frame.Empty())
+                        {
+                            var oldImage = _camPictureBox!.Image;
+                            _camPictureBox.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame);
+                            oldImage?.Dispose(); // Liberar memoria
+
+                            // Si está grabando, guardamos el frame
+                            if (_isCamRecording && _videoWriter != null && !_videoWriter.IsDisposed)
+                            {
+                                _videoWriter.Write(frame);
+                            }
+                        }
+                    }
+                };
+                _frameTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al iniciar cámara:\n{ex.Message}");
+            }
+        }
+
+        private void StartCamRecording()
+        {
+            if (_videoCapture == null || !_videoCapture.IsOpened())
+            {
+                MessageBox.Show("La cámara debe estar encendida para grabar.", "Aviso");
+                return;
+            }
+
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "GrabacionesWebcam");
+            Directory.CreateDirectory(folder);
+            _camFilePath = Path.Combine(folder, $"webcam_{DateTime.Now:yyyyMMdd_HHmmss}.mp4");
+
+            try
+            {
+                int width = (int)_videoCapture.Get(OpenCvSharp.VideoCaptureProperties.FrameWidth);
+                int height = (int)_videoCapture.Get(OpenCvSharp.VideoCaptureProperties.FrameHeight);
+
+                // Codificador MP4V estándar universal
+                _videoWriter = new OpenCvSharp.VideoWriter(
+                    _camFilePath,
+                    OpenCvSharp.FourCC.MP4V,
+                    30,
+                    new OpenCvSharp.Size(width, height)
+                );
+
+                _isCamRecording = true;
+                _camSeconds = 0;
+                _camTimer?.Start();
+                lblCamStatus.Text = "● REC";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al preparar grabación:\n{ex.Message}");
+            }
+        }
+
+        private async void StopCamRecording(bool autoAdd)
+        {
+            if (!_isCamRecording) return;
+
+            _isCamRecording = false;
+            _camTimer?.Stop();
+
+            await Task.Delay(200); // Darle tiempo a OpenCV de cerrar el archivo
+
+            _videoWriter?.Release();
+            _videoWriter?.Dispose();
+            _videoWriter = null;
+
+            _camSeconds = 0;
+            if (lblCamStatus != null && !lblCamStatus.IsDisposed) lblCamStatus.Text = "";
+
+            if (autoAdd && _camFilePath != null && File.Exists(_camFilePath))
+            {
+                string saved = _camFilePath;
+                _camFilePath = null;
+                AddFile(saved);
+                PlayAt(listView.Items.Count - 1);
+                MessageBox.Show($"Grabación guardada y añadida a la lista:\n{saved}", "Grabación completada", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
@@ -624,8 +899,21 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{lat:F5}°, {lon:F5}°').openPopup()
         {
             if (disposing)
             {
-                uiTimer?.Stop();
-                uiTimer?.Dispose();
+                // Limpiar Timers
+                uiTimer?.Stop(); uiTimer?.Dispose();
+                _camTimer?.Stop(); _camTimer?.Dispose();
+                _frameTimer?.Stop(); _frameTimer?.Dispose();
+
+                // Limpiar cámara OpenCV
+                if (_isCamRecording)
+                {
+                    _videoWriter?.Release();
+                    _videoWriter?.Dispose();
+                }
+                _videoCapture?.Release();
+                _videoCapture?.Dispose();
+
+                // Limpiar reproductor principal LibVLC
                 _mediaPlayer?.Stop();
                 _mediaPlayer?.Dispose();
                 _libVLC?.Dispose();
