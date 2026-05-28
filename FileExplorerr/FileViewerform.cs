@@ -642,7 +642,28 @@ namespace FileExplorerr
         }
 
         private static string TableToXml(DataTable dt) { dt.TableName = "Records"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
+<<<<<<< HEAD
        
+=======
+        private void btnShareEmail_Click(object sender, EventArgs e)
+        {
+            // Asegúrate de obtener la ruta completa del archivo que el usuario tiene seleccionado
+            string archivoSeleccionado = @"C:\Users\Nat\Documents\archivo_filtrado.csv";
+
+            // Verificamos que el archivo realmente exista antes de abrir la ventana
+            if (!System.IO.File.Exists(archivoSeleccionado))
+            {
+                MessageBox.Show("Por favor, selecciona un archivo válido primero.", "Archivo no encontrado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Instanciar y abrir la ventana emergente
+            using (var emailForm = new EmailForm(archivoSeleccionado))
+            {
+                emailForm.ShowDialog(this); // ShowDialog pausa el fondo y obliga al usuario a atender esta ventana
+            }
+        }
+>>>>>>> 81616e93d4097546dbae2f6ac56703ee70eef07f
 
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS
