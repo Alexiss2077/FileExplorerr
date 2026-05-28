@@ -107,6 +107,7 @@ namespace FileExplorerr
             var saveBtn = Theme.MakeButton("Guardar copia corregida", 160, Theme.ButtonKind.Success); saveBtn.Dock = DockStyle.Right; saveBtn.Click += (s, e) => SaveFixedCopy();
             rowTop.Controls.Add(statusLabel); rowTop.Controls.Add(saveBtn);
 
+            // ── Fila exportar ─────────────────────────────────────────────────
             var rowBot = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
             var expLabel = new Label { Text = "Exportar:", Dock = DockStyle.Left, Width = 64, ForeColor = Theme.TextMuted, Font = Theme.FontSmall, TextAlign = ContentAlignment.MiddleLeft };
             var expCsv = MakeExportButton("CSV", Color.FromArgb(20, 90, 70), Color.FromArgb(56, 210, 170)); expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
@@ -114,21 +115,19 @@ namespace FileExplorerr
             var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240)); expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
             var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230)); expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
             var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252)); expBD.Width = 80; expBD.Dock = DockStyle.Left; expBD.Click += async (s, e) => await ExportarABD();
-            
+
             btnShareEmail = MakeExportButton("✉ Email", Color.FromArgb(20, 60, 90), Color.FromArgb(100, 180, 255));
             btnShareEmail.Width = 75;
             btnShareEmail.Dock = DockStyle.Left;
-            btnShareEmail.Click += btnShareEmail_Click;
+            btnShareEmail.Click += BtnShareEmail_Click;
 
-       
-            rowBot.Controls.Add(btnShareEmail);
             rowBot.Controls.Add(expXml);
             rowBot.Controls.Add(expTxt);
             rowBot.Controls.Add(expJson);
             rowBot.Controls.Add(expCsv);
             rowBot.Controls.Add(expBD);
+            rowBot.Controls.Add(btnShareEmail);
             rowBot.Controls.Add(expLabel);
-            rowBot.Controls.Add(expXml); rowBot.Controls.Add(expTxt); rowBot.Controls.Add(expJson); rowBot.Controls.Add(expCsv); rowBot.Controls.Add(expBD); rowBot.Controls.Add(expLabel);
 
             // ── Segunda fila: exportación Office ─────────────────────────────
             var rowOffice = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
@@ -138,7 +137,10 @@ namespace FileExplorerr
             var expPptx = MakeExportButton("📋 PowerPoint", Color.FromArgb(80, 30, 10), Color.FromArgb(230, 100, 60)); expPptx.Dock = DockStyle.Left; expPptx.Click += (s, e) => ExportarOffice(".pptx");
             var expPdf = MakeExportButton("🗒 PDF", Color.FromArgb(70, 10, 10), Color.FromArgb(220, 70, 70)); expPdf.Dock = DockStyle.Left; expPdf.Click += (s, e) => ExportarOffice(".pdf");
             rowOffice.Controls.Add(expPdf); rowOffice.Controls.Add(expPptx); rowOffice.Controls.Add(expDocx); rowOffice.Controls.Add(expXlsx); rowOffice.Controls.Add(offLabel);
-            bottomPanel.Controls.Add(rowOffice); bottomPanel.Controls.Add(rowBot); bottomPanel.Controls.Add(rowTop);
+
+            bottomPanel.Controls.Add(rowOffice);
+            bottomPanel.Controls.Add(rowBot);
+            bottomPanel.Controls.Add(rowTop);
 
             Controls.Add(loadingPanel);
             Controls.Add(grid);
@@ -148,24 +150,19 @@ namespace FileExplorerr
             loadingPanel.BringToFront();
         }
 
-        private void btnShareEmail_Click(object? sender, EventArgs e)
+        // ── Un solo btnShareEmail_Click ───────────────────────────────────────
+        private void BtnShareEmail_Click(object? sender, EventArgs e)
         {
-            // Tomamos la ruta real del archivo que estamos viendo actualmente en el visor
-            string archivoSeleccionado = this.filePath;
-
-            // Verificamos que el archivo realmente exista antes de abrir la ventana
-            if (!System.IO.File.Exists(archivoSeleccionado))
+            if (!File.Exists(filePath))
             {
-                MessageBox.Show("Por favor, selecciona un archivo válido primero.", "Archivo no encontrado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("El archivo no existe.", "Archivo no encontrado",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-
-            // Instanciar y abrir la ventana emergente
-            using (var emailForm = new EmailForm(archivoSeleccionado))
-            {
-                emailForm.ShowDialog(this);
-            }
+            using var emailForm = new EmailForm(filePath);
+            emailForm.ShowDialog(this);
         }
+
         private void CenterLabel()
         {
             if (loadingLabel == null || loadingPanel == null) return;
@@ -386,7 +383,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ANÁLISIS — corre en hilo de fondo
+        //  ANÁLISIS
         // ════════════════════════════════════════════════════════════════════
         private void AnalyzeTable()
         {
@@ -406,16 +403,14 @@ namespace FileExplorerr
                 if (seen.TryGetValue(key, out int orig)) { if (!duplicateRows.Contains(orig)) duplicateRows.Add(orig); duplicateRows.Add(r); } else seen[key] = r;
             }
             for (int r = 0; r < masterTable.Rows.Count; r++)
-            {
                 for (int c = 0; c < masterTable.Columns.Count; c++)
                 {
                     string val = masterTable.Rows[r][c]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(val)) { emptyFields.Add((r, c)); continue; }
-                    if (phoneColumns.Contains(c)) { string? fixedPhone = ValidateAndFixPhone(val); if (fixedPhone != null) phoneIssues.Add((r, c, val, fixedPhone)); }
+                    if (phoneColumns.Contains(c)) { string? fp = ValidateAndFixPhone(val); if (fp != null) phoneIssues.Add((r, c, val, fp)); }
                     if (emailColumns.Contains(c)) { if (!IsValidEmail(val)) emailIssues.Add((r, c, val)); }
-                    if (!phoneColumns.Contains(c)) { string? fixedDate = DetectAndFixDate(val); if (fixedDate != null && fixedDate != val) dateIssues.Add((r, c, val, fixedDate)); }
+                    if (!phoneColumns.Contains(c)) { string? fd = DetectAndFixDate(val); if (fd != null && fd != val) dateIssues.Add((r, c, val, fd)); }
                 }
-            }
         }
 
         private static string? ValidateAndFixPhone(string raw)
@@ -530,7 +525,8 @@ namespace FileExplorerr
             if (phones > 0) parts.Add($"{phones} teléfonos");
             if (emails > 0) parts.Add($"{emails} emails");
             if (colMis > 0) parts.Add($"{colMis} col.desajustadas");
-            if (dups == 0 && dates == 0 && empties == 0 && phones == 0 && emails == 0 && colMis == 0) parts.Add("Sin problemas");
+            if (dups == 0 && dates == 0 && empties == 0 && phones == 0 && emails == 0 && colMis == 0)
+                parts.Add("Sin problemas");
             statusLabel.Text = "  " + string.Join("  ·  ", parts);
         }
 
@@ -541,9 +537,9 @@ namespace FileExplorerr
             if (duplicateRows.Count > 0) sb.AppendLine($"• {duplicateRows.Count} fila(s) duplicada(s)");
             if (dateIssues.Count > 0) sb.AppendLine($"• {dateIssues.Count} fecha(s) a normalizar");
             if (emptyFields.Count > 0) sb.AppendLine($"• {emptyFields.Count} campo(s) vacío(s)");
-            if (phoneIssues.Count > 0) { sb.AppendLine($"• {phoneIssues.Count} teléfono(s) con problemas:"); int shown = 0; foreach (var (r, c, orig, fix) in phoneIssues) { if (shown >= 5) { sb.AppendLine($"    ... y {phoneIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\" → \"{fix}\""); shown++; } }
-            if (emailIssues.Count > 0) { sb.AppendLine($"• {emailIssues.Count} email(s) inválido(s):"); int shown = 0; foreach (var (r, c, orig) in emailIssues) { if (shown >= 5) { sb.AppendLine($"    ... y {emailIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\""); shown++; } }
-            if (columnMismatchRows.Count > 0) { sb.AppendLine($"• {columnMismatchRows.Count} fila(s) con número de columnas incorrecto:"); int shown = 0; foreach (var (row, expected, actual) in columnMismatchDetails) { if (shown >= 5) { sb.AppendLine($"    ... y {columnMismatchDetails.Count - 5} más"); break; } sb.AppendLine($"    Fila {row + 1}: esperadas {expected}, tiene {actual}"); shown++; } }
+            if (phoneIssues.Count > 0) { sb.AppendLine($"• {phoneIssues.Count} teléfono(s) con problemas:"); int shown = 0; foreach (var (r, c, orig, fix) in phoneIssues) { if (shown++ >= 5) { sb.AppendLine($"    ... y {phoneIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\" → \"{fix}\""); } }
+            if (emailIssues.Count > 0) { sb.AppendLine($"• {emailIssues.Count} email(s) inválido(s):"); int shown = 0; foreach (var (r, c, orig) in emailIssues) { if (shown++ >= 5) { sb.AppendLine($"    ... y {emailIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\""); } }
+            if (columnMismatchRows.Count > 0) { sb.AppendLine($"• {columnMismatchRows.Count} fila(s) con columnas incorrectas:"); int shown = 0; foreach (var (row, exp, act) in columnMismatchDetails) { if (shown++ >= 5) { sb.AppendLine($"    ... y {columnMismatchDetails.Count - 5} más"); break; } sb.AppendLine($"    Fila {row + 1}: esperadas {exp}, tiene {act}"); } }
             sb.AppendLine("\nLas celdas afectadas están resaltadas.");
             MessageBox.Show(sb.ToString(), "Análisis", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -642,28 +638,6 @@ namespace FileExplorerr
         }
 
         private static string TableToXml(DataTable dt) { dt.TableName = "Records"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
-<<<<<<< HEAD
-       
-=======
-        private void btnShareEmail_Click(object sender, EventArgs e)
-        {
-            // Asegúrate de obtener la ruta completa del archivo que el usuario tiene seleccionado
-            string archivoSeleccionado = @"C:\Users\Nat\Documents\archivo_filtrado.csv";
-
-            // Verificamos que el archivo realmente exista antes de abrir la ventana
-            if (!System.IO.File.Exists(archivoSeleccionado))
-            {
-                MessageBox.Show("Por favor, selecciona un archivo válido primero.", "Archivo no encontrado", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            // Instanciar y abrir la ventana emergente
-            using (var emailForm = new EmailForm(archivoSeleccionado))
-            {
-                emailForm.ShowDialog(this); // ShowDialog pausa el fondo y obliga al usuario a atender esta ventana
-            }
-        }
->>>>>>> 81616e93d4097546dbae2f6ac56703ee70eef07f
 
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS
