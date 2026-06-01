@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -20,20 +21,22 @@ namespace FileExplorerr
         private PictureBox coverBox = null!;
         private Panel rightPanel = null!;
         private RichTextBox lyricsBox = null!;
-        private Label lblNowPlaying = null!, lblArtist = null!;
+        private Label lblNowPlaying = null!, lblArtist = null!, lblAlbum = null!;
         private Label lblTime = null!, lblDuration = null!;
         private TrackBar seekBar = null!, volBar = null!;
-        private Button btnPlay = null!, btnPrev = null!, btnNext = null!,
-                       btnShuffle = null!, btnRepeat = null!, btnLyrics = null!;
+        private Button btnPlay = null!, btnPrev = null!, btnNext = null!;
+        private Button btnShuffle = null!, btnRepeat = null!, btnLyrics = null!;
+        private Button btnMute = null!;
+        private Label lblVolPct = null!;
 
-        // ── Audio playback ───────────────────────────────────────────────────
+        // ── Audio ─────────────────────────────────────────────────────────────
         private WaveOutEvent? outputDevice;
         private AudioFileReader? audioFile;
         private int currentIndex = -1;
         private bool isDraggingSeek;
         private System.Windows.Forms.Timer uiTimer = null!;
 
-        // ── Grabación ────────────────────────────────────────────────────────
+        // ── Grabación ─────────────────────────────────────────────────────────
         private WaveInEvent? waveIn;
         private readonly List<byte[]> recordedChunks = new();
         private WaveFormat? recordFormat;
@@ -44,29 +47,41 @@ namespace FileExplorerr
         private System.Windows.Forms.Timer recordTimer = null!;
         private int recordSeconds = 0;
 
-        // ── Modos ────────────────────────────────────────────────────────────
+        // ── Modos ─────────────────────────────────────────────────────────────
         private bool shuffleMode;
-        private int repeatMode;
+        private int repeatMode;   // 0=off, 1=all, 2=one
         private int[]? shuffleOrder;
         private int shufflePos;
+        private bool isMuted;
 
         internal static readonly string[] SupportedExtensions =
             { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".aiff" };
+
+        // ── Colores específicos del reproductor ───────────────────────────────
+        private static readonly Color SpotifyGreen = Color.FromArgb(30, 215, 96);
+        private static readonly Color SpotifyGreenDim = Color.FromArgb(18, 80, 40);
+        private static readonly Color NowPlayingBg = Color.FromArgb(22, 26, 38);
+        private static readonly Color TrackHoverBg = Color.FromArgb(30, 34, 50);
+        private static readonly Color TrackPlayingBg = Color.FromArgb(28, 40, 56);
+        private static readonly Color ControlBarBg = Color.FromArgb(16, 18, 26);
 
         public MusicPlayerForm(string initialFile)
         {
             BuildUI();
             LoadFolder(initialFile);
-            uiTimer = new System.Windows.Forms.Timer { Interval = 400 };
+            uiTimer = new System.Windows.Forms.Timer { Interval = 300 };
             uiTimer.Tick += UiTimer_Tick;
             uiTimer.Start();
         }
 
+        // ════════════════════════════════════════════════════════════════════
+        //  BUILD UI
+        // ════════════════════════════════════════════════════════════════════
         private void BuildUI()
         {
-            Text = "Música";
-            Size = new Size(1000, 640);
-            MinimumSize = new Size(780, 480);
+            Text = "FileExplorerr · Música";
+            Size = new Size(1080, 720);
+            MinimumSize = new Size(840, 540);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.BgBase;
             ForeColor = Theme.TextPrimary;
@@ -75,143 +90,593 @@ namespace FileExplorerr
             KeyDown += OnKeyDown;
             DoubleBuffered = true;
 
-            // ═══ TOP BAR ═════════════════════════════════════════════════════
-            topBar = new Panel { Height = 48, Dock = DockStyle.Top, BackColor = Theme.BgSurface };
-            lblNowPlaying = new Label { Dock = DockStyle.Fill, Font = Theme.FontBodyBold, ForeColor = Theme.TextPrimary, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(16, 0, 0, 0), Text = "Música" };
-            var btnOpen = Theme.MakeButton("Abrir carpeta", 110, Theme.ButtonKind.Primary); btnOpen.Dock = DockStyle.Right; btnOpen.Click += (s, e) => OpenFolderDialog();
-            var btnAdd = Theme.MakeButton("+ Agregar", 90); btnAdd.Dock = DockStyle.Right; btnAdd.Click += (s, e) => AddFilesDialog();
-            var btnLoadPlaylist = Theme.MakeButton("Cargar playlist", 120); btnLoadPlaylist.Dock = DockStyle.Right; btnLoadPlaylist.Click += (s, e) => LoadPlaylist();
-            var btnSavePlaylist = Theme.MakeButton("Guardar playlist", 130); btnSavePlaylist.Dock = DockStyle.Right; btnSavePlaylist.Click += (s, e) => SavePlaylist();
-            topBar.Controls.Add(lblNowPlaying); topBar.Controls.Add(btnOpen); topBar.Controls.Add(btnAdd); topBar.Controls.Add(btnLoadPlaylist); topBar.Controls.Add(btnSavePlaylist);
+            // ═══ TOP BAR ════════════════════════════════════════════════════
+            topBar = new Panel { Height = 52, Dock = DockStyle.Top, BackColor = Theme.BgSurface };
 
-            // ═══ RIGHT PANEL ═════════════════════════════════════════════════
-            rightPanel = new Panel { Width = 260, Dock = DockStyle.Right, BackColor = Theme.BgSurface };
-            coverBox = new PictureBox { Height = 240, Dock = DockStyle.Top, BackColor = Theme.BgElevated, SizeMode = PictureBoxSizeMode.Zoom };
-            lblArtist = new Label { Height = 36, Dock = DockStyle.Top, Font = Theme.FontSmall, ForeColor = Theme.TextMuted, TextAlign = ContentAlignment.MiddleCenter, BackColor = Theme.BgElevated, Text = "" };
-            var actionPanel = new Panel { Height = 36, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(4, 3, 4, 3) };
-            var btnEditTags = Theme.MakeButton("Editar tags", 0, Theme.ButtonKind.Primary); btnEditTags.Dock = DockStyle.Left; btnEditTags.Width = 124; btnEditTags.Height = 30; btnEditTags.Click += async (s, e) => await EditTags();
-            var btnRemove = Theme.MakeButton("Quitar", 0, Theme.ButtonKind.Danger); btnRemove.Dock = DockStyle.Right; btnRemove.Width = 100; btnRemove.Height = 30; btnRemove.Click += (s, e) => RemoveSelected();
-            actionPanel.Controls.Add(btnEditTags); actionPanel.Controls.Add(btnRemove);
-            var lyricsHeader = new Label { Height = 28, Dock = DockStyle.Top, Text = "  Letra", Font = Theme.FontSmallBold, ForeColor = Theme.TextMuted, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.BgSurface };
-            btnLyrics = Theme.MakeButton("Buscar letra", 0, Theme.ButtonKind.Primary); btnLyrics.Dock = DockStyle.Bottom; btnLyrics.Height = 32; btnLyrics.Click += async (s, e) => await SearchLyrics();
-            lyricsBox = new RichTextBox { Dock = DockStyle.Fill, BackColor = Theme.BgBase, ForeColor = Theme.TextSecondary, BorderStyle = BorderStyle.None, Font = Theme.FontBody, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.Vertical };
-            rightPanel.Controls.Add(lyricsBox); rightPanel.Controls.Add(lyricsHeader); rightPanel.Controls.Add(btnLyrics); rightPanel.Controls.Add(actionPanel); rightPanel.Controls.Add(lblArtist); rightPanel.Controls.Add(coverBox);
+            var logoLbl = new Label
+            {
+                Text = "🎵  Música",
+                Left = 18,
+                Top = 14,
+                AutoSize = true,
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                ForeColor = SpotifyGreen,
+                BackColor = Color.Transparent
+            };
 
-            // ═══ GRID ════════════════════════════════════════════════════════
-            grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, ScrollBars = ScrollBars.Both };
-            Theme.StyleGrid(grid);
-            grid.Columns.Add("Title", "Título"); grid.Columns.Add("Artist", "Artista"); grid.Columns.Add("Album", "Álbum"); grid.Columns.Add("Duration", "Duración"); grid.Columns.Add("Path", "Ruta");
-            grid.Columns["Path"]!.Visible = false; grid.Columns["Duration"]!.FillWeight = 35; grid.Columns["Title"]!.FillWeight = 100; grid.Columns["Artist"]!.FillWeight = 80; grid.Columns["Album"]!.FillWeight = 70;
+            lblNowPlaying = new Label
+            {
+                Left = 120,
+                Top = 8,
+                Width = 500,
+                Height = 20,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Color.Transparent,
+                AutoEllipsis = true
+            };
+            lblAlbum = new Label
+            {
+                Left = 120,
+                Top = 28,
+                Width = 500,
+                Height = 16,
+                Font = Theme.FontSmall,
+                ForeColor = Theme.TextMuted,
+                BackColor = Color.Transparent,
+                AutoEllipsis = true
+            };
+
+            // Botones de acción en el top
+            var btnOpen = MakeTopBtn("📂 Abrir carpeta");
+            var btnAdd = MakeTopBtn("＋ Agregar");
+            var btnLoadPlaylist = MakeTopBtn("📂 Playlist");
+            var btnSavePlaylist = MakeTopBtn("💾 Guardar");
+
+            btnOpen.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnAdd.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnLoadPlaylist.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnSavePlaylist.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+
+            btnOpen.Click += (s, e) => OpenFolderDialog();
+            btnAdd.Click += (s, e) => AddFilesDialog();
+            btnLoadPlaylist.Click += (s, e) => LoadPlaylist();
+            btnSavePlaylist.Click += (s, e) => SavePlaylist();
+
+            // Posicionar desde la derecha
+            topBar.Resize += (s, e) =>
+            {
+                int x = topBar.Width - 12;
+                foreach (var b in new[] { btnOpen, btnSavePlaylist, btnLoadPlaylist, btnAdd })
+                {
+                    x -= b.Width + 6;
+                    b.Location = new Point(x, 10);
+                }
+            };
+
+            topBar.Controls.AddRange(new Control[] { logoLbl, lblNowPlaying, lblAlbum, btnOpen, btnAdd, btnLoadPlaylist, btnSavePlaylist });
+
+            // ═══ RIGHT PANEL (carátula + letra) ════════════════════════════
+            rightPanel = new Panel { Width = 260, Dock = DockStyle.Right, BackColor = NowPlayingBg };
+            BuildRightPanel();
+
+            // ═══ LISTA DE CANCIONES ═════════════════════════════════════════
+            grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToDeleteRows = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                ScrollBars = ScrollBars.Both,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false
+            };
+            StyleMusicGrid();
+
+            grid.Columns.Add("Num", "#");
+            grid.Columns.Add("Title", "Título");
+            grid.Columns.Add("Artist", "Artista");
+            grid.Columns.Add("Album", "Álbum");
+            grid.Columns.Add("Duration", "Duración");
+            grid.Columns.Add("Path", "Ruta");
+
+            grid.Columns["Num"]!.FillWeight = 18;
+            grid.Columns["Num"]!.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            grid.Columns["Path"]!.Visible = false;
+            grid.Columns["Duration"]!.FillWeight = 28;
+            grid.Columns["Title"]!.FillWeight = 100;
+            grid.Columns["Artist"]!.FillWeight = 70;
+            grid.Columns["Album"]!.FillWeight = 65;
+
             grid.CellDoubleClick += async (s, e) => { if (e.RowIndex >= 0) await PlayTrack(e.RowIndex); };
+            grid.CellFormatting += Grid_CellFormatting;
             grid.AllowDrop = true;
             grid.DragEnter += (s, e) => e.Effect = e.Data!.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
-            grid.DragDrop += (s, e) => { if (!e.Data!.GetDataPresent(DataFormats.FileDrop)) return; foreach (string f in (string[])e.Data.GetData(DataFormats.FileDrop)!) if (SupportedExtensions.Contains(Path.GetExtension(f).ToLower())) AddFileToGrid(f); };
+            grid.DragDrop += (s, e) =>
+            {
+                if (!e.Data!.GetDataPresent(DataFormats.FileDrop)) return;
+                foreach (string f in (string[])e.Data.GetData(DataFormats.FileDrop)!)
+                    if (SupportedExtensions.Contains(Path.GetExtension(f).ToLower())) AddFileToGrid(f);
+            };
 
-            // ═══ PROGRESS ════════════════════════════════════════════════════
-            progressPanel = new Panel { Height = 30, Dock = DockStyle.Bottom, BackColor = Theme.BgBase, Padding = new Padding(12, 0, 12, 0) };
-            lblTime = new Label { Text = "0:00", Dock = DockStyle.Left, Width = 44, ForeColor = Theme.Accent, Font = Theme.FontMonoSmall, TextAlign = ContentAlignment.MiddleCenter };
-            lblDuration = new Label { Text = "0:00", Dock = DockStyle.Right, Width = 44, ForeColor = Theme.TextMuted, Font = Theme.FontMonoSmall, TextAlign = ContentAlignment.MiddleCenter };
-            seekBar = new TrackBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 1000, TickStyle = TickStyle.None, BackColor = Theme.BgBase };
+            // ═══ BARRA DE PROGRESO ══════════════════════════════════════════
+            progressPanel = new Panel
+            {
+                Height = 28,
+                Dock = DockStyle.Bottom,
+                BackColor = ControlBarBg,
+                Padding = new Padding(14, 0, 14, 0)
+            };
+            lblTime = new Label { Text = "0:00", Dock = DockStyle.Left, Width = 42, ForeColor = Theme.TextMuted, Font = Theme.FontMonoSmall, TextAlign = ContentAlignment.MiddleCenter };
+            lblDuration = new Label { Text = "0:00", Dock = DockStyle.Right, Width = 42, ForeColor = Theme.TextMuted, Font = Theme.FontMonoSmall, TextAlign = ContentAlignment.MiddleCenter };
+            seekBar = new TrackBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 1000, TickStyle = TickStyle.None, BackColor = ControlBarBg };
             seekBar.MouseDown += (s, e) => isDraggingSeek = true;
-            seekBar.MouseUp += (s, e) => { isDraggingSeek = false; if (audioFile != null) audioFile.CurrentTime = TimeSpan.FromSeconds(seekBar.Value / 1000.0 * audioFile.TotalTime.TotalSeconds); };
-            progressPanel.Controls.Add(seekBar); progressPanel.Controls.Add(lblDuration); progressPanel.Controls.Add(lblTime);
+            seekBar.MouseUp += (s, e) =>
+            {
+                isDraggingSeek = false;
+                if (audioFile != null) audioFile.CurrentTime = TimeSpan.FromSeconds(seekBar.Value / 1000.0 * audioFile.TotalTime.TotalSeconds);
+            };
+            progressPanel.Controls.Add(seekBar);
+            progressPanel.Controls.Add(lblDuration);
+            progressPanel.Controls.Add(lblTime);
 
-            // ═══ CONTROL BAR ═════════════════════════════════════════════════
-            controlBar = new Panel { Height = 60, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
+            // ═══ BARRA DE CONTROLES (estilo Spotify) ════════════════════════
+            controlBar = new Panel
+            {
+                Height = 90,
+                Dock = DockStyle.Bottom,
+                BackColor = ControlBarBg
+            };
+            BuildControlBar();
 
-            int cx = 12;
-            btnPrev = AddCtrlBtn("⏮", ref cx); btnPrev.Click += async (s, e) => await ChangeTrack(-1);
-            btnPlay = AddCtrlBtn("▶", ref cx); btnPlay.Width = 46; btnPlay.Font = Theme.FontIconBig; btnPlay.BackColor = Theme.AccentDim; btnPlay.FlatAppearance.BorderColor = Theme.Accent; btnPlay.Click += async (s, e) => await TogglePlay(); cx += 10;
-            btnNext = AddCtrlBtn("⏭", ref cx); btnNext.Click += async (s, e) => await ChangeTrack(1);
-            cx += 16;
-            btnShuffle = AddCtrlBtn("⇄", ref cx); btnShuffle.ForeColor = Theme.TextMuted; btnShuffle.Click += (s, e) => ToggleShuffle();
-            btnRepeat = AddCtrlBtn("↻", ref cx); btnRepeat.ForeColor = Theme.TextMuted; btnRepeat.Click += (s, e) => ToggleRepeat();
-            cx += 20;
-            var volIcon = new Label { Text = "♪", Location = new Point(cx, 20), Size = new Size(20, 20), ForeColor = Theme.TextMuted, Font = Theme.FontBody };
-            controlBar.Controls.Add(volIcon); cx += 22;
-            volBar = new TrackBar { Location = new Point(cx, 16), Size = new Size(100, 26), Minimum = 0, Maximum = 100, Value = 70, TickStyle = TickStyle.None, BackColor = Theme.BgSurface };
-            volBar.ValueChanged += (s, e) => { if (outputDevice != null) outputDevice.Volume = volBar.Value / 100f; };
-            controlBar.Controls.Add(volBar); cx += 110;
+            Controls.Add(grid);
+            Controls.Add(rightPanel);
+            Controls.Add(progressPanel);
+            Controls.Add(controlBar);
+            Controls.Add(topBar);
+        }
 
-            var sep = new Panel { Location = new Point(cx, 10), Size = new Size(1, 40), BackColor = Theme.Border };
-            controlBar.Controls.Add(sep); cx += 10;
+        // ── Panel derecho ────────────────────────────────────────────────────
+        private void BuildRightPanel()
+        {
+            // Carátula cuadrada
+            coverBox = new PictureBox
+            {
+                Height = 260,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(28, 32, 48),
+                SizeMode = PictureBoxSizeMode.Zoom
+            };
 
+            // Artista / álbum bajo la carátula
+            lblArtist = new Label
+            {
+                Height = 42,
+                Dock = DockStyle.Top,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = SpotifyGreen,
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = NowPlayingBg,
+                Text = ""
+            };
+
+            var actionPanel = new Panel
+            {
+                Height = 38,
+                Dock = DockStyle.Top,
+                BackColor = NowPlayingBg,
+                Padding = new Padding(8, 4, 8, 4)
+            };
+            var btnEditTags = MakeSmallBtn("✏️ Tags", Theme.AccentBg, Theme.Accent2);
+            var btnRemove = MakeSmallBtn("✕ Quitar", Theme.CoralDim, Theme.Coral);
+            btnEditTags.Dock = DockStyle.Left; btnEditTags.Width = 108; btnEditTags.Height = 30;
+            btnRemove.Dock = DockStyle.Right; btnRemove.Width = 90; btnRemove.Height = 30;
+            btnEditTags.Click += async (s, e) => await EditTags();
+            btnRemove.Click += (s, e) => RemoveSelected();
+            actionPanel.Controls.Add(btnEditTags);
+            actionPanel.Controls.Add(btnRemove);
+
+            // Letra
+            var lyricsHdr = new Label
+            {
+                Height = 26,
+                Dock = DockStyle.Top,
+                Text = "  Letra",
+                Font = Theme.FontSmallBold,
+                ForeColor = Theme.TextMuted,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = NowPlayingBg
+            };
+            btnLyrics = MakeSmallBtn("🔍 Buscar letra", SpotifyGreenDim, SpotifyGreen);
+            btnLyrics.Dock = DockStyle.Bottom;
+            btnLyrics.Height = 34;
+            btnLyrics.Click += async (s, e) => await SearchLyrics();
+
+            lyricsBox = new RichTextBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = NowPlayingBg,
+                ForeColor = Theme.TextSecondary,
+                BorderStyle = BorderStyle.None,
+                Font = Theme.FontBody,
+                ReadOnly = true,
+                ScrollBars = RichTextBoxScrollBars.Vertical
+            };
+
+            rightPanel.Controls.Add(lyricsBox);
+            rightPanel.Controls.Add(lyricsHdr);
+            rightPanel.Controls.Add(btnLyrics);
+            rightPanel.Controls.Add(actionPanel);
+            rightPanel.Controls.Add(lblArtist);
+            rightPanel.Controls.Add(coverBox);
+        }
+
+        // ── Barra de controles estilo Spotify ────────────────────────────────
+        private void BuildControlBar()
+        {
+            // ── BOTÓN PLAY (central, grande, redondo) ────────────────────────
+            btnPlay = new Button
+            {
+                Text = "▶",
+                Size = new Size(56, 56),
+                BackColor = SpotifyGreen,
+                ForeColor = Color.FromArgb(10, 10, 14),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 18F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            btnPlay.FlatAppearance.BorderSize = 0;
+            btnPlay.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, 240, 120);
+            btnPlay.FlatAppearance.MouseDownBackColor = Color.FromArgb(20, 180, 70);
+            btnPlay.Click += async (s, e) => await TogglePlay();
+
+            // ── BOTÓN ANTERIOR ────────────────────────────────────────────────
+            btnPrev = MakeCtrlBtn("⏮", false);
+            btnPrev.Size = new Size(44, 44);
+            btnPrev.Font = new Font("Segoe UI", 18F);
+            btnPrev.Click += async (s, e) => await ChangeTrack(-1);
+
+            // ── BOTÓN SIGUIENTE ───────────────────────────────────────────────
+            btnNext = MakeCtrlBtn("⏭", false);
+            btnNext.Size = new Size(44, 44);
+            btnNext.Font = new Font("Segoe UI", 18F);
+            btnNext.Click += async (s, e) => await ChangeTrack(1);
+
+            // ── SHUFFLE ───────────────────────────────────────────────────────
+            btnShuffle = MakeCtrlBtn("⇄", false);
+            btnShuffle.Size = new Size(40, 40);
+            btnShuffle.Font = new Font("Segoe UI", 16F);
+            btnShuffle.Click += (s, e) => ToggleShuffle();
+
+            // ── REPEAT ────────────────────────────────────────────────────────
+            // 3 estados visuales distintos:
+            //   OFF  → ↻  gris   (no repetir)
+            //   ALL  → ↻  verde  (repetir lista — con número de pistas)
+            //   ONE  → ➀  ámbar  (repetir una canción — ícono completamente diferente)
+            btnRepeat = MakeCtrlBtn("↻", false);
+            btnRepeat.Size = new Size(40, 40);
+            btnRepeat.Font = new Font("Segoe UI", 16F);
+            btnRepeat.Click += (s, e) => ToggleRepeat();
+            new ToolTip().SetToolTip(btnRepeat, "Repetir: OFF");
+
+            // ── Posicionar grupo central mediante Resize ──────────────────────
+            controlBar.Resize += (s, e) =>
+            {
+                int cy = (controlBar.Height - btnPlay.Height) / 2;
+                int centerX = controlBar.Width / 2;
+
+                btnPlay.Location = new Point(centerX - btnPlay.Width / 2, cy);
+                btnPrev.Location = new Point(centerX - btnPlay.Width / 2 - 56, cy + 6);
+                btnNext.Location = new Point(centerX + btnPlay.Width / 2 + 12, cy + 6);
+                btnShuffle.Location = new Point(centerX - btnPlay.Width / 2 - 108, cy + 8);
+                btnRepeat.Location = new Point(centerX + btnPlay.Width / 2 + 68, cy + 8);
+            };
+
+            controlBar.Controls.AddRange(new Control[] { btnShuffle, btnPrev, btnPlay, btnNext, btnRepeat });
+
+            // ── VOLUMEN (grupo derecho) ───────────────────────────────────────
+            btnMute = MakeCtrlBtn("🔉", false);
+            btnMute.Size = new Size(38, 38);
+            btnMute.Font = new Font("Segoe UI", 16F);
+            btnMute.Click += (s, e) => ToggleMute();
+
+            volBar = new TrackBar
+            {
+                Size = new Size(100, 30),
+                Minimum = 0,
+                Maximum = 100,
+                Value = 70,
+                TickStyle = TickStyle.None,
+                BackColor = ControlBarBg
+            };
+            volBar.ValueChanged += (s, e) =>
+            {
+                if (outputDevice != null) outputDevice.Volume = volBar.Value / 100f;
+                if (lblVolPct != null) lblVolPct.Text = $"{volBar.Value}%";
+            };
+
+            lblVolPct = new Label
+            {
+                Text = "70%",
+                Width = 36,
+                Height = 22,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.FontMonoSmall,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            // ── GRABACIÓN (grupo derecho, extremo) ───────────────────────────
             btnRecordAudio = new Button
             {
-                Text = "🎙 Grabar",
-                Location = new Point(cx, 12),
-                Size = new Size(82, 36),
-                BackColor = Color.FromArgb(50, 14, 14),
-                ForeColor = Color.FromArgb(220, 80, 80),
+                Text = "🎙",
+                Size = new Size(38, 38),
+                BackColor = Theme.CoralDim,
+                ForeColor = Theme.Coral,
                 FlatStyle = FlatStyle.Flat,
-                Font = Theme.FontBody,
-                Cursor = Cursors.Hand
+                Font = new Font("Segoe UI", 15F),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
             };
-            btnRecordAudio.FlatAppearance.BorderColor = Color.FromArgb(180, 60, 60);
+            btnRecordAudio.FlatAppearance.BorderSize = 1;
+            btnRecordAudio.FlatAppearance.BorderColor = Color.FromArgb(248, 113, 113, 80);
+            btnRecordAudio.FlatAppearance.MouseOverBackColor = Color.FromArgb(100, 40, 40);
             btnRecordAudio.Click += BtnRecordAudio_Click;
-            controlBar.Controls.Add(btnRecordAudio); cx += 86;
+            new ToolTip().SetToolTip(btnRecordAudio, "Grabar audio del micrófono");
 
             btnStopRecordAudio = new Button
             {
-                Text = "⏹ Detener",
-                Location = new Point(cx, 12),
-                Size = new Size(90, 36),
-                BackColor = Color.FromArgb(34, 34, 42),
+                Text = "⏹",
+                Size = new Size(38, 38),
+                BackColor = Theme.BgElevated,
                 ForeColor = Theme.TextMuted,
                 FlatStyle = FlatStyle.Flat,
-                Font = Theme.FontBody,
+                Font = new Font("Segoe UI", 15F),
                 Cursor = Cursors.Hand,
-                Enabled = false
+                Enabled = false,
+                TextAlign = ContentAlignment.MiddleCenter
             };
+            btnStopRecordAudio.FlatAppearance.BorderSize = 1;
             btnStopRecordAudio.FlatAppearance.BorderColor = Theme.Border;
+            btnStopRecordAudio.FlatAppearance.MouseOverBackColor = Theme.BgHover;
             btnStopRecordAudio.Click += BtnStopRecordAudio_Click;
-            controlBar.Controls.Add(btnStopRecordAudio); cx += 94;
+            new ToolTip().SetToolTip(btnStopRecordAudio, "Detener grabación");
 
             lblRecordStatus = new Label
             {
                 Text = "",
-                Location = new Point(cx, 18),
-                Size = new Size(150, 22),
-                ForeColor = Color.FromArgb(220, 80, 80),
+                Width = 72,
+                Height = 22,
+                ForeColor = Theme.Coral,
                 Font = Theme.FontMonoSmall,
-                BackColor = Color.Transparent
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft
             };
-            controlBar.Controls.Add(lblRecordStatus);
 
-            Controls.Add(grid); Controls.Add(rightPanel); Controls.Add(progressPanel); Controls.Add(controlBar); Controls.Add(topBar);
+            // Posicionar grupo derecho mediante Resize
+            controlBar.Resize += (s, e) =>
+            {
+                int ry = (controlBar.Height - 38) / 2;
+                int rx = controlBar.Width - 14;
+
+                lblRecordStatus.Location = new Point(rx - lblRecordStatus.Width, ry + 8);
+                rx -= lblRecordStatus.Width + 2;
+                btnStopRecordAudio.Location = new Point(rx - 38, ry);
+                rx -= 44;
+                btnRecordAudio.Location = new Point(rx - 38, ry);
+                rx -= 48;
+
+                // separador visual (solo reposiciona, no dibuja)
+                rx -= 12;
+
+                lblVolPct.Location = new Point(rx - 36, ry + 8);
+                rx -= 40;
+                volBar.Location = new Point(rx - 100, ry + 4);
+                rx -= 106;
+                btnMute.Location = new Point(rx - 38, ry);
+            };
+
+            controlBar.Controls.AddRange(new Control[]
+            {
+                btnMute, volBar, lblVolPct,
+                btnRecordAudio, btnStopRecordAudio, lblRecordStatus
+            });
         }
 
-        private Button AddCtrlBtn(string text, ref int x)
+        // ── Estilo Spotify para el grid ──────────────────────────────────────
+        private void StyleMusicGrid()
         {
-            var btn = Theme.MakeIconButton(text);
-            btn.Location = new Point(x, 14); btn.Size = new Size(36, 32);
-            controlBar.Controls.Add(btn); x += 40; return btn;
+            grid.BackgroundColor = Theme.BgBase;
+            grid.GridColor = Color.FromArgb(255, 255, 255, 6);
+            grid.BorderStyle = BorderStyle.None;
+            grid.EnableHeadersVisualStyles = false;
+            grid.ColumnHeadersHeight = 36;
+            grid.RowTemplate.Height = 52;   // filas más altas para el estilo Spotify
+            grid.AllowUserToAddRows = false;
+
+            grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(18, 20, 28),
+                ForeColor = Theme.TextMuted,
+                Font = Theme.FontSmallBold,
+                SelectionBackColor = Color.FromArgb(18, 20, 28),
+                SelectionForeColor = Theme.TextMuted,
+                Padding = new Padding(10, 0, 0, 0)
+            };
+            grid.DefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Theme.BgBase,
+                ForeColor = Theme.TextPrimary,
+                Font = Theme.FontBody,
+                SelectionBackColor = TrackHoverBg,
+                SelectionForeColor = Theme.TextPrimary,
+                Padding = new Padding(10, 0, 0, 0)
+            };
+            grid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(16, 18, 24),
+                ForeColor = Theme.TextPrimary,
+                SelectionBackColor = TrackHoverBg,
+                SelectionForeColor = Theme.TextPrimary
+            };
+        }
+
+        // ── Resaltado de la canción en reproducción ──────────────────────────
+        private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0) return;
+            bool isPlaying = e.RowIndex == currentIndex;
+
+            if (isPlaying)
+            {
+                e.CellStyle.BackColor = TrackPlayingBg;
+                e.CellStyle.SelectionBackColor = TrackPlayingBg;
+
+                // Columna "#" muestra el ícono de onda en lugar del número
+                if (grid.Columns[e.ColumnIndex].Name == "Num")
+                {
+                    e.Value = "▶";
+                    e.FormattingApplied = true;
+                    e.CellStyle.ForeColor = SpotifyGreen;
+                    e.CellStyle.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+                }
+                else
+                {
+                    e.CellStyle.ForeColor = Theme.TextPrimary;
+                    // Título en verde Spotify
+                    if (grid.Columns[e.ColumnIndex].Name == "Title")
+                        e.CellStyle.ForeColor = SpotifyGreen;
+                }
+            }
+            else
+            {
+                // Columna "#" muestra el número de pista
+                if (grid.Columns[e.ColumnIndex].Name == "Num")
+                {
+                    e.Value = (e.RowIndex + 1).ToString();
+                    e.FormattingApplied = true;
+                    e.CellStyle.ForeColor = Theme.TextMuted;
+                    e.CellStyle.Font = Theme.FontSmall;
+                }
+            }
+        }
+
+        // ── Factory buttons ──────────────────────────────────────────────────
+        private static Button MakeTopBtn(string text)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                AutoSize = false,
+                Width = 120,
+                Height = 32,
+                BackColor = Theme.BgElevated,
+                ForeColor = Theme.TextSecondary,
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontSmall,
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderColor = Theme.Border;
+            btn.FlatAppearance.BorderSize = 1;
+            btn.FlatAppearance.MouseOverBackColor = Theme.BgHover;
+            return btn;
+        }
+
+        private static Button MakeCtrlBtn(string text, bool active)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Size = new Size(30, 30),
+                BackColor = Color.Transparent,
+                ForeColor = active ? SpotifyGreen : Theme.TextSecondary,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 15F),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            btn.FlatAppearance.MouseOverBackColor = Color.Transparent;
+            return btn;
+        }
+
+        private static Button MakeSmallBtn(string text, Color bg, Color fg)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Height = 30,
+                BackColor = bg,
+                ForeColor = fg,
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontSmall,
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderSize = 1;
+            btn.FlatAppearance.BorderColor = fg;
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(fg.R / 2, fg.G / 2, fg.B / 2);
+            return btn;
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CARGAR
+        //  CARGAR CARPETA
         // ════════════════════════════════════════════════════════════════════
         private void LoadFolder(string filePath)
         {
-            string? dir = Path.GetDirectoryName(filePath); if (dir == null) return;
+            string? dir = Path.GetDirectoryName(filePath);
+            if (dir == null) return;
             grid.Rows.Clear();
-            var audioFiles = Directory.GetFiles(dir).Where(f => SupportedExtensions.Contains(Path.GetExtension(f).ToLower())).OrderBy(f => f).ToList();
+            var audioFiles = Directory.GetFiles(dir)
+                .Where(f => SupportedExtensions.Contains(Path.GetExtension(f).ToLower()))
+                .OrderBy(f => f).ToList();
             int target = 0;
-            for (int i = 0; i < audioFiles.Count; i++) { AddFileToGrid(audioFiles[i]); if (audioFiles[i].Equals(filePath, StringComparison.OrdinalIgnoreCase)) target = i; }
-            if (grid.Rows.Count > 0) { currentIndex = target; _ = PlayTrack(currentIndex); }
+            for (int i = 0; i < audioFiles.Count; i++)
+            {
+                AddFileToGrid(audioFiles[i]);
+                if (audioFiles[i].Equals(filePath, StringComparison.OrdinalIgnoreCase)) target = i;
+            }
+            if (grid.Rows.Count > 0)
+            {
+                currentIndex = target;
+                _ = PlayTrack(currentIndex);
+            }
         }
 
         private void AddFileToGrid(string path)
         {
-            try { var tag = TagFile.Create(path); grid.Rows.Add(CleanTitle(tag.Tag.Title ?? Path.GetFileNameWithoutExtension(path)), CleanArtist(tag.Tag.FirstPerformer ?? "—"), tag.Tag.Album ?? "—", tag.Properties.Duration.ToString(@"mm\:ss"), path); }
-            catch { grid.Rows.Add(Path.GetFileNameWithoutExtension(path), "—", "", "—", path); }
+            try
+            {
+                var tag = TagFile.Create(path);
+                grid.Rows.Add(
+                    (grid.Rows.Count + 1).ToString(),
+                    CleanTitle(tag.Tag.Title ?? Path.GetFileNameWithoutExtension(path)),
+                    CleanArtist(tag.Tag.FirstPerformer ?? "—"),
+                    tag.Tag.Album ?? "—",
+                    tag.Properties.Duration.ToString(@"mm\:ss"),
+                    path);
+            }
+            catch
+            {
+                grid.Rows.Add(
+                    (grid.Rows.Count + 1).ToString(),
+                    Path.GetFileNameWithoutExtension(path),
+                    "—", "", "—", path);
+            }
         }
 
         private void AddFilesDialog()
         {
-            using var dlg = new OpenFileDialog { Title = "Agregar audio", Filter = "Audio|*.mp3;*.wav;*.flac;*.m4a;*.aac;*.ogg|Todos|*.*", Multiselect = true };
+            using var dlg = new OpenFileDialog
+            {
+                Title = "Agregar audio",
+                Filter = "Audio|*.mp3;*.wav;*.flac;*.m4a;*.aac;*.ogg|Todos|*.*",
+                Multiselect = true
+            };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            foreach (string f in dlg.FileNames) if (SupportedExtensions.Contains(Path.GetExtension(f).ToLower())) AddFileToGrid(f);
+            foreach (string f in dlg.FileNames)
+                if (SupportedExtensions.Contains(Path.GetExtension(f).ToLower())) AddFileToGrid(f);
         }
 
         private void OpenFolderDialog()
@@ -219,7 +684,10 @@ namespace FileExplorerr
             using var dlg = new FolderBrowserDialog { Description = "Carpeta con música" };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
             StopPlayback(); grid.Rows.Clear(); currentIndex = -1;
-            foreach (string f in Directory.GetFiles(dlg.SelectedPath).Where(f => SupportedExtensions.Contains(Path.GetExtension(f).ToLower())).OrderBy(f => f)) AddFileToGrid(f);
+            foreach (string f in Directory.GetFiles(dlg.SelectedPath)
+                .Where(f => SupportedExtensions.Contains(Path.GetExtension(f).ToLower()))
+                .OrderBy(f => f))
+                AddFileToGrid(f);
             if (grid.Rows.Count > 0) { currentIndex = 0; _ = PlayTrack(0); }
         }
 
@@ -233,37 +701,63 @@ namespace FileExplorerr
             string path = grid.Rows[index].Cells["Path"].Value?.ToString() ?? "";
             if (!File.Exists(path)) return;
             currentIndex = index;
-            grid.ClearSelection(); grid.Rows[index].Selected = true;
-            if (grid.Rows[index].Cells[0].Visible) grid.CurrentCell = grid.Rows[index].Cells[0];
-            lblNowPlaying.Text = grid.Rows[index].Cells["Title"].Value?.ToString() ?? "";
-            lblArtist.Text = grid.Rows[index].Cells["Artist"].Value?.ToString() ?? "";
-            Text = $"Música — {lblNowPlaying.Text}";
+
+            // Resaltar fila en el grid
+            grid.ClearSelection();
+            grid.Rows[index].Selected = true;
+            if (grid.FirstDisplayedScrollingRowIndex > index || index >= grid.FirstDisplayedScrollingRowIndex + grid.DisplayedRowCount(false))
+                grid.FirstDisplayedScrollingRowIndex = Math.Max(0, index - 2);
+            grid.Invalidate(); // refresca el CellFormatting
+
+            // Actualizar info en topbar
+            string title = grid.Rows[index].Cells["Title"].Value?.ToString() ?? "";
+            string artist = grid.Rows[index].Cells["Artist"].Value?.ToString() ?? "";
+            string album = grid.Rows[index].Cells["Album"].Value?.ToString() ?? "";
+            lblNowPlaying.Text = title;
+            lblAlbum.Text = $"{artist}  ·  {album}";
+            lblArtist.Text = artist;
+            Text = $"Música — {title}";
             lyricsBox.Text = "";
+
             await LoadCover(path);
+
             try
             {
                 audioFile = new AudioFileReader(path);
                 outputDevice = new WaveOutEvent();
                 outputDevice.Init(audioFile);
-                outputDevice.Volume = volBar.Value / 100f;
+                outputDevice.Volume = isMuted ? 0 : volBar.Value / 100f;
                 outputDevice.Play();
                 seekBar.Maximum = 1000;
                 lblDuration.Text = FormatTime(audioFile.TotalTime.TotalSeconds);
                 SetPlayState(true);
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void StopPlayback()
         {
-            outputDevice?.Stop(); outputDevice?.Dispose(); outputDevice = null;
-            audioFile?.Dispose(); audioFile = null;
-            seekBar.Value = 0; lblTime.Text = "0:00"; SetPlayState(false);
+            outputDevice?.Stop();
+            outputDevice?.Dispose();
+            outputDevice = null;
+            audioFile?.Dispose();
+            audioFile = null;
+            seekBar.Value = 0;
+            lblTime.Text = "0:00";
+            SetPlayState(false);
         }
 
         private async Task TogglePlay()
         {
-            if (outputDevice == null || audioFile == null) { if (grid.Rows.Count > 0) await PlayTrack(grid.SelectedRows.Count > 0 ? grid.SelectedRows[0].Index : 0); return; }
+            if (outputDevice == null || audioFile == null)
+            {
+                if (grid.Rows.Count > 0)
+                    await PlayTrack(grid.SelectedRows.Count > 0 ? grid.SelectedRows[0].Index : 0);
+                return;
+            }
             if (outputDevice.PlaybackState == PlaybackState.Playing) { outputDevice.Pause(); SetPlayState(false); }
             else { outputDevice.Play(); SetPlayState(true); }
         }
@@ -275,7 +769,11 @@ namespace FileExplorerr
             if (shuffleMode)
             {
                 if (shuffleOrder == null || shuffleOrder.Length != grid.Rows.Count) GenerateShuffleOrder();
-                if (shufflePos >= shuffleOrder!.Length) { if (repeatMode == 0) { StopPlayback(); return; } GenerateShuffleOrder(); }
+                if (shufflePos >= shuffleOrder!.Length)
+                {
+                    if (repeatMode == 0) { StopPlayback(); return; }
+                    GenerateShuffleOrder();
+                }
                 currentIndex = shuffleOrder![shufflePos++];
             }
             else
@@ -288,35 +786,135 @@ namespace FileExplorerr
             await PlayTrack(currentIndex);
         }
 
-        private void SetPlayState(bool playing) { btnPlay.Text = playing ? "⏸" : "▶"; btnPlay.BackColor = playing ? Theme.WarningDim : Theme.AccentDim; btnPlay.FlatAppearance.BorderColor = playing ? Theme.Warning : Theme.Accent; }
+        private void SetPlayState(bool playing)
+        {
+            btnPlay.Text = playing ? "⏸" : "▶";
+            btnPlay.BackColor = SpotifyGreen;
+        }
 
         private void UiTimer_Tick(object? sender, EventArgs e)
         {
             if (audioFile == null || outputDevice == null) return;
-            if (!isDraggingSeek) { double pos = audioFile.CurrentTime.TotalSeconds, dur = audioFile.TotalTime.TotalSeconds; if (dur > 0) seekBar.Value = Math.Min(seekBar.Maximum, (int)(pos / dur * 1000)); lblTime.Text = FormatTime(pos); }
-            if (audioFile.TotalTime.TotalSeconds - audioFile.CurrentTime.TotalSeconds <= 0.8 && outputDevice.PlaybackState == PlaybackState.Playing)
-            { outputDevice.Pause(); BeginInvoke(async () => await ChangeTrack(1)); }
+            if (!isDraggingSeek)
+            {
+                double pos = audioFile.CurrentTime.TotalSeconds;
+                double dur = audioFile.TotalTime.TotalSeconds;
+                if (dur > 0) seekBar.Value = Math.Min(seekBar.Maximum, (int)(pos / dur * 1000));
+                lblTime.Text = FormatTime(pos);
+            }
+            if (audioFile.TotalTime.TotalSeconds - audioFile.CurrentTime.TotalSeconds <= 0.8
+                && outputDevice.PlaybackState == PlaybackState.Playing)
+            {
+                outputDevice.Pause();
+                BeginInvoke(async () => await ChangeTrack(1));
+            }
         }
 
-        private void ToggleShuffle() { shuffleMode = !shuffleMode; btnShuffle.BackColor = shuffleMode ? Theme.AccentBg : Theme.BgElevated; btnShuffle.ForeColor = shuffleMode ? Theme.Accent : Theme.TextMuted; if (shuffleMode) GenerateShuffleOrder(); }
-        private void ToggleRepeat() { repeatMode = (repeatMode + 1) % 3; btnRepeat.Text = repeatMode == 2 ? "↺" : "↻"; btnRepeat.BackColor = repeatMode > 0 ? Theme.AccentBg : Theme.BgElevated; btnRepeat.ForeColor = repeatMode > 0 ? Theme.Accent : Theme.TextMuted; }
-        private void GenerateShuffleOrder() { var rng = new Random(); shuffleOrder = Enumerable.Range(0, grid.Rows.Count).OrderBy(_ => rng.Next()).ToArray(); shufflePos = 0; }
+        private void ToggleShuffle()
+        {
+            shuffleMode = !shuffleMode;
+            btnShuffle.ForeColor = shuffleMode ? SpotifyGreen : Theme.TextSecondary;
+            btnShuffle.BackColor = shuffleMode ? SpotifyGreenDim : Color.Transparent;
+            btnShuffle.Font = shuffleMode
+                ? new Font("Segoe UI", 16F, FontStyle.Bold)
+                : new Font("Segoe UI", 16F);
+            new ToolTip().SetToolTip(btnShuffle, shuffleMode ? "Aleatorio: ON" : "Aleatorio: OFF");
+            if (shuffleMode) GenerateShuffleOrder();
+        }
+
+        private void ToggleRepeat()
+        {
+            repeatMode = (repeatMode + 1) % 3;
+            switch (repeatMode)
+            {
+                case 0: // OFF — ↻ gris, sin fondo
+                    btnRepeat.Text = "↻";
+                    btnRepeat.ForeColor = Theme.TextMuted;
+                    btnRepeat.BackColor = Color.Transparent;
+                    btnRepeat.Font = new Font("Segoe UI", 16F);
+                    new ToolTip().SetToolTip(btnRepeat, "Repetir: OFF");
+                    break;
+
+                case 1: // REPETIR LISTA — ↻ verde con punto indicador
+                    btnRepeat.Text = "↻";
+                    btnRepeat.ForeColor = SpotifyGreen;
+                    btnRepeat.BackColor = SpotifyGreenDim;
+                    btnRepeat.Font = new Font("Segoe UI", 16F, FontStyle.Bold);
+                    new ToolTip().SetToolTip(btnRepeat, "Repetir lista completa");
+                    break;
+
+                case 2: // REPETIR UNA — ícono completamente diferente, ámbar
+                    btnRepeat.Text = "🔂";   // ícono de "repeat one" universal
+                    btnRepeat.ForeColor = Theme.Amber;
+                    btnRepeat.BackColor = Theme.AmberDim;
+                    btnRepeat.Font = new Font("Segoe UI", 14F);
+                    new ToolTip().SetToolTip(btnRepeat, "Repetir esta canción");
+                    break;
+            }
+        }
+
+        private void ToggleMute()
+        {
+            isMuted = !isMuted;
+            if (outputDevice != null) outputDevice.Volume = isMuted ? 0 : volBar.Value / 100f;
+            btnMute.ForeColor = isMuted ? Theme.Coral : Theme.TextSecondary;
+            btnMute.Text = isMuted ? "🔇" : "🔉";
+        }
+
+        private void GenerateShuffleOrder()
+        {
+            var rng = new Random();
+            shuffleOrder = Enumerable.Range(0, grid.Rows.Count).OrderBy(_ => rng.Next()).ToArray();
+            shufflePos = 0;
+        }
 
         // ════════════════════════════════════════════════════════════════════
-        //  COVER / LETRA
+        //  CARÁTULA / LETRA
         // ════════════════════════════════════════════════════════════════════
         private async Task LoadCover(string path)
         {
             coverBox.Image?.Dispose(); coverBox.Image = null;
-            try { var tag = TagFile.Create(path); if (tag.Tag.Pictures.Length > 0) { using var ms = new MemoryStream(tag.Tag.Pictures[0].Data.Data); coverBox.Image = System.Drawing.Image.FromStream(ms); return; } } catch { }
             try
             {
-                string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? ""; string title = grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "";
+                var tag = TagFile.Create(path);
+                if (tag.Tag.Pictures.Length > 0)
+                {
+                    using var ms = new System.IO.MemoryStream(tag.Tag.Pictures[0].Data.Data);
+                    coverBox.Image = System.Drawing.Image.FromStream(ms);
+                    return;
+                }
+            }
+            catch { }
+            try
+            {
+                string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? "";
+                string title = grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "";
                 if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title)) return;
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) }; client.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0");
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                client.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0");
                 string json = await client.GetStringAsync($"https://itunes.apple.com/search?term={Uri.EscapeDataString($"{artist} {title}")}&limit=3&entity=song");
-                using var doc = JsonDocument.Parse(json); var results = doc.RootElement.GetProperty("results");
-                if (results.GetArrayLength() > 0) { string coverUrl = results[0].GetProperty("artworkUrl100").GetString()!.Replace("100x100", "600x600"); byte[] imgData = await client.GetByteArrayAsync(coverUrl); using var ms = new MemoryStream(imgData); coverBox.Image = System.Drawing.Image.FromStream(ms); await Task.Run(() => { try { var mp3 = TagFile.Create(path); mp3.Tag.Pictures = new TagLib.IPicture[] { new TagLib.Picture(imgData) { Type = TagLib.PictureType.FrontCover, MimeType = "image/png" } }; mp3.Save(); } catch { } }); }
+                using var doc = JsonDocument.Parse(json);
+                var results = doc.RootElement.GetProperty("results");
+                if (results.GetArrayLength() > 0)
+                {
+                    string coverUrl = results[0].GetProperty("artworkUrl100").GetString()!.Replace("100x100", "600x600");
+                    byte[] imgData = await client.GetByteArrayAsync(coverUrl);
+                    using var ms = new System.IO.MemoryStream(imgData);
+                    coverBox.Image = System.Drawing.Image.FromStream(ms);
+                    await Task.Run(() =>
+                    {
+                        try
+                        {
+                            var mp3 = TagFile.Create(path);
+                            mp3.Tag.Pictures = new TagLib.IPicture[]
+                            {
+                                new TagLib.Picture(imgData) { Type = TagLib.PictureType.FrontCover, MimeType = "image/png" }
+                            };
+                            mp3.Save();
+                        }
+                        catch { }
+                    });
+                }
             }
             catch { }
         }
@@ -324,10 +922,22 @@ namespace FileExplorerr
         private async Task SearchLyrics()
         {
             if (currentIndex < 0 || currentIndex >= grid.Rows.Count) return;
-            string artist = NormalizeForSearch(grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? ""); string title = NormalizeForSearch(grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "");
-            if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title)) { lyricsBox.Text = "Sin datos."; return; }
+            string artist = NormalizeForSearch(grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? "");
+            string title = NormalizeForSearch(grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "");
+            if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
+            { lyricsBox.Text = "Sin datos."; return; }
             lyricsBox.Text = "Buscando..."; btnLyrics.Enabled = false;
-            try { using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) }; client.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0"); var response = await client.GetAsync($"https://lrclib.net/api/get?artist_name={Uri.EscapeDataString(artist)}&track_name={Uri.EscapeDataString(title)}"); if (!response.IsSuccessStatusCode) { lyricsBox.Text = "No encontrada."; return; } using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()); lyricsBox.Text = doc.RootElement.TryGetProperty("plainLyrics", out var lyr) && !string.IsNullOrWhiteSpace(lyr.GetString()) ? lyr.GetString()! : "No encontrada."; }
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                client.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0");
+                var response = await client.GetAsync($"https://lrclib.net/api/get?artist_name={Uri.EscapeDataString(artist)}&track_name={Uri.EscapeDataString(title)}");
+                if (!response.IsSuccessStatusCode) { lyricsBox.Text = "No encontrada."; return; }
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                lyricsBox.Text = doc.RootElement.TryGetProperty("plainLyrics", out var lyr) && !string.IsNullOrWhiteSpace(lyr.GetString())
+                    ? lyr.GetString()!
+                    : "No encontrada.";
+            }
             catch (Exception ex) { lyricsBox.Text = $"Error: {ex.Message}"; }
             finally { btnLyrics.Enabled = true; }
         }
@@ -338,20 +948,36 @@ namespace FileExplorerr
         private void SavePlaylist()
         {
             if (grid.Rows.Count == 0) { MessageBox.Show("No hay canciones.", "Sin canciones", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-            using var dlg = new SaveFileDialog { Title = "Guardar Playlist", Filter = "Playlist (*.txt)|*.txt|Todos|*.*", FileName = "playlist.txt" };
+            using var dlg = new SaveFileDialog { Title = "Guardar Playlist", Filter = "Playlist (*.txt)|*.txt", FileName = "playlist.txt" };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { var rutas = new List<string>(); foreach (DataGridViewRow row in grid.Rows) { string? ruta = row.Cells["Path"].Value?.ToString(); if (!string.IsNullOrEmpty(ruta)) rutas.Add(ruta); } File.WriteAllLines(dlg.FileName, rutas, System.Text.Encoding.UTF8); MessageBox.Show($"Playlist guardada:\n{dlg.FileName}\n\n{rutas.Count} canción(es)", "Guardado", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+            try
+            {
+                var rutas = new List<string>();
+                foreach (DataGridViewRow row in grid.Rows)
+                {
+                    string? ruta = row.Cells["Path"].Value?.ToString();
+                    if (!string.IsNullOrEmpty(ruta)) rutas.Add(ruta);
+                }
+                File.WriteAllLines(dlg.FileName, rutas, System.Text.Encoding.UTF8);
+                MessageBox.Show($"Playlist guardada:\n{dlg.FileName}\n\n{rutas.Count} canción(es)", "Guardado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
             catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         private void LoadPlaylist()
         {
-            using var dlg = new OpenFileDialog { Title = "Cargar Playlist", Filter = "Playlist (*.txt)|*.txt|Todos|*.*" };
+            using var dlg = new OpenFileDialog { Title = "Cargar Playlist", Filter = "Playlist (*.txt)|*.txt" };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
             try
             {
                 StopPlayback(); grid.Rows.Clear(); currentIndex = -1; int cargadas = 0;
-                foreach (string linea in File.ReadAllLines(dlg.FileName)) { string ruta = linea.Trim(); if (string.IsNullOrEmpty(ruta) || !File.Exists(ruta)) continue; if (!SupportedExtensions.Contains(Path.GetExtension(ruta).ToLower())) continue; AddFileToGrid(ruta); cargadas++; }
+                foreach (string linea in File.ReadAllLines(dlg.FileName))
+                {
+                    string ruta = linea.Trim();
+                    if (string.IsNullOrEmpty(ruta) || !File.Exists(ruta)) continue;
+                    if (!SupportedExtensions.Contains(Path.GetExtension(ruta).ToLower())) continue;
+                    AddFileToGrid(ruta); cargadas++;
+                }
                 if (grid.Rows.Count > 0) { currentIndex = 0; _ = PlayTrack(0); }
                 lblNowPlaying.Text = cargadas > 0 ? $"Playlist cargada — {cargadas} canción(es)" : "No se encontraron archivos válidos";
             }
@@ -364,14 +990,32 @@ namespace FileExplorerr
         private async Task EditTags()
         {
             if (grid.Rows.Count == 0 || grid.SelectedRows.Count == 0) return;
-            int idx = grid.SelectedRows[0].Index; string path = grid.Rows[idx].Cells["Path"].Value?.ToString() ?? ""; if (!File.Exists(path)) return;
+            int idx = grid.SelectedRows[0].Index;
+            string path = grid.Rows[idx].Cells["Path"].Value?.ToString() ?? "";
+            if (!File.Exists(path)) return;
             bool wasPlaying = audioFile != null && idx == currentIndex && outputDevice?.PlaybackState == PlaybackState.Playing;
             if (audioFile != null && idx == currentIndex) StopPlayback();
             try
             {
                 var tag = TagFile.Create(path);
-                using var dlg = new TagEditDialog(tag.Tag.Title ?? "", tag.Tag.FirstPerformer ?? "", tag.Tag.Album ?? "", tag.Tag.Year, tag.Tag.Track, tag.Tag.Genres?.Length > 0 ? tag.Tag.Genres[0] : "");
-                if (dlg.ShowDialog(this) == DialogResult.OK) { tag.Tag.Title = dlg.Titulo; tag.Tag.Performers = new[] { dlg.Artista }; tag.Tag.Album = dlg.Album; tag.Tag.Year = dlg.Anio; tag.Tag.Track = dlg.NumPista; if (!string.IsNullOrWhiteSpace(dlg.Genero)) tag.Tag.Genres = new[] { dlg.Genero }; tag.Save(); grid.Rows[idx].Cells["Title"].Value = dlg.Titulo; grid.Rows[idx].Cells["Artist"].Value = dlg.Artista; grid.Rows[idx].Cells["Album"].Value = dlg.Album; if (idx == currentIndex) lblNowPlaying.Text = dlg.Titulo; }
+                using var dlg = new TagEditDialog(
+                    tag.Tag.Title ?? "", tag.Tag.FirstPerformer ?? "",
+                    tag.Tag.Album ?? "", tag.Tag.Year, tag.Tag.Track,
+                    tag.Tag.Genres?.Length > 0 ? tag.Tag.Genres[0] : "");
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    tag.Tag.Title = dlg.Titulo;
+                    tag.Tag.Performers = new[] { dlg.Artista };
+                    tag.Tag.Album = dlg.Album;
+                    tag.Tag.Year = dlg.Anio;
+                    tag.Tag.Track = dlg.NumPista;
+                    if (!string.IsNullOrWhiteSpace(dlg.Genero)) tag.Tag.Genres = new[] { dlg.Genero };
+                    tag.Save();
+                    grid.Rows[idx].Cells["Title"].Value = dlg.Titulo;
+                    grid.Rows[idx].Cells["Artist"].Value = dlg.Artista;
+                    grid.Rows[idx].Cells["Album"].Value = dlg.Album;
+                    if (idx == currentIndex) lblNowPlaying.Text = dlg.Titulo;
+                }
                 if (wasPlaying) await PlayTrack(currentIndex);
             }
             catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -381,7 +1025,8 @@ namespace FileExplorerr
         {
             if (grid.Rows.Count == 0 || grid.SelectedRows.Count == 0) return;
             int idx = grid.SelectedRows[0].Index;
-            if (MessageBox.Show($"¿Quitar de la lista?\n\n{grid.Rows[idx].Cells["Artist"].Value} — {grid.Rows[idx].Cells["Title"].Value}", "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (MessageBox.Show($"¿Quitar de la lista?\n\n{grid.Rows[idx].Cells["Artist"].Value} — {grid.Rows[idx].Cells["Title"].Value}",
+                "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             if (currentIndex == idx) { StopPlayback(); currentIndex = -1; }
             grid.Rows.RemoveAt(idx);
             if (currentIndex > idx) currentIndex--;
@@ -389,64 +1034,48 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  GRABACIÓN DE AUDIO — usando formato nativo del dispositivo
+        //  GRABACIÓN
         // ════════════════════════════════════════════════════════════════════
         private void BtnRecordAudio_Click(object? sender, EventArgs e)
         {
             if (isRecording) return;
-
-            // Verificar que haya al menos un dispositivo de entrada
             if (WaveIn.DeviceCount == 0)
             {
-                MessageBox.Show("No se encontró ningún micrófono.\nVerifica que esté conectado y tenga permisos en Configuración → Privacidad → Micrófono.", "Sin dispositivo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("No se encontró ningún micrófono.", "Sin dispositivo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-
             try
             {
-                // Leer las capacidades del dispositivo 0 para saber qué formatos soporta
                 var caps = WaveIn.GetCapabilities(0);
-
-                // Elegir el mejor formato que soporte el dispositivo
-                // Prioridad: estéreo 44100 > mono 44100 > estéreo 22050 > mono 22050 > mono 8000
                 WaveFormat formato;
                 if (caps.Channels >= 2 && caps.SupportsWaveFormat(SupportedWaveFormat.WAVE_FORMAT_44S16))
                     formato = new WaveFormat(44100, 16, 2);
                 else if (caps.SupportsWaveFormat(SupportedWaveFormat.WAVE_FORMAT_44M16))
                     formato = new WaveFormat(44100, 16, 1);
-                else if (caps.Channels >= 2 && caps.SupportsWaveFormat(SupportedWaveFormat.WAVE_FORMAT_2S16))
-                    formato = new WaveFormat(22050, 16, 2);
-                else if (caps.SupportsWaveFormat(SupportedWaveFormat.WAVE_FORMAT_2M16))
-                    formato = new WaveFormat(22050, 16, 1);
                 else
                     formato = new WaveFormat(8000, 16, 1);
 
                 recordFormat = formato;
                 recordedChunks.Clear();
-
-                waveIn = new WaveInEvent
-                {
-                    DeviceNumber = 0,
-                    WaveFormat = recordFormat,
-                    BufferMilliseconds = 100
-                };
+                waveIn = new WaveInEvent { DeviceNumber = 0, WaveFormat = recordFormat, BufferMilliseconds = 100 };
                 waveIn.DataAvailable += WaveIn_DataAvailable;
                 waveIn.RecordingStopped += WaveIn_RecordingStopped;
                 waveIn.StartRecording();
 
-                isRecording = true;
-                recordSeconds = 0;
-
+                isRecording = true; recordSeconds = 0;
                 recordTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-                recordTimer.Tick += (s2, e2) => { recordSeconds++; lblRecordStatus.Text = $"● REC {recordSeconds / 60:D2}:{recordSeconds % 60:D2}"; };
+                recordTimer.Tick += (s2, e2) =>
+                {
+                    recordSeconds++;
+                    lblRecordStatus.Text = $"● {recordSeconds / 60:D2}:{recordSeconds % 60:D2}";
+                };
                 recordTimer.Start();
 
                 btnRecordAudio.Enabled = false;
                 btnStopRecordAudio.Enabled = true;
-                btnStopRecordAudio.ForeColor = Color.FromArgb(220, 80, 80);
-                btnStopRecordAudio.FlatAppearance.BorderColor = Color.FromArgb(180, 60, 60);
-                lblRecordStatus.Text = "● REC 00:00";
-                lblNowPlaying.Text = $"🎙 Grabando — {caps.ProductName} ({recordFormat.SampleRate} Hz, {recordFormat.Channels}ch)";
+                btnStopRecordAudio.ForeColor = Theme.Coral;
+                lblRecordStatus.Text = "● 00:00";
+                lblNowPlaying.Text = "🎙 Grabando...";
             }
             catch (Exception ex)
             {
@@ -458,7 +1087,6 @@ namespace FileExplorerr
         private void WaveIn_DataAvailable(object? sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded <= 0) return;
-            // Copiar el buffer — NAudio lo reutiliza en el siguiente callback
             var copia = new byte[e.BytesRecorded];
             Buffer.BlockCopy(e.Buffer, 0, copia, 0, e.BytesRecorded);
             recordedChunks.Add(copia);
@@ -466,9 +1094,7 @@ namespace FileExplorerr
 
         private void WaveIn_RecordingStopped(object? sender, StoppedEventArgs e)
         {
-            // Volver al hilo UI para escribir el archivo
-            if (IsHandleCreated)
-                BeginInvoke(new Action(EscribirYReproducirGrabacion));
+            if (IsHandleCreated) BeginInvoke(new Action(EscribirYReproducirGrabacion));
         }
 
         private void BtnStopRecordAudio_Click(object? sender, EventArgs e)
@@ -479,43 +1105,25 @@ namespace FileExplorerr
 
         private void EscribirYReproducirGrabacion()
         {
-            recordTimer?.Stop();
-            recordTimer?.Dispose();
-            recordTimer = null!;
-
+            recordTimer?.Stop(); recordTimer?.Dispose(); recordTimer = null!;
             isRecording = false;
             LimpiarEstadoGrabacion();
 
             long totalBytes = recordedChunks.Sum(c => (long)c.Length);
             if (totalBytes < 4096 || recordFormat == null)
-            {
-                lblNowPlaying.Text = "Grabación vacía — verifica el micrófono.";
-                recordedChunks.Clear();
-                return;
-            }
+            { lblNowPlaying.Text = "Grabación vacía."; recordedChunks.Clear(); return; }
 
             try
             {
                 string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "GrabacionesFileExplorerr");
                 Directory.CreateDirectory(folder);
                 recordAudioPath = Path.Combine(folder, $"grabacion_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
-
-                // Escribir todos los chunks en el archivo y cerrar con using
-                // para que el header RIFF quede correctamente finalizado
                 using (var writer = new WaveFileWriter(recordAudioPath, recordFormat))
-                {
-                    foreach (var chunk in recordedChunks)
-                        writer.Write(chunk, 0, chunk.Length);
-                }   // <-- Close() se llama aquí dentro del Dispose(), esto finaliza el header
-
+                    foreach (var chunk in recordedChunks) writer.Write(chunk, 0, chunk.Length);
                 recordedChunks.Clear();
 
                 var fi = new FileInfo(recordAudioPath);
-                if (!fi.Exists || fi.Length < 1024)
-                {
-                    lblNowPlaying.Text = "Error: el archivo WAV quedó vacío.";
-                    return;
-                }
+                if (!fi.Exists || fi.Length < 1024) { lblNowPlaying.Text = "Error: el archivo WAV quedó vacío."; return; }
 
                 AddFileToGrid(recordAudioPath);
                 lblNowPlaying.Text = $"Grabado: {Path.GetFileName(recordAudioPath)} ({fi.Length / 1024} KB)";
@@ -532,11 +1140,9 @@ namespace FileExplorerr
         {
             try { waveIn?.Dispose(); } catch { }
             waveIn = null;
-
             btnRecordAudio.Enabled = true;
             btnStopRecordAudio.Enabled = false;
             btnStopRecordAudio.ForeColor = Theme.TextMuted;
-            btnStopRecordAudio.FlatAppearance.BorderColor = Theme.Border;
             lblRecordStatus.Text = "";
         }
 
@@ -558,10 +1164,37 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
-        private static string FormatTime(double secs) { var t = TimeSpan.FromSeconds(Math.Max(0, secs)); return t.Hours > 0 ? $"{t.Hours}:{t.Minutes:D2}:{t.Seconds:D2}" : $"{t.Minutes}:{t.Seconds:D2}"; }
-        private static string CleanArtist(string s) { if (string.IsNullOrWhiteSpace(s)) return "—"; return System.Text.RegularExpressions.Regex.Replace(s, @"\s*-?\s*(Topic|VEVO|Official)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(); }
-        private static string CleanTitle(string s) { if (string.IsNullOrWhiteSpace(s)) return "Sin título"; s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\([^)]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase); s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\[[^\]]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K)[^\]]*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase); return s.Trim(); }
-        private static string NormalizeForSearch(string s) { if (string.IsNullOrWhiteSpace(s)) return ""; s = s.ToLower().Trim(); foreach (var sep in new[] { " feat.", " feat ", " ft.", " ft ", " featuring " }) { int i = s.IndexOf(sep, StringComparison.OrdinalIgnoreCase); if (i > 0) { s = s.Substring(0, i); break; } } return s.Trim(); }
+        private static string FormatTime(double secs)
+        {
+            var t = TimeSpan.FromSeconds(Math.Max(0, secs));
+            return t.Hours > 0 ? $"{t.Hours}:{t.Minutes:D2}:{t.Seconds:D2}" : $"{t.Minutes}:{t.Seconds:D2}";
+        }
+
+        private static string CleanArtist(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "—";
+            return System.Text.RegularExpressions.Regex.Replace(s, @"\s*-?\s*(Topic|VEVO|Official)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        }
+
+        private static string CleanTitle(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "Sin título";
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\([^)]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\[[^\]]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K)[^\]]*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return s.Trim();
+        }
+
+        private static string NormalizeForSearch(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            s = s.ToLower().Trim();
+            foreach (var sep in new[] { " feat.", " feat ", " ft.", " ft ", " featuring " })
+            {
+                int i = s.IndexOf(sep, StringComparison.OrdinalIgnoreCase);
+                if (i > 0) { s = s.Substring(0, i); break; }
+            }
+            return s.Trim();
+        }
 
         protected override void Dispose(bool disposing)
         {

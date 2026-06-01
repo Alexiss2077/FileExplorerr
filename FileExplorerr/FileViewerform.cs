@@ -61,63 +61,212 @@ namespace FileExplorerr
 
         private List<(int Row, int ExpectedCols, int ActualCols)> columnMismatchDetails = new();
 
-        public FileViewerForm(string path) { filePath = path; ext = Path.GetExtension(path).ToLower(); BuildUI(); _ = LoadFileAsync(); }
+        public FileViewerForm(string path)
+        {
+            filePath = path;
+            ext = Path.GetExtension(path).ToLower();
+            BuildUI();
+            _ = LoadFileAsync();
+        }
 
         private void BuildUI()
         {
             Text = $"Visor — {Path.GetFileName(filePath)}";
-            Size = new Size(1000, 660);
-            MinimumSize = new Size(600, 400);
+            Size = new Size(1100, 700);
+            MinimumSize = new Size(700, 460);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.BgBase;
             ForeColor = Theme.TextPrimary;
 
             // ── Loading overlay ───────────────────────────────────────────────
-            loadingPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(200, 18, 18, 22), Visible = false };
-            loadingLabel = new Label { Text = "Cargando...", Font = Theme.FontBodyBold, ForeColor = Theme.Accent, BackColor = Color.Transparent, AutoSize = true };
+            loadingPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(200, 13, 15, 20), Visible = false };
+            loadingLabel = new Label
+            {
+                Text = "Cargando...",
+                Font = Theme.FontBodyBold,
+                ForeColor = Theme.Accent2,
+                BackColor = Color.Transparent,
+                AutoSize = true
+            };
             loadingPanel.Controls.Add(loadingLabel);
             loadingPanel.Resize += (s, e) => CenterLabel();
 
-            // ── Top ──────────────────────────────────────────────────────────
-            var topPanel = new Panel { Height = 40, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(12, 0, 0, 0) };
-            fileInfoLabel = new Label { Dock = DockStyle.Fill, Font = Theme.FontBody, ForeColor = Theme.TextSecondary, TextAlign = ContentAlignment.MiddleLeft };
+            // ── Top info bar ─────────────────────────────────────────────────
+            var topPanel = new Panel
+            {
+                Height = 42,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(14, 0, 0, 0)
+            };
+            fileInfoLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = Theme.FontBody,
+                ForeColor = Theme.TextSecondary,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
             topPanel.Controls.Add(fileInfoLabel);
 
-            // ── Filter ───────────────────────────────────────────────────────
-            filterPanel = new Panel { Height = 38, Dock = DockStyle.Top, BackColor = Theme.BgBase, Padding = new Padding(8, 4, 8, 4) };
-            filterColumnCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Theme.BgElevated, ForeColor = Theme.TextPrimary, Font = Theme.FontBody, Width = 150, Location = new Point(8, 7), FlatStyle = FlatStyle.Flat };
-            filterBox = Theme.MakeTextBox("Buscar..."); filterBox.Width = 240; filterBox.Location = new Point(168, 7);
+            // ── Filter bar ────────────────────────────────────────────────────
+            filterPanel = new Panel
+            {
+                Height = 44,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgBase,
+                Padding = new Padding(10, 6, 10, 6)
+            };
+
+            filterColumnCombo = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Theme.BgElevated,
+                ForeColor = Theme.TextPrimary,
+                Font = Theme.FontBody,
+                Width = 150,
+                Location = new Point(10, 7),
+                FlatStyle = FlatStyle.Flat
+            };
+
+            filterBox = new TextBox
+            {
+                BackColor = Theme.BgElevated,
+                ForeColor = Theme.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = Theme.FontBody,
+                PlaceholderText = "Buscar...",
+                Width = 250,
+                Location = new Point(168, 7),
+                Height = 30
+            };
             filterBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
-            var filterBtn = Theme.MakeButton("Buscar", 70, Theme.ButtonKind.Primary); filterBtn.Location = new Point(418, 5); filterBtn.Click += (s, e) => ApplyFilter();
-            var clearBtn = Theme.MakeButton("Limpiar", 70); clearBtn.Location = new Point(494, 5); clearBtn.Click += (s, e) => ClearFilter();
+
+            // Botones Buscar y Limpiar con ancho fijo suficiente
+            var filterBtn = new Button
+            {
+                Text = "Buscar",
+                Width = 80,
+                Height = 30,
+                Location = new Point(426, 7),
+                BackColor = Theme.AccentBg,
+                ForeColor = Theme.Accent2,
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontBody,
+                Cursor = Cursors.Hand
+            };
+            filterBtn.FlatAppearance.BorderColor = Color.FromArgb(124, 111, 247, 100);
+            filterBtn.Click += (s, e) => ApplyFilter();
+
+            var clearBtn = new Button
+            {
+                Text = "Limpiar",
+                Width = 80,
+                Height = 30,
+                Location = new Point(514, 7),
+                BackColor = Theme.BgElevated,
+                ForeColor = Theme.TextSecondary,
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontBody,
+                Cursor = Cursors.Hand
+            };
+            clearBtn.FlatAppearance.BorderColor = Theme.Border;
+            clearBtn.Click += (s, e) => ClearFilter();
+
             filterPanel.Controls.AddRange(new Control[] { filterColumnCombo, filterBox, filterBtn, clearBtn });
 
             // ── Grid ─────────────────────────────────────────────────────────
-            grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, RowHeadersVisible = true, RowHeadersWidth = 44, MultiSelect = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, ScrollBars = ScrollBars.Both };
+            grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                RowHeadersVisible = true,
+                RowHeadersWidth = 48,
+                MultiSelect = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
+                ScrollBars = ScrollBars.Both
+            };
             Theme.StyleGrid(grid);
-            grid.RowHeadersDefaultCellStyle = new DataGridViewCellStyle { BackColor = Theme.BgSurface, ForeColor = Theme.TextMuted, Font = Theme.FontSmall };
+            grid.RowHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Theme.BgSurface,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.FontSmall
+            };
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             grid.CellFormatting += Grid_CellFormatting;
             grid.ColumnHeaderMouseClick += (s, e) => SortByColumn(e.ColumnIndex);
 
-            // ── Bottom ───────────────────────────────────────────────────────
-            var bottomPanel = new Panel { Height = 108, Dock = DockStyle.Bottom, BackColor = Theme.BgSurface };
-            var rowTop = new Panel { Height = 34, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(10, 4, 8, 0) };
-            statusLabel = new Label { Dock = DockStyle.Fill, ForeColor = Theme.TextSecondary, Font = Theme.FontBody, TextAlign = ContentAlignment.MiddleLeft };
-            var saveBtn = Theme.MakeButton("Guardar copia corregida", 160, Theme.ButtonKind.Success); saveBtn.Dock = DockStyle.Right; saveBtn.Click += (s, e) => SaveFixedCopy();
-            rowTop.Controls.Add(statusLabel); rowTop.Controls.Add(saveBtn);
+            // ── Bottom panel ─────────────────────────────────────────────────
+            var bottomPanel = new Panel
+            {
+                Height = 116,
+                Dock = DockStyle.Bottom,
+                BackColor = Theme.BgSurface
+            };
 
-            // ── Fila exportar ─────────────────────────────────────────────────
-            var rowBot = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
-            var expLabel = new Label { Text = "Exportar:", Dock = DockStyle.Left, Width = 64, ForeColor = Theme.TextMuted, Font = Theme.FontSmall, TextAlign = ContentAlignment.MiddleLeft };
-            var expCsv = MakeExportButton("CSV", Color.FromArgb(20, 90, 70), Color.FromArgb(56, 210, 170)); expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
-            var expJson = MakeExportButton("JSON", Color.FromArgb(80, 55, 10), Color.FromArgb(230, 160, 40)); expJson.Dock = DockStyle.Left; expJson.Click += (s, e) => ExportAs(".json");
-            var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(90, 140, 240)); expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
-            var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(180, 80, 230)); expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
-            var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252)); expBD.Width = 80; expBD.Dock = DockStyle.Left; expBD.Click += async (s, e) => await ExportarABD();
+            // Fila 1: estado + guardar
+            var rowTop = new Panel
+            {
+                Height = 38,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(12, 4, 10, 0)
+            };
+            statusLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.TextSecondary,
+                Font = Theme.FontBody,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            var saveBtn = new Button
+            {
+                Text = "💾 Guardar copia corregida",
+                Width = 200,
+                Height = 30,
+                Dock = DockStyle.Right,
+                BackColor = Theme.TealDim,
+                ForeColor = Theme.Teal,
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontBody,
+                Cursor = Cursors.Hand
+            };
+            saveBtn.FlatAppearance.BorderColor = Color.FromArgb(52, 211, 153, 100);
+            saveBtn.Click += (s, e) => SaveFixedCopy();
+            rowTop.Controls.Add(statusLabel);
+            rowTop.Controls.Add(saveBtn);
 
-            btnShareEmail = MakeExportButton("✉ Email", Color.FromArgb(20, 60, 90), Color.FromArgb(100, 180, 255));
-            btnShareEmail.Width = 75;
+            // Fila 2: exportar formatos básicos
+            var rowBot = new Panel
+            {
+                Height = 38,
+                Dock = DockStyle.Bottom,
+                BackColor = Theme.BgElevated,
+                Padding = new Padding(10, 4, 8, 4)
+            };
+            var expLabel = new Label
+            {
+                Text = "Exportar:",
+                Dock = DockStyle.Left,
+                Width = 70,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.FontSmall,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            var expCsv = MakeExportButton("CSV", Color.FromArgb(20, 90, 70), Color.FromArgb(52, 211, 153), 80);
+            var expJson = MakeExportButton("JSON", Color.FromArgb(80, 55, 10), Color.FromArgb(251, 191, 36), 80);
+            var expTxt = MakeExportButton("TXT", Color.FromArgb(25, 40, 90), Color.FromArgb(96, 165, 250), 80);
+            var expXml = MakeExportButton("XML", Color.FromArgb(55, 20, 80), Color.FromArgb(167, 139, 250), 80);
+            var expBD = MakeExportButton("→ BD SQL", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252), 90);
+
+            btnShareEmail = MakeExportButton("✉ Email", Color.FromArgb(20, 60, 90), Color.FromArgb(96, 165, 250), 90);
+
+            expCsv.Dock = DockStyle.Left; expCsv.Click += (s, e) => ExportAs(".csv");
+            expJson.Dock = DockStyle.Left; expJson.Click += (s, e) => ExportAs(".json");
+            expTxt.Dock = DockStyle.Left; expTxt.Click += (s, e) => ExportAs(".txt");
+            expXml.Dock = DockStyle.Left; expXml.Click += (s, e) => ExportAs(".xml");
+            expBD.Dock = DockStyle.Left; expBD.Click += async (s, e) => await ExportarABD();
             btnShareEmail.Dock = DockStyle.Left;
             btnShareEmail.Click += BtnShareEmail_Click;
 
@@ -129,14 +278,40 @@ namespace FileExplorerr
             rowBot.Controls.Add(btnShareEmail);
             rowBot.Controls.Add(expLabel);
 
-            // ── Segunda fila: exportación Office ─────────────────────────────
-            var rowOffice = new Panel { Height = 36, Dock = DockStyle.Bottom, BackColor = Theme.BgElevated, Padding = new Padding(10, 4, 8, 4) };
-            var offLabel = new Label { Text = "Office/PDF:", Dock = DockStyle.Left, Width = 72, ForeColor = Theme.TextMuted, Font = Theme.FontSmall, TextAlign = ContentAlignment.MiddleLeft };
-            var expXlsx = MakeExportButton("📊 Excel", Color.FromArgb(16, 72, 32), Color.FromArgb(80, 200, 100)); expXlsx.Dock = DockStyle.Left; expXlsx.Click += (s, e) => ExportarOffice(".xlsx");
-            var expDocx = MakeExportButton("📝 Word", Color.FromArgb(12, 48, 96), Color.FromArgb(80, 150, 240)); expDocx.Dock = DockStyle.Left; expDocx.Click += (s, e) => ExportarOffice(".docx");
-            var expPptx = MakeExportButton("📋 PowerPoint", Color.FromArgb(80, 30, 10), Color.FromArgb(230, 100, 60)); expPptx.Dock = DockStyle.Left; expPptx.Click += (s, e) => ExportarOffice(".pptx");
-            var expPdf = MakeExportButton("🗒 PDF", Color.FromArgb(70, 10, 10), Color.FromArgb(220, 70, 70)); expPdf.Dock = DockStyle.Left; expPdf.Click += (s, e) => ExportarOffice(".pdf");
-            rowOffice.Controls.Add(expPdf); rowOffice.Controls.Add(expPptx); rowOffice.Controls.Add(expDocx); rowOffice.Controls.Add(expXlsx); rowOffice.Controls.Add(offLabel);
+            // Fila 3: Office/PDF — botones con texto COMPLETO
+            var rowOffice = new Panel
+            {
+                Height = 40,
+                Dock = DockStyle.Bottom,
+                BackColor = Theme.BgElevated,
+                Padding = new Padding(10, 5, 8, 5)
+            };
+            var offLabel = new Label
+            {
+                Text = "Office/PDF:",
+                Dock = DockStyle.Left,
+                Width = 78,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.FontSmall,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            // Anchos generosos para que no se corten los nombres
+            var expXlsx = MakeExportButton("📊 Excel", Color.FromArgb(16, 72, 32), Color.FromArgb(80, 200, 100), 100);
+            var expDocx = MakeExportButton("📝 Word", Color.FromArgb(12, 48, 96), Color.FromArgb(80, 150, 240), 90);
+            var expPptx = MakeExportButton("📋 PowerPoint", Color.FromArgb(80, 30, 10), Color.FromArgb(230, 100, 60), 130);
+            var expPdf = MakeExportButton("🗒 PDF", Color.FromArgb(70, 10, 10), Color.FromArgb(220, 70, 70), 80);
+
+            expXlsx.Dock = DockStyle.Left; expXlsx.Click += (s, e) => ExportarOffice(".xlsx");
+            expDocx.Dock = DockStyle.Left; expDocx.Click += (s, e) => ExportarOffice(".docx");
+            expPptx.Dock = DockStyle.Left; expPptx.Click += (s, e) => ExportarOffice(".pptx");
+            expPdf.Dock = DockStyle.Left; expPdf.Click += (s, e) => ExportarOffice(".pdf");
+
+            rowOffice.Controls.Add(expPdf);
+            rowOffice.Controls.Add(expPptx);
+            rowOffice.Controls.Add(expDocx);
+            rowOffice.Controls.Add(expXlsx);
+            rowOffice.Controls.Add(offLabel);
 
             bottomPanel.Controls.Add(rowOffice);
             bottomPanel.Controls.Add(rowBot);
@@ -150,7 +325,27 @@ namespace FileExplorerr
             loadingPanel.BringToFront();
         }
 
-        // ── Un solo btnShareEmail_Click ───────────────────────────────────────
+        // ── Helper: botón de exportación con ancho configurable ──────────────
+        private static Button MakeExportButton(string text, Color bgColor, Color accentColor, int width = 75)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                Width = width,
+                Height = 30,
+                BackColor = bgColor,
+                ForeColor = accentColor,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Padding = new Padding(2, 0, 2, 0)
+            };
+            btn.FlatAppearance.BorderColor = accentColor;
+            btn.FlatAppearance.BorderSize = 1;
+            return btn;
+        }
+
         private void BtnShareEmail_Click(object? sender, EventArgs e)
         {
             if (!File.Exists(filePath))
@@ -180,13 +375,6 @@ namespace FileExplorerr
         }
 
         private void HideLoading() => loadingPanel.Visible = false;
-
-        private static Button MakeExportButton(string text, Color bgColor, Color accentColor)
-        {
-            var btn = new Button { Text = text, Width = 62, Height = 28, BackColor = bgColor, ForeColor = accentColor, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), Cursor = Cursors.Hand };
-            btn.FlatAppearance.BorderColor = accentColor; btn.FlatAppearance.BorderSize = 1;
-            return btn;
-        }
 
         // ════════════════════════════════════════════════════════════════════
         //  EXPORTAR A BASE DE DATOS
@@ -475,7 +663,11 @@ namespace FileExplorerr
                 bool isNumeric = nonEmpty > 0 && (double)numericCount / nonEmpty >= 0.8;
                 columnNumericInfo[c] = (isNumeric, isNumeric && (isCurrencyCol || hasCurrencySymbol), false);
             }
-            foreach (DataGridViewColumn col in grid.Columns) { col.SortMode = DataGridViewColumnSortMode.Programmatic; col.Width = Math.Min(280, Math.Max(70, col.Width)); }
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                col.SortMode = DataGridViewColumnSortMode.Programmatic;
+                col.Width = Math.Min(280, Math.Max(70, col.Width));
+            }
         }
 
         private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -498,15 +690,15 @@ namespace FileExplorerr
                     e.Value = ni.IsCurrency ? $"${numVal:N2}" : (numVal == Math.Floor(numVal) ? numVal.ToString("N0") : numVal.ToString("N2"));
                     e.FormattingApplied = true;
                     e.CellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
-                    e.CellStyle.ForeColor = ni.IsCurrency ? Theme.Success : Color.FromArgb(160, 190, 230);
+                    e.CellStyle.ForeColor = ni.IsCurrency ? Theme.Teal : Theme.Sky;
                 }
             }
 
-            if (isDup) { e.CellStyle.BackColor = Color.FromArgb(50, 25, 25); e.CellStyle.ForeColor = Theme.Danger; }
-            if (isEmpty) { e.CellStyle.BackColor = Theme.WarningDim; e.CellStyle.ForeColor = Theme.Warning; e.Value = "(vacío)"; e.FormattingApplied = true; }
-            if (isDate) { e.CellStyle.BackColor = Color.FromArgb(20, 35, 50); e.CellStyle.ForeColor = Theme.Accent; }
-            if (isPhone) { e.CellStyle.BackColor = Color.FromArgb(50, 20, 50); e.CellStyle.ForeColor = Color.FromArgb(230, 130, 200); }
-            if (isEmail) { e.CellStyle.BackColor = Color.FromArgb(50, 35, 15); e.CellStyle.ForeColor = Color.FromArgb(255, 170, 60); }
+            if (isDup) { e.CellStyle.BackColor = Color.FromArgb(50, 25, 25); e.CellStyle.ForeColor = Theme.Coral; }
+            if (isEmpty) { e.CellStyle.BackColor = Theme.AmberDim; e.CellStyle.ForeColor = Theme.Amber; e.Value = "(vacío)"; e.FormattingApplied = true; }
+            if (isDate) { e.CellStyle.BackColor = Color.FromArgb(20, 35, 50); e.CellStyle.ForeColor = Theme.Accent2; }
+            if (isPhone) { e.CellStyle.BackColor = Color.FromArgb(50, 20, 50); e.CellStyle.ForeColor = Theme.Pink; }
+            if (isEmail) { e.CellStyle.BackColor = Color.FromArgb(50, 35, 15); e.CellStyle.ForeColor = Theme.Amber; }
             if (isColMismatch && !isDup && !isEmpty && !isDate && !isPhone && !isEmail)
             { e.CellStyle.BackColor = Color.FromArgb(60, 20, 20); e.CellStyle.ForeColor = Color.FromArgb(255, 120, 100); }
 
@@ -526,7 +718,7 @@ namespace FileExplorerr
             if (emails > 0) parts.Add($"{emails} emails");
             if (colMis > 0) parts.Add($"{colMis} col.desajustadas");
             if (dups == 0 && dates == 0 && empties == 0 && phones == 0 && emails == 0 && colMis == 0)
-                parts.Add("Sin problemas");
+                parts.Add("Sin problemas ✓");
             statusLabel.Text = "  " + string.Join("  ·  ", parts);
         }
 
@@ -537,21 +729,43 @@ namespace FileExplorerr
             if (duplicateRows.Count > 0) sb.AppendLine($"• {duplicateRows.Count} fila(s) duplicada(s)");
             if (dateIssues.Count > 0) sb.AppendLine($"• {dateIssues.Count} fecha(s) a normalizar");
             if (emptyFields.Count > 0) sb.AppendLine($"• {emptyFields.Count} campo(s) vacío(s)");
-            if (phoneIssues.Count > 0) { sb.AppendLine($"• {phoneIssues.Count} teléfono(s) con problemas:"); int shown = 0; foreach (var (r, c, orig, fix) in phoneIssues) { if (shown++ >= 5) { sb.AppendLine($"    ... y {phoneIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\" → \"{fix}\""); } }
-            if (emailIssues.Count > 0) { sb.AppendLine($"• {emailIssues.Count} email(s) inválido(s):"); int shown = 0; foreach (var (r, c, orig) in emailIssues) { if (shown++ >= 5) { sb.AppendLine($"    ... y {emailIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\""); } }
-            if (columnMismatchRows.Count > 0) { sb.AppendLine($"• {columnMismatchRows.Count} fila(s) con columnas incorrectas:"); int shown = 0; foreach (var (row, exp, act) in columnMismatchDetails) { if (shown++ >= 5) { sb.AppendLine($"    ... y {columnMismatchDetails.Count - 5} más"); break; } sb.AppendLine($"    Fila {row + 1}: esperadas {exp}, tiene {act}"); } }
+            if (phoneIssues.Count > 0)
+            {
+                sb.AppendLine($"• {phoneIssues.Count} teléfono(s) con problemas:");
+                int shown = 0;
+                foreach (var (r, c, orig, fix) in phoneIssues) { if (shown++ >= 5) { sb.AppendLine($"    ... y {phoneIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\" → \"{fix}\""); }
+            }
+            if (emailIssues.Count > 0)
+            {
+                sb.AppendLine($"• {emailIssues.Count} email(s) inválido(s):");
+                int shown = 0;
+                foreach (var (r, c, orig) in emailIssues) { if (shown++ >= 5) { sb.AppendLine($"    ... y {emailIssues.Count - 5} más"); break; } sb.AppendLine($"    Fila {r + 1}: \"{orig}\""); }
+            }
+            if (columnMismatchRows.Count > 0)
+            {
+                sb.AppendLine($"• {columnMismatchRows.Count} fila(s) con columnas incorrectas:");
+                int shown = 0;
+                foreach (var (row, exp, act) in columnMismatchDetails) { if (shown++ >= 5) { sb.AppendLine($"    ... y {columnMismatchDetails.Count - 5} más"); break; } sb.AppendLine($"    Fila {row + 1}: esperadas {exp}, tiene {act}"); }
+            }
             sb.AppendLine("\nLas celdas afectadas están resaltadas.");
-            MessageBox.Show(sb.ToString(), "Análisis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(sb.ToString(), "Análisis de datos", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // ════════════════════════════════════════════════════════════════════
         //  FILTRADO / ORDEN
         // ════════════════════════════════════════════════════════════════════
-        private void PopulateFilterCombo() { filterColumnCombo.Items.Clear(); filterColumnCombo.Items.Add("Todas"); foreach (DataColumn col in masterTable.Columns) filterColumnCombo.Items.Add(col.ColumnName); filterColumnCombo.SelectedIndex = 0; }
+        private void PopulateFilterCombo()
+        {
+            filterColumnCombo.Items.Clear();
+            filterColumnCombo.Items.Add("Todas");
+            foreach (DataColumn col in masterTable.Columns) filterColumnCombo.Items.Add(col.ColumnName);
+            filterColumnCombo.SelectedIndex = 0;
+        }
 
         private void ApplyFilter()
         {
-            string query = filterBox.Text.Trim(); if (string.IsNullOrEmpty(query)) { ClearFilter(); return; }
+            string query = filterBox.Text.Trim();
+            if (string.IsNullOrEmpty(query)) { ClearFilter(); return; }
             string colSel = filterColumnCombo.SelectedIndex > 0 ? filterColumnCombo.SelectedItem!.ToString()! : "";
             var filtered = masterTable.Clone();
             foreach (DataRow row in masterTable.Rows)
@@ -565,16 +779,25 @@ namespace FileExplorerr
             statusLabel.Text = $"  {filtered.Rows.Count} de {masterTable.Rows.Count} filas  ·  \"{query}\"";
         }
 
-        private void ClearFilter() { filterBox.Text = ""; filterColumnCombo.SelectedIndex = 0; ApplyDisplayTable(masterTable); UpdateStatus(); }
+        private void ClearFilter()
+        {
+            filterBox.Text = "";
+            filterColumnCombo.SelectedIndex = 0;
+            ApplyDisplayTable(masterTable);
+            UpdateStatus();
+        }
 
-        private int lastSortCol = -1; private bool sortAsc = true;
+        private int lastSortCol = -1;
+        private bool sortAsc = true;
         private void SortByColumn(int colIdx)
         {
             if (colIdx < 0 || colIdx >= displayTable.Columns.Count) return;
-            sortAsc = colIdx == lastSortCol ? !sortAsc : true; lastSortCol = colIdx;
+            sortAsc = colIdx == lastSortCol ? !sortAsc : true;
+            lastSortCol = colIdx;
             var view = displayTable.DefaultView;
             view.Sort = $"[{displayTable.Columns[colIdx].ColumnName}] {(sortAsc ? "ASC" : "DESC")}";
-            grid.DataSource = null; grid.DataSource = view.ToTable();
+            grid.DataSource = null;
+            grid.DataSource = view.ToTable();
         }
 
         // ════════════════════════════════════════════════════════════════════
