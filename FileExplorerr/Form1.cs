@@ -22,6 +22,10 @@ namespace FileExplorerr
         private ListViewItem? dragHighlightedItem;
         private int sortColumn = -1;
 
+        // Íconos de la papelera (vacía / llena) — se cargan desde shell32
+        private Bitmap? _recycleIconEmpty;
+        private Bitmap? _recycleIconFull;
+
         private CancellationTokenSource _loadCts = new();
         private CancellationTokenSource _searchCts = new();
 
@@ -164,8 +168,20 @@ namespace FileExplorerr
             navSql = MakeNavTabButton("🗄️", "SQL", false);
 
             navExplorer.Click += (s, e) => SwitchPage("explorer");
-            navMusic.Click += (s, e) => { SwitchPage("music"); new MusicPlayerForm(GetFirstAudioFile()).Show(); };
-            navVideo.Click += (s, e) => { SwitchPage("video"); new VideoPlayerForm(GetFirstVideoFile()).Show(); };
+            navMusic.Click += (s, e) =>
+            {
+                SwitchPage("music");
+                string? file = GetFirstAudioFile();
+                // Si hay audio en la carpeta actual lo carga; si no, abre vacío igual
+                new MusicPlayerForm(file ?? "").Show();
+            };
+            navVideo.Click += (s, e) =>
+            {
+                SwitchPage("video");
+                string? file = GetFirstVideoFile();
+                // Si hay video en la carpeta actual lo carga; si no, abre vacío igual
+                new VideoPlayerForm(file).Show();
+            };
             navSql.Click += (s, e) => { SwitchPage("sql"); new SqlViewerForm().Show(); };
 
             // Flow para las pestañas
@@ -251,28 +267,26 @@ namespace FileExplorerr
             }
         }
 
-        private string GetFirstAudioFile()
+        private string? GetFirstAudioFile()
         {
             try
             {
-                var f = Directory.GetFiles(currentPath)
+                return Directory.GetFiles(currentPath)
                     .FirstOrDefault(x => MusicPlayerForm.SupportedExtensions
                         .Contains(Path.GetExtension(x).ToLower()));
-                return f ?? currentPath;
             }
-            catch { return currentPath; }
+            catch { return null; }
         }
 
-        private string GetFirstVideoFile()
+        private string? GetFirstVideoFile()
         {
-            string[] exts = { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm" };
+            string[] exts = { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".3gp", ".mpg", ".mpeg" };
             try
             {
-                var f = Directory.GetFiles(currentPath)
+                return Directory.GetFiles(currentPath)
                     .FirstOrDefault(x => exts.Contains(Path.GetExtension(x).ToLower()));
-                return f ?? currentPath;
             }
-            catch { return currentPath; }
+            catch { return null; }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -646,6 +660,7 @@ namespace FileExplorerr
                 DrawMode = TreeViewDrawMode.OwnerDrawAll
             };
             infoTree.BeforeExpand += InfoTree_BeforeExpand;
+            infoTree.NodeMouseClick += InfoTree_NodeMouseClick;
             infoTree.NodeMouseDoubleClick += InfoTree_NodeDoubleClick;
             infoTree.DrawNode += InfoTree_DrawNode;
 
@@ -674,7 +689,7 @@ namespace FileExplorerr
                 BackColor = Color.Transparent
             };
 
-            // Papelera
+            // Papelera — cargamos ambos íconos (vacía y llena) desde shell32
             recycleIconBox = new PictureBox
             {
                 Size = new Size(36, 36),
@@ -683,11 +698,20 @@ namespace FileExplorerr
                 Dock = DockStyle.Right,
                 AllowDrop = true
             };
+
+            // Precargar ícono vacío (31) y lleno (32)
             try
             {
-                string shell32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "shell32.dll");
-                IntPtr hIcon = ExtractIcon(IntPtr.Zero, shell32, 31);
-                if (hIcon != IntPtr.Zero) recycleIconBox.Image = Icon.FromHandle(hIcon).ToBitmap();
+                string shell32 = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.System), "shell32.dll");
+
+                IntPtr hEmpty = ExtractIcon(IntPtr.Zero, shell32, 31);
+                IntPtr hFull = ExtractIcon(IntPtr.Zero, shell32, 32);
+
+                if (hEmpty != IntPtr.Zero) _recycleIconEmpty = Icon.FromHandle(hEmpty).ToBitmap();
+                if (hFull != IntPtr.Zero) _recycleIconFull = Icon.FromHandle(hFull).ToBitmap();
+
+                recycleIconBox.Image = _recycleIconEmpty;
             }
             catch { }
 
@@ -936,13 +960,39 @@ namespace FileExplorerr
             }
         }
 
+        // Clic simple: expande/colapsa carpetas en el mismo panel
+        private void InfoTree_NodeMouseClick(object? sender, TreeNodeMouseClickEventArgs e)
+        {
+            if (e.Node?.Tag is not NodeTag nt) return;
+            if (nt.Path == null || nt.Path == "__dummy__") return;
+
+            if (nt.Kind == NodeKind.Folder)
+            {
+                // Expandir o colapsar sin navegar el explorador principal
+                if (e.Node.IsExpanded)
+                    e.Node.Collapse();
+                else
+                    e.Node.Expand();
+            }
+            else if (nt.Kind == NodeKind.File && File.Exists(nt.Path))
+            {
+                // Clic simple en archivo: seleccionarlo visualmente nada más
+                infoTree.SelectedNode = e.Node;
+            }
+        }
+
+        // Doble clic en ARCHIVO: abrirlo. Doble clic en CARPETA: navegar en el explorador
         private void InfoTree_NodeDoubleClick(object? sender, TreeNodeMouseClickEventArgs e)
         {
-            if (e.Node?.Tag is NodeTag nt && nt.Path != null && nt.Path != "__dummy__")
-            {
-                if (Directory.Exists(nt.Path)) NavigateToPath(nt.Path);
-                else if (File.Exists(nt.Path)) OpenEntry(nt.Path);
-            }
+            if (e.Node?.Tag is not NodeTag nt) return;
+            if (nt.Path == null || nt.Path == "__dummy__") return;
+
+            if (nt.Kind == NodeKind.File && File.Exists(nt.Path))
+                OpenEntry(nt.Path);
+            // Las carpetas ya se manejan con clic simple (expand/collapse)
+            // Si quieres navegar al explorador con doble clic en carpeta, descomenta:
+            // else if (nt.Kind == NodeKind.Folder && Directory.Exists(nt.Path))
+            //     NavigateToPath(nt.Path);
         }
 
         private enum NodeKind { Header, Category, Folder, File, Dim }
@@ -1113,14 +1163,20 @@ namespace FileExplorerr
             recycleDropPanel.BackColor = Theme.RecycleHot;
             recyclePanelLabel.ForeColor = Theme.Coral;
             recyclePanelLabel.Text = "Soltar para eliminar";
+            // Cambiar al ícono de papelera LLENA (igual que Windows)
+            if (_recycleIconFull != null) recycleIconBox.Image = _recycleIconFull;
         }
+
         private void RecycleDragOver(DragEventArgs e)
             => e.Effect = e.Data!.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Move : DragDropEffects.None;
+
         private void RecycleDragLeave()
         {
             recycleDropPanel.BackColor = Theme.RecycleBg;
             recyclePanelLabel.ForeColor = Theme.TextMuted;
             recyclePanelLabel.Text = "Papelera";
+            // Restaurar ícono de papelera VACÍA
+            if (_recycleIconEmpty != null) recycleIconBox.Image = _recycleIconEmpty;
         }
         private void RecycleDragDrop(DragEventArgs e)
         {
