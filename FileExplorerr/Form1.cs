@@ -150,7 +150,7 @@ namespace FileExplorerr
             // Logo
             appLogoLabel = new Label
             {
-                Text = "FileExplorerr",
+                Text = "  FileExplorerr",
                 Font = new Font("Segoe UI", 11F, FontStyle.Bold),
                 ForeColor = Theme.Accent2,
                 AutoSize = true,
@@ -299,15 +299,15 @@ namespace FileExplorerr
             // ── Toolbar del explorador ────────────────────────────────────────
             var toolbar = new Panel
             {
-                Height = 52,
+                Height = 54,
                 Dock = DockStyle.Top,
-                BackColor = Theme.BgSurface,
-                Padding = new Padding(10, 9, 10, 9)
+                BackColor = Theme.BgSurface
             };
 
+            // Botones de navegación — posicionamiento absoluto vía Resize
             backButton = MakeNavBtn("←", "Atrás");
             forwardButton = MakeNavBtn("→", "Adelante");
-            upButton = MakeNavBtn("↑", "Subir");
+            upButton = MakeNavBtn("↑", "Subir nivel");
             refreshButton = MakeNavBtn("↻", "Actualizar (F5)");
 
             backButton.Click += (s, e) => GoBack();
@@ -315,72 +315,79 @@ namespace FileExplorerr
             upButton.Click += (s, e) => GoUp();
             refreshButton.Click += (s, e) => RefreshView();
 
-            // Barra de dirección
+            // Barra de dirección — se posiciona correctamente en LayoutToolbar()
             var addrPanel = new Panel
             {
                 Height = 34,
                 BackColor = Theme.BgElevated,
-                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+                Location = new Point(-500, 0)   // fuera de pantalla hasta el primer layout
             };
             var addrIcon = new Label
             {
                 Text = "📂",
                 Width = 28,
                 Height = 34,
-                Location = new Point(8, 5),
-                BackColor = Color.Transparent
+                Location = new Point(6, 0),
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 13F),
+                TextAlign = ContentAlignment.MiddleCenter
             };
             addressBar = new TextBox
             {
                 BackColor = Theme.BgElevated,
                 ForeColor = Theme.TextPrimary,
                 BorderStyle = BorderStyle.None,
-                Font = Theme.FontBody,
-                Height = 20
+                Font = Theme.FontBody
             };
             addressBar.KeyDown += AddressBar_KeyDown;
             addrPanel.Controls.Add(addrIcon);
             addrPanel.Controls.Add(addressBar);
             addrPanel.Resize += (s, e) =>
             {
-                addressBar.Width = addrPanel.Width - 40;
-                addressBar.Location = new Point(36, 7);
+                addressBar.Width = addrPanel.Width - 38;
+                addressBar.Location = new Point(36, (addrPanel.Height - addressBar.Height) / 2);
             };
 
             newFolderButton = Theme.MakeButton("＋ Carpeta", 100);
-            exportCsvButton = Theme.MakeButton("↓ Exportar CSV", 120, Theme.ButtonKind.Primary);
+            exportCsvButton = Theme.MakeButton("↓ Exportar CSV", 126, Theme.ButtonKind.Primary);
+            newFolderButton.Height = 34;
+            exportCsvButton.Height = 34;
             newFolderButton.Click += (s, e) => CreateFolder();
             exportCsvButton.Click += async (s, e) => await ExportCsvAsync();
 
-            var navFlow = new FlowLayoutPanel
+            // Añadir todos los controles al toolbar
+            toolbar.Controls.AddRange(new Control[]
             {
-                Dock = DockStyle.Left,
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
-                BackColor = Color.Transparent,
-                Padding = new Padding(0, 0, 8, 0)
-            };
-            navFlow.Controls.AddRange(new Control[] { backButton, forwardButton, upButton, refreshButton });
+                backButton, forwardButton, upButton, refreshButton,
+                addrPanel, newFolderButton, exportCsvButton
+            });
 
-            var rightFlow = new FlowLayoutPanel
+            // Posicionamiento absoluto — se recalcula en cada Resize
+            void LayoutToolbar()
             {
-                Dock = DockStyle.Right,
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
-                BackColor = Color.Transparent,
-                Padding = new Padding(8, 0, 0, 0)
-            };
-            rightFlow.Controls.AddRange(new Control[] { newFolderButton, exportCsvButton });
+                if (toolbar.Width < 200) return;   // no hacer nada hasta tener ancho real
+                int h = toolbar.Height;
+                int cy = (h - 34) / 2;
+                int x = 10;
 
-            var addrWrapper = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-            addrPanel.Dock = DockStyle.Fill;
-            addrWrapper.Controls.Add(addrPanel);
+                backButton.SetBounds(x, cy, 34, 34); x += 38;
+                forwardButton.SetBounds(x, cy, 34, 34); x += 38;
+                upButton.SetBounds(x, cy, 34, 34); x += 38;
+                refreshButton.SetBounds(x, cy, 34, 34); x += 44;
 
-            toolbar.Controls.Add(addrWrapper);
-            toolbar.Controls.Add(navFlow);
-            toolbar.Controls.Add(rightFlow);
+                int rx = toolbar.Width - 10;
+                exportCsvButton.SetBounds(rx - exportCsvButton.Width, cy, exportCsvButton.Width, 34);
+                rx -= exportCsvButton.Width + 6;
+                newFolderButton.SetBounds(rx - newFolderButton.Width, cy, newFolderButton.Width, 34);
+                rx -= newFolderButton.Width + 8;
+
+                if (rx > x)   // solo si hay espacio real para la barra de dirección
+                    addrPanel.SetBounds(x, cy, rx - x, 34);
+            }
+
+            toolbar.Resize += (s, e) => LayoutToolbar();
+            this.Resize += (s, e) => LayoutToolbar();
+            this.Shown += (s, e) => BeginInvoke((Action)LayoutToolbar);
 
             // ── Body: sidebar + listview + right panel ────────────────────────
             var bodyPanel = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BgBase };
@@ -1378,13 +1385,45 @@ namespace FileExplorerr
                 if (!token.IsCancellationRequested)
                 {
                     var stats = CsvIndexer.ClassifyFiles(files.ToArray());
-                    statusLabel.Text = "  " + stats.ToStatusString(dirs.Count);
+                    statusLabel.Text = "  " + BuildStatusText(stats, dirs.Count);
                     UpdateRightPanel(path);
                 }
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) { if (!token.IsCancellationRequested) statusLabel.Text = $"  Error: {ex.Message}"; }
             finally { if (!token.IsCancellationRequested) Cursor = Cursors.Default; }
+        }
+
+        // ── Barra de estado con etiquetas descriptivas completas ─────────────
+        private static string BuildStatusText(FileStats s, int folders)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+
+            if (folders > 0)
+                parts.Add($"📁 {folders} carpeta{(folders != 1 ? "s" : "")}");
+
+            int total = s.Total;
+            if (total > 0)
+                parts.Add($"📄 {total} archivo{(total != 1 ? "s" : "")}");
+
+            if (s.Images > 0)
+                parts.Add($"🖼️ {s.Images} imág{(s.Images != 1 ? "enes" : "en")}");
+
+            if (s.Audio > 0)
+                parts.Add($"🎵 {s.Audio} audio{(s.Audio != 1 ? "s" : "")}");
+
+            if (s.Video > 0)
+                parts.Add($"🎬 {s.Video} video{(s.Video != 1 ? "s" : "")}");
+
+            if (s.Text > 0)
+                parts.Add($"📝 {s.Text} texto{(s.Text != 1 ? "s" : "")}");
+
+            if (s.Other > 0)
+                parts.Add($"📦 {s.Other} otro{(s.Other != 1 ? "s" : "")}");
+
+            return parts.Count > 0
+                ? string.Join("  ·  ", parts)
+                : "Carpeta vacía";
         }
 
         private string DirInfoDetailed(string path)
