@@ -150,7 +150,7 @@ namespace FileExplorerr
             // Logo
             appLogoLabel = new Label
             {
-                Text = "✦  FileExplorerr",
+                Text = "FileExplorerr",
                 Font = new Font("Segoe UI", 11F, FontStyle.Bold),
                 ForeColor = Theme.Accent2,
                 AutoSize = true,
