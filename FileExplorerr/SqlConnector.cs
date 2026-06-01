@@ -10,10 +10,13 @@ using Npgsql;
 // ── MySqlConnector (MariaDB / MySQL) ────────────────────────────────────────
 using MySqlConnector;
 
+// ── Microsoft.Data.SqlClient (SQL Server) ───────────────────────────────────
+using Microsoft.Data.SqlClient;
+
 namespace FileExplorerr
 {
     /// <summary>
-    /// Proporciona acceso unificado a PostgreSQL y MariaDB.
+    /// Proporciona acceso unificado a PostgreSQL, MariaDB y SQL Server.
     /// Permite listar tablas, leer datos, exportar CSV y escribir filas.
     /// </summary>
     public static class SqlConnector
@@ -58,6 +61,23 @@ namespace FileExplorerr
             return lista;
         }
 
+        public static List<string> ObtenerTablasSqlServer(string cadena)
+        {
+            var lista = new List<string>();
+            try
+            {
+                using var conn = new SqlConnection(cadena);
+                conn.Open();
+                using var cmd = new SqlCommand(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES " +
+                    "WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME;", conn);
+                using var r = cmd.ExecuteReader();
+                while (r.Read()) lista.Add(r.GetString(0));
+            }
+            catch { }
+            return lista;
+        }
+
         // ════════════════════════════════════════════════════════════════════
         //  LEER DATOS → DataTable
         // ════════════════════════════════════════════════════════════════════
@@ -70,13 +90,10 @@ namespace FileExplorerr
             {
                 using var conn = new NpgsqlConnection(cadena);
                 conn.Open();
-
                 var sql = new StringBuilder($"SELECT * FROM \"{tabla}\"");
-                if (!string.IsNullOrWhiteSpace(filtroWhere))
-                    sql.Append($" WHERE {filtroWhere}");
+                if (!string.IsNullOrWhiteSpace(filtroWhere)) sql.Append($" WHERE {filtroWhere}");
                 if (limite > 0) sql.Append($" LIMIT {limite}");
                 sql.Append(';');
-
                 using var cmd = new NpgsqlCommand(sql.ToString(), conn);
                 cmd.CommandTimeout = 120;
                 using var adapter = new NpgsqlDataAdapter(cmd);
@@ -97,13 +114,10 @@ namespace FileExplorerr
             {
                 using var conn = new MySqlConnection(cadena);
                 conn.Open();
-
                 var sql = new StringBuilder($"SELECT * FROM `{tabla}`");
-                if (!string.IsNullOrWhiteSpace(filtroWhere))
-                    sql.Append($" WHERE {filtroWhere}");
+                if (!string.IsNullOrWhiteSpace(filtroWhere)) sql.Append($" WHERE {filtroWhere}");
                 if (limite > 0) sql.Append($" LIMIT {limite}");
                 sql.Append(';');
-
                 using var cmd = new MySqlCommand(sql.ToString(), conn);
                 cmd.CommandTimeout = 120;
                 using var adapter = new MySqlDataAdapter(cmd);
@@ -112,6 +126,31 @@ namespace FileExplorerr
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MD] LeerTabla: {ex.Message}");
+            }
+            return dt;
+        }
+
+        public static DataTable LeerTablaSqlServer(string cadena, string tabla,
+            string? filtroWhere = null, int limite = 0)
+        {
+            var dt = new DataTable();
+            try
+            {
+                using var conn = new SqlConnection(cadena);
+                conn.Open();
+                var sql = new StringBuilder();
+                if (limite > 0) sql.Append($"SELECT TOP {limite} * FROM [{tabla}]");
+                else sql.Append($"SELECT * FROM [{tabla}]");
+                if (!string.IsNullOrWhiteSpace(filtroWhere)) sql.Append($" WHERE {filtroWhere}");
+                sql.Append(';');
+                using var cmd = new SqlCommand(sql.ToString(), conn);
+                cmd.CommandTimeout = 120;
+                using var adapter = new SqlDataAdapter(cmd);
+                adapter.Fill(dt);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SS] LeerTabla: {ex.Message}");
             }
             return dt;
         }
@@ -132,10 +171,7 @@ namespace FileExplorerr
                 using var adapter = new NpgsqlDataAdapter(cmd);
                 adapter.Fill(dt);
             }
-            catch (Exception ex)
-            {
-                throw new Exception($"[PostgreSQL] {ex.Message}", ex);
-            }
+            catch (Exception ex) { throw new Exception($"[PostgreSQL] {ex.Message}", ex); }
             return dt;
         }
 
@@ -151,10 +187,23 @@ namespace FileExplorerr
                 using var adapter = new MySqlDataAdapter(cmd);
                 adapter.Fill(dt);
             }
-            catch (Exception ex)
+            catch (Exception ex) { throw new Exception($"[MariaDB] {ex.Message}", ex); }
+            return dt;
+        }
+
+        public static DataTable EjecutarConsultaSqlServer(string cadena, string sql)
+        {
+            var dt = new DataTable();
+            try
             {
-                throw new Exception($"[MariaDB] {ex.Message}", ex);
+                using var conn = new SqlConnection(cadena);
+                conn.Open();
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.CommandTimeout = 120;
+                using var adapter = new SqlDataAdapter(cmd);
+                adapter.Fill(dt);
             }
+            catch (Exception ex) { throw new Exception($"[SQL Server] {ex.Message}", ex); }
             return dt;
         }
 
@@ -190,6 +239,20 @@ namespace FileExplorerr
             catch (Exception ex) { mensaje = ex.Message; return false; }
         }
 
+        public static bool ProbarSqlServer(string cadena, out string mensaje)
+        {
+            try
+            {
+                using var conn = new SqlConnection(cadena);
+                conn.Open();
+                using var cmd = new SqlCommand("SELECT 1;", conn);
+                cmd.ExecuteScalar();
+                mensaje = $"Conexión exitosa · Servidor: {conn.DataSource} · DB: {conn.Database}";
+                return true;
+            }
+            catch (Exception ex) { mensaje = ex.Message; return false; }
+        }
+
         // ════════════════════════════════════════════════════════════════════
         //  EXPORTAR DataTable → CSV en memoria
         // ════════════════════════════════════════════════════════════════════
@@ -197,7 +260,6 @@ namespace FileExplorerr
         public static string DataTableACsv(DataTable dt)
         {
             var sb = new StringBuilder();
-            // Cabecera
             for (int c = 0; c < dt.Columns.Count; c++)
             {
                 if (c > 0) sb.Append(',');
@@ -206,7 +268,6 @@ namespace FileExplorerr
                 sb.Append('"');
             }
             sb.AppendLine();
-            // Filas
             foreach (DataRow row in dt.Rows)
             {
                 for (int c = 0; c < dt.Columns.Count; c++)
@@ -223,97 +284,93 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  INSERTAR DataTable → tabla SQL  (CREATE IF NOT EXISTS + INSERT)
+        //  INSERTAR DataTable → tabla SQL
         // ════════════════════════════════════════════════════════════════════
 
         public static SqlWriteResult InsertarDataTablePostgreSQL(
-            string cadena, string tabla, DataTable dt,
-            IProgress<int>? progreso = null)
+            string cadena, string tabla, DataTable dt, IProgress<int>? progreso = null)
         {
             var result = new SqlWriteResult();
             try
             {
                 using var conn = new NpgsqlConnection(cadena);
                 conn.Open();
-
-                // CREATE TABLE IF NOT EXISTS con columnas TEXT
                 CrearTablaPostgreSQL(conn, tabla, dt);
-
                 int total = dt.Rows.Count, ok = 0, err = 0;
                 using var tx = conn.BeginTransaction();
                 try
                 {
                     foreach (DataRow row in dt.Rows)
                     {
-                        try
-                        {
-                            InsertarFilaPostgreSQL(conn, tx, tabla, dt, row);
-                            ok++;
-                            if (ok % 100 == 0)
-                                progreso?.Report((int)(ok * 100.0 / total));
-                        }
+                        try { InsertarFilaPostgreSQL(conn, tx, tabla, dt, row); ok++; if (ok % 100 == 0) progreso?.Report((int)(ok * 100.0 / total)); }
                         catch { err++; }
                     }
                     tx.Commit();
                 }
                 catch { tx.Rollback(); throw; }
-
                 progreso?.Report(100);
-                result.Exito = true;
-                result.Insertados = ok;
-                result.Errores = err;
+                result.Exito = true; result.Insertados = ok; result.Errores = err;
                 result.Mensaje = $"✅ {ok} filas insertadas en '{tabla}'. Errores: {err}.";
             }
-            catch (Exception ex)
-            {
-                result.Exito = false;
-                result.Mensaje = $"❌ {ex.Message}";
-            }
+            catch (Exception ex) { result.Exito = false; result.Mensaje = $"❌ {ex.Message}"; }
             return result;
         }
 
         public static SqlWriteResult InsertarDataTableMariaDB(
-            string cadena, string tabla, DataTable dt,
-            IProgress<int>? progreso = null)
+            string cadena, string tabla, DataTable dt, IProgress<int>? progreso = null)
         {
             var result = new SqlWriteResult();
             try
             {
                 using var conn = new MySqlConnection(cadena);
                 conn.Open();
-
                 CrearTablaMariaDB(conn, tabla, dt);
-
                 int total = dt.Rows.Count, ok = 0, err = 0;
                 using var tx = conn.BeginTransaction();
                 try
                 {
                     foreach (DataRow row in dt.Rows)
                     {
-                        try
-                        {
-                            InsertarFilaMariaDB(conn, tx, tabla, dt, row);
-                            ok++;
-                            if (ok % 100 == 0)
-                                progreso?.Report((int)(ok * 100.0 / total));
-                        }
+                        try { InsertarFilaMariaDB(conn, tx, tabla, dt, row); ok++; if (ok % 100 == 0) progreso?.Report((int)(ok * 100.0 / total)); }
                         catch { err++; }
                     }
                     tx.Commit();
                 }
                 catch { tx.Rollback(); throw; }
-
                 progreso?.Report(100);
-                result.Exito = true;
-                result.Insertados = ok;
-                result.Errores = err;
+                result.Exito = true; result.Insertados = ok; result.Errores = err;
                 result.Mensaje = $"✅ {ok} filas insertadas en `{tabla}`. Errores: {err}.";
             }
-            catch (Exception ex)
+            catch (Exception ex) { result.Exito = false; result.Mensaje = $"❌ {ex.Message}"; }
+            return result;
+        }
+
+        public static SqlWriteResult InsertarDataTableSqlServer(
+            string cadena, string tabla, DataTable dt, IProgress<int>? progreso = null)
+        {
+            var result = new SqlWriteResult();
+            try
             {
-                result.Exito = false;
-                result.Mensaje = $"❌ {ex.Message}";
+                using var conn = new SqlConnection(cadena);
+                conn.Open();
+                CrearTablaSqlServer(conn, tabla, dt);
+                int total = dt.Rows.Count, ok = 0, err = 0;
+                using var tx = conn.BeginTransaction();
+                try
+                {
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        try { InsertarFilaSqlServer(conn, tx, tabla, dt, row); ok++; if (ok % 100 == 0) progreso?.Report((int)(ok * 100.0 / total)); }
+                        catch { err++; }
+                    }
+                    tx.Commit();
+                }
+                catch { tx.Rollback(); throw; }
+                progreso?.Report(100);
+                result.Exito = true; result.Insertados = ok; result.Errores = err;
+                result.Mensaje = $"✅ {ok} filas insertadas en [{tabla}]. Errores: {err}.";
             }
+            catch (Exception ex) { result.Exito = false; result.Mensaje = $"❌ {ex.Message}"; }
             return result;
         }
 
@@ -331,8 +388,7 @@ namespace FileExplorerr
                     : "TEXT";
                 cols.Append($"\"{nombre}\" {tipo}");
             }
-            string sql = $"CREATE TABLE IF NOT EXISTS \"{tabla}\" ({cols});";
-            using var cmd = new NpgsqlCommand(sql, conn);
+            using var cmd = new NpgsqlCommand($"CREATE TABLE IF NOT EXISTS \"{tabla}\" ({cols});", conn);
             cmd.ExecuteNonQuery();
         }
 
@@ -348,8 +404,25 @@ namespace FileExplorerr
                     : "TEXT";
                 cols.Append($"`{nombre}` {tipo}");
             }
-            string sql = $"CREATE TABLE IF NOT EXISTS `{tabla}` ({cols}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-            using var cmd = new MySqlCommand(sql, conn);
+            using var cmd = new MySqlCommand($"CREATE TABLE IF NOT EXISTS `{tabla}` ({cols}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;", conn);
+            cmd.ExecuteNonQuery();
+        }
+
+        private static void CrearTablaSqlServer(SqlConnection conn, string tabla, DataTable dt)
+        {
+            var cols = new StringBuilder();
+            foreach (DataColumn col in dt.Columns)
+            {
+                if (cols.Length > 0) cols.Append(", ");
+                string nombre = SanitizarNombre(col.ColumnName);
+                string tipo = col.DataType == typeof(long) || col.DataType == typeof(int) ? "BIGINT"
+                    : col.DataType == typeof(double) || col.DataType == typeof(float) || col.DataType == typeof(decimal) ? "FLOAT"
+                    : "NVARCHAR(MAX)";
+                cols.Append($"[{nombre}] {tipo}");
+            }
+            string sql = $@"IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{tabla.Replace("'", "''")}')
+                            CREATE TABLE [{tabla}] ({cols});";
+            using var cmd = new SqlCommand(sql, conn);
             cmd.ExecuteNonQuery();
         }
 
@@ -363,8 +436,8 @@ namespace FileExplorerr
                 nombres.Add($"\"{SanitizarNombre(dt.Columns[i].ColumnName)}\"");
                 pars.Add($"@p{i}");
             }
-            string sql = $"INSERT INTO \"{tabla}\" ({string.Join(",", nombres)}) VALUES ({string.Join(",", pars)});";
-            using var cmd = new NpgsqlCommand(sql, conn, tx);
+            using var cmd = new NpgsqlCommand(
+                $"INSERT INTO \"{tabla}\" ({string.Join(",", nombres)}) VALUES ({string.Join(",", pars)});", conn, tx);
             for (int i = 0; i < dt.Columns.Count; i++)
                 cmd.Parameters.AddWithValue($"@p{i}", row[i] ?? DBNull.Value);
             cmd.ExecuteNonQuery();
@@ -380,8 +453,25 @@ namespace FileExplorerr
                 nombres.Add($"`{SanitizarNombre(dt.Columns[i].ColumnName)}`");
                 pars.Add($"@p{i}");
             }
-            string sql = $"INSERT INTO `{tabla}` ({string.Join(",", nombres)}) VALUES ({string.Join(",", pars)});";
-            using var cmd = new MySqlCommand(sql, conn, tx);
+            using var cmd = new MySqlCommand(
+                $"INSERT INTO `{tabla}` ({string.Join(",", nombres)}) VALUES ({string.Join(",", pars)});", conn, tx);
+            for (int i = 0; i < dt.Columns.Count; i++)
+                cmd.Parameters.AddWithValue($"@p{i}", row[i] ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+
+        private static void InsertarFilaSqlServer(SqlConnection conn, SqlTransaction tx,
+            string tabla, DataTable dt, DataRow row)
+        {
+            var nombres = new List<string>();
+            var pars = new List<string>();
+            for (int i = 0; i < dt.Columns.Count; i++)
+            {
+                nombres.Add($"[{SanitizarNombre(dt.Columns[i].ColumnName)}]");
+                pars.Add($"@p{i}");
+            }
+            using var cmd = new SqlCommand(
+                $"INSERT INTO [{tabla}] ({string.Join(",", nombres)}) VALUES ({string.Join(",", pars)});", conn, tx);
             for (int i = 0; i < dt.Columns.Count; i++)
                 cmd.Parameters.AddWithValue($"@p{i}", row[i] ?? DBNull.Value);
             cmd.ExecuteNonQuery();
