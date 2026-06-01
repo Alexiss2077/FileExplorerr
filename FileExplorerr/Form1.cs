@@ -632,12 +632,31 @@ namespace FileExplorerr
             };
             hdr.Controls.Add(folderNameLabel);
 
-            var srchPanel = new Panel { Height = 42, Dock = DockStyle.Top, Padding = new Padding(8, 5, 8, 5) };
-            searchBox = Theme.MakeTextBox("🔍  Buscar en carpeta...");
-            searchBox.Dock = DockStyle.Fill;
-            var goBtn = Theme.MakeButton("Ir", 40, Theme.ButtonKind.Primary);
-            goBtn.Dock = DockStyle.Right;
-            goBtn.Height = 32;
+            var srchPanel = new Panel { Height = 46, Dock = DockStyle.Top, BackColor = Theme.BgSurface, Padding = new Padding(8, 7, 8, 7) };
+            searchBox = new TextBox
+            {
+                BackColor = Theme.BgElevated,
+                ForeColor = Theme.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = Theme.FontBody,
+                PlaceholderText = "🔍  Buscar en carpeta...",
+                Height = 32,
+                Dock = DockStyle.Fill
+            };
+            var goBtn = new Button
+            {
+                Text = "Ir",
+                Width = 36,
+                Height = 32,
+                Dock = DockStyle.Right,
+                BackColor = Theme.AccentBg,
+                ForeColor = Theme.Accent2,
+                FlatStyle = FlatStyle.Flat,
+                Font = Theme.FontSmallBold,
+                Cursor = Cursors.Hand
+            };
+            goBtn.FlatAppearance.BorderColor = Color.FromArgb(124, 111, 247, 80);
+            goBtn.FlatAppearance.BorderSize = 1;
             goBtn.Click += (s, e) => _ = SearchInPanelAsync(searchBox.Text);
             searchBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) _ = SearchInPanelAsync(searchBox.Text); };
             srchPanel.Controls.Add(searchBox);
