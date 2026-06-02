@@ -13,8 +13,8 @@ namespace FileExplorerr
         // ── Constants ────────────────────────────────────────────────────────
         private const int FormWidth = 400;
         private const int FormHeight = 310;
-        private const int ConfigFormWidth = 420;
-        private const int ConfigFormHeight = 240;
+        private const int ConfigFormWidth = 460;
+        private const int ConfigFormHeight = 290;
 
         // ── State ────────────────────────────────────────────────────────────
         private readonly string _filePath;
@@ -161,16 +161,25 @@ namespace FileExplorerr
                 message.Body =
                     $"Hola,\n\nSe ha compartido un archivo contigo desde File Explorer." +
                     $"\n\nNombre del archivo: {Path.GetFileName(_filePath)}";
+                message.IsBodyHtml = false;
 
                 using var attachment = new Attachment(_filePath);
                 message.Attachments.Add(attachment);
 
-                using var smtp = new SmtpClient(_smtpConfig.Host, _smtpConfig.Port)
+                // ── SMTP client ──────────────────────────────────────────────
+                // Gmail requires port 587 + STARTTLS (EnableSsl = true) OR
+                // port 465 + implicit SSL.  The key fix: set DeliveryMethod
+                // explicitly and use a NetworkCredential with the app-password.
+                using var smtp = new SmtpClient(_smtpConfig.Host)
                 {
+                    Port = _smtpConfig.Port,
+                    DeliveryMethod = SmtpDeliveryMethod.Network,
+                    UseDefaultCredentials = false,           // ← MUST be false before setting Credentials
                     Credentials = new NetworkCredential(
                         _smtpConfig.SenderAddress,
                         _smtpConfig.AppPassword),
-                    EnableSsl = true
+                    EnableSsl = true,
+                    Timeout = 30_000
                 };
 
                 await smtp.SendMailAsync(message);
@@ -191,8 +200,20 @@ namespace FileExplorerr
                 lblStatus.Text = "Error al enviar.";
                 lblStatus.ForeColor = Color.Red;
 
+                // Provide actionable guidance for the most common Gmail errors.
+                string extra = ex.StatusCode switch
+                {
+                    SmtpStatusCode.MustIssueStartTlsFirst =>
+                        "\n\nAsegúrate de que el puerto sea 587 y SSL esté activado.",
+                    SmtpStatusCode.MailboxUnavailable or
+                    SmtpStatusCode.ClientNotPermitted =>
+                        "\n\nVerifica que estés usando una Contraseña de Aplicación de Google " +
+                        "(no tu contraseña normal) y que el acceso IMAP esté habilitado en Gmail.",
+                    _ => string.Empty
+                };
+
                 MessageBox.Show(
-                    $"Error SMTP al enviar el correo:\n\n{ex.Message}\n\n" +
+                    $"Error SMTP al enviar el correo:\n\n{ex.Message}{extra}\n\n" +
                     "Verifica tu configuración SMTP.",
                     "Error de envío",
                     MessageBoxButtons.OK,
@@ -246,28 +267,29 @@ namespace FileExplorerr
 
             var lblInfo = new Label
             {
-                Text = "Las credenciales se guardan en AppData, no en el código fuente.",
+                Text = "Para Gmail: usa una Contraseña de Aplicación (16 caracteres).\n" +
+                       "Actívala en: cuenta.google.com → Seguridad → Contraseñas de aplicaciones.",
                 Location = new Point(14, 14),
-                Size = new Size(380, 30),
+                Size = new Size(420, 40),
                 ForeColor = Color.FromArgb(140, 160, 180)
             };
 
-            var lblAddr = new Label { Text = "Cuenta Gmail:", Location = new Point(14, 52), AutoSize = true };
+            var lblAddr = new Label { Text = "Cuenta Gmail:", Location = new Point(14, 62), AutoSize = true };
             var txtAddr = new TextBox
             {
-                Location = new Point(14, 70),
-                Size = new Size(380, 25),
+                Location = new Point(14, 80),
+                Size = new Size(420, 25),
                 BackColor = Color.FromArgb(45, 45, 50),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Text = _smtpConfig.SenderAddress
             };
 
-            var lblPass = new Label { Text = "Contraseña de aplicación (16 caracteres):", Location = new Point(14, 102), AutoSize = true };
+            var lblPass = new Label { Text = "Contraseña de aplicación (16 caracteres):", Location = new Point(14, 112), AutoSize = true };
             var txtPass = new TextBox
             {
-                Location = new Point(14, 120),
-                Size = new Size(380, 25),
+                Location = new Point(14, 130),
+                Size = new Size(420, 25),
                 BackColor = Color.FromArgb(45, 45, 50),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -275,10 +297,42 @@ namespace FileExplorerr
                 Text = _smtpConfig.AppPassword
             };
 
+            // Show/hide password toggle
+            var chkShow = new CheckBox
+            {
+                Text = "Mostrar contraseña",
+                Location = new Point(14, 160),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(140, 160, 180)
+            };
+            chkShow.CheckedChanged += (_, _) =>
+                txtPass.PasswordChar = chkShow.Checked ? '\0' : '●';
+
+            var lblHost = new Label { Text = "Servidor SMTP:", Location = new Point(14, 188), AutoSize = true };
+            var txtHost = new TextBox
+            {
+                Location = new Point(150, 185),
+                Size = new Size(180, 25),
+                BackColor = Color.FromArgb(45, 45, 50),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = _smtpConfig.Host
+            };
+            var lblPort = new Label { Text = "Puerto:", Location = new Point(340, 188), AutoSize = true };
+            var txtPort = new TextBox
+            {
+                Location = new Point(390, 185),
+                Size = new Size(50, 25),
+                BackColor = Color.FromArgb(45, 45, 50),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = _smtpConfig.Port.ToString()
+            };
+
             var btnSave = new Button
             {
                 Text = "Guardar",
-                Location = new Point(220, 160),
+                Location = new Point(240, 220),
                 Size = new Size(90, 32),
                 BackColor = Color.FromArgb(0, 120, 215),
                 ForeColor = Color.White,
@@ -291,13 +345,15 @@ namespace FileExplorerr
             {
                 _smtpConfig.SenderAddress = txtAddr.Text.Trim();
                 _smtpConfig.AppPassword = txtPass.Text.Trim();
+                _smtpConfig.Host = txtHost.Text.Trim();
+                if (int.TryParse(txtPort.Text.Trim(), out int p)) _smtpConfig.Port = p;
                 _smtpConfig.Save();
             };
 
             var btnCancel = new Button
             {
                 Text = "Cancelar",
-                Location = new Point(318, 160),
+                Location = new Point(338, 220),
                 Size = new Size(76, 32),
                 BackColor = Color.FromArgb(45, 45, 50),
                 ForeColor = Color.White,
@@ -308,7 +364,11 @@ namespace FileExplorerr
             btnCancel.FlatAppearance.BorderSize = 0;
 
             dlg.Controls.AddRange(new Control[]
-                { lblInfo, lblAddr, txtAddr, lblPass, txtPass, btnSave, btnCancel });
+            {
+                lblInfo, lblAddr, txtAddr, lblPass, txtPass,
+                chkShow, lblHost, txtHost, lblPort, txtPort,
+                btnSave, btnCancel
+            });
 
             dlg.ShowDialog(this);
         }
