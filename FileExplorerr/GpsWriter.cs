@@ -2,16 +2,17 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.CompilerServices;
 
 namespace FileExplorerr
 {
     // ════════════════════════════════════════════════════════════════════════
-    //  GPS WRITER — escribe coordenadas GPS en metadatos EXIF de imágenes
-    //  Soporta JPEG y TIFF.
+    //  GPS WRITER — writes GPS coordinates into EXIF metadata of JPEG/TIFF files.
+    //  Supports JPEG and TIFF only (System.Drawing limitation).
     // ════════════════════════════════════════════════════════════════════════
     internal static class GpsWriter
     {
-        // EXIF Property IDs para GPS
+        // ── EXIF Property IDs ────────────────────────────────────────────────
         private const int TagGpsVersionId = 0x0000;
         private const int TagGpsLatRef = 0x0001;
         private const int TagGpsLat = 0x0002;
@@ -20,184 +21,194 @@ namespace FileExplorerr
         private const int TagGpsAltRef = 0x0005;
         private const int TagGpsAlt = 0x0006;
 
+        // ── EXIF type codes ──────────────────────────────────────────────────
+        private const short TypeByte = 1;
+        private const short TypeAscii = 2;
+        private const short TypeRational = 5;
+
+        // ── Precision denominator for seconds ────────────────────────────────
+        private const uint SecondsDenominator = 10_000;
+
+        // ── Supported extensions ─────────────────────────────────────────────
+        private static readonly string[] SupportedExtensions = { ".jpg", ".jpeg", ".tiff", ".tif" };
+
         /// <summary>
-        /// Escribe coordenadas GPS en los metadatos EXIF de una imagen JPEG o TIFF.
-        /// Sobreescribe el archivo original.
+        /// Writes GPS coordinates into the EXIF metadata of a JPEG or TIFF file.
+        /// The original file is overwritten atomically via a temporary file.
         /// </summary>
-        public static void WriteGps(string filePath, double latitude, double longitude, double? altitude = null)
+        /// <exception cref="ArgumentOutOfRangeException">Latitude or longitude out of valid range.</exception>
+        /// <exception cref="NotSupportedException">File format is not JPEG or TIFF.</exception>
+        public static void WriteGps(string filePath, double latitude, double longitude,
+                                    double? altitude = null)
         {
-            if (Math.Abs(latitude) > 90)
-                throw new ArgumentOutOfRangeException(nameof(latitude), "Latitud debe estar entre -90 y 90.");
-            if (Math.Abs(longitude) > 180)
-                throw new ArgumentOutOfRangeException(nameof(longitude), "Longitud debe estar entre -180 y 180.");
+            ValidateCoordinates(latitude, longitude);
+            ValidateExtension(filePath);
 
-            string ext = Path.GetExtension(filePath).ToLower();
-            if (ext != ".jpg" && ext != ".jpeg" && ext != ".tiff" && ext != ".tif")
-                throw new NotSupportedException("Solo se soporta escritura GPS en JPEG y TIFF.");
-
-            // Leer la imagen completa en memoria para no bloquear el archivo
+            // Load the whole file into memory so we can safely overwrite it.
             byte[] fileBytes = File.ReadAllBytes(filePath);
-            Image img;
-            using (var ms = new MemoryStream(fileBytes))
-                img = Image.FromStream(ms, true, true);
 
+            Image image;
+            using (var ms = new System.IO.MemoryStream(fileBytes))
+                image = Image.FromStream(ms, useEmbeddedColorManagement: true, validateImageData: true);
+
+            string? tempPath = null;
             try
             {
-                // GPS Version ID: 2.3.0.0
-                SetPropertyRational(img, TagGpsVersionId, new byte[] { 2, 3, 0, 0 }, PropertyTagTypeByte);
+                SetGpsVersion(image);
+                SetLatitude(image, latitude);
+                SetLongitude(image, longitude);
 
-                // Latitude
-                double absLat = Math.Abs(latitude);
-                string latRef = latitude >= 0 ? "N" : "S";
-                SetPropertyAscii(img, TagGpsLatRef, latRef);
-                SetPropertyRational(img, TagGpsLat, DecimalDegreesToExifRational(absLat));
-
-                // Longitude
-                double absLon = Math.Abs(longitude);
-                string lonRef = longitude >= 0 ? "E" : "W";
-                SetPropertyAscii(img, TagGpsLonRef, lonRef);
-                SetPropertyRational(img, TagGpsLon, DecimalDegreesToExifRational(absLon));
-
-                // Altitude
                 if (altitude.HasValue)
-                {
-                    double absAlt = Math.Abs(altitude.Value);
-                    byte altRef = altitude.Value < 0 ? (byte)1 : (byte)0;
-                    SetPropertyByte(img, TagGpsAltRef, altRef);
-                    SetPropertyRational(img, TagGpsAlt, DoubleToExifRational(absAlt));
-                }
+                    SetAltitude(image, altitude.Value);
 
-                // Guardar: necesitamos un archivo temporal porque no se puede sobreescribir mientras está abierto
-                string tempPath = filePath + ".tmp_gps";
-                var codec = GetEncoder(ext);
-                if (codec != null)
-                {
-                    var encoderParams = new EncoderParameters(1);
-                    encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, 98L);
-                    img.Save(tempPath, codec, encoderParams);
-                }
-                else
-                {
-                    img.Save(tempPath);
-                }
+                tempPath = filePath + ".tmp_gps";
+                SaveImage(image, tempPath, Path.GetExtension(filePath));
+                image.Dispose();
 
-                img.Dispose();
-
-                // Reemplazar original
+                // Atomic replace: delete original then rename temp.
                 File.Delete(filePath);
                 File.Move(tempPath, filePath);
             }
             catch
             {
-                img.Dispose();
-                // Limpiar archivo temporal si existe
-                string tempPath = filePath + ".tmp_gps";
-                if (File.Exists(tempPath))
-                    try { File.Delete(tempPath); } catch { }
+                image.Dispose();
+                CleanupTemp(tempPath);
                 throw;
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  HELPERS — Conversión a formato EXIF
+        //  PRIVATE — tag writers
         // ════════════════════════════════════════════════════════════════════
 
-        private const short PropertyTagTypeAscii = 2;
-        private const short PropertyTagTypeByte = 1;
-        private const short PropertyTagTypeRational = 5;
+        private static void SetGpsVersion(Image image)
+        {
+            // GPS IFD version 2.3.0.0
+            SetRational(image, TagGpsVersionId, new byte[] { 2, 3, 0, 0 }, TypeByte);
+        }
+
+        private static void SetLatitude(Image image, double latitude)
+        {
+            SetAscii(image, TagGpsLatRef, latitude >= 0 ? "N" : "S");
+            SetRational(image, TagGpsLat, DegreesToExif(Math.Abs(latitude)));
+        }
+
+        private static void SetLongitude(Image image, double longitude)
+        {
+            SetAscii(image, TagGpsLonRef, longitude >= 0 ? "E" : "W");
+            SetRational(image, TagGpsLon, DegreesToExif(Math.Abs(longitude)));
+        }
+
+        private static void SetAltitude(Image image, double altitude)
+        {
+            SetByte(image, TagGpsAltRef, altitude < 0 ? (byte)1 : (byte)0);
+            SetRational(image, TagGpsAlt, DoubleToExifRational(Math.Abs(altitude)));
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  PRIVATE — EXIF encoding helpers
+        // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Convierte grados decimales a 3 racionales EXIF: (grados, minutos, segundos)
-        /// Cada racional es un par numerador/denominador de 4 bytes (uint32) = 24 bytes total
+        /// Converts decimal degrees to three EXIF rationals (deg, min, sec).
+        /// Each rational is a pair of uint32 values = 24 bytes total.
         /// </summary>
-        private static byte[] DecimalDegreesToExifRational(double decimalDegrees)
+        private static byte[] DegreesToExif(double decimalDegrees)
         {
             int degrees = (int)decimalDegrees;
-            double minutesFull = (decimalDegrees - degrees) * 60.0;
-            int minutes = (int)minutesFull;
-            double seconds = (minutesFull - minutes) * 60.0;
+            double minFull = (decimalDegrees - degrees) * 60.0;
+            int minutes = (int)minFull;
+            double seconds = (minFull - minutes) * 60.0;
 
-            // Usar denominador de 10000 para segundos para mayor precisión
-            uint secNumerator = (uint)Math.Round(seconds * 10000);
-            uint secDenominator = 10000;
+            uint secNumerator = (uint)Math.Round(seconds * SecondsDenominator);
 
-            byte[] data = new byte[24];
+            var data = new byte[24];
             BitConverter.GetBytes((uint)degrees).CopyTo(data, 0);
             BitConverter.GetBytes((uint)1).CopyTo(data, 4);
             BitConverter.GetBytes((uint)minutes).CopyTo(data, 8);
             BitConverter.GetBytes((uint)1).CopyTo(data, 12);
             BitConverter.GetBytes(secNumerator).CopyTo(data, 16);
-            BitConverter.GetBytes(secDenominator).CopyTo(data, 20);
-
+            BitConverter.GetBytes(SecondsDenominator).CopyTo(data, 20);
             return data;
         }
 
-        /// <summary>
-        /// Convierte un double a un racional EXIF (1 par numerador/denominador)
-        /// </summary>
         private static byte[] DoubleToExifRational(double value)
         {
-            uint numerator = (uint)Math.Round(value * 1000);
-            uint denominator = 1000;
-
-            byte[] data = new byte[8];
+            const uint denominator = 1000;
+            uint numerator = (uint)Math.Round(value * denominator);
+            var data = new byte[8];
             BitConverter.GetBytes(numerator).CopyTo(data, 0);
             BitConverter.GetBytes(denominator).CopyTo(data, 4);
-
             return data;
         }
 
-        private static void SetPropertyRational(Image img, int id, byte[] data, short type = PropertyTagTypeRational)
+        private static void SetRational(Image image, int id, byte[] data, short type = TypeRational)
         {
-            PropertyItem prop = CreatePropertyItem();
+            var prop = CreatePropertyItem();
             prop.Id = id;
             prop.Type = type;
             prop.Len = data.Length;
             prop.Value = data;
-            img.SetPropertyItem(prop);
+            image.SetPropertyItem(prop);
         }
 
-        private static void SetPropertyAscii(Image img, int id, string value)
+        private static void SetAscii(Image image, int id, string value)
         {
-            byte[] data = new byte[value.Length + 1];
+            var data = new byte[value.Length + 1]; // +1 for null terminator
             for (int i = 0; i < value.Length; i++)
                 data[i] = (byte)value[i];
-            data[value.Length] = 0; // null terminator
+            data[value.Length] = 0;
 
-            PropertyItem prop = CreatePropertyItem();
+            var prop = CreatePropertyItem();
             prop.Id = id;
-            prop.Type = PropertyTagTypeAscii;
+            prop.Type = TypeAscii;
             prop.Len = data.Length;
             prop.Value = data;
-            img.SetPropertyItem(prop);
+            image.SetPropertyItem(prop);
         }
 
-        private static void SetPropertyByte(Image img, int id, byte value)
+        private static void SetByte(Image image, int id, byte value)
         {
-            PropertyItem prop = CreatePropertyItem();
+            var prop = CreatePropertyItem();
             prop.Id = id;
-            prop.Type = PropertyTagTypeByte;
+            prop.Type = TypeByte;
             prop.Len = 1;
-            prop.Value = new byte[] { value };
-            img.SetPropertyItem(prop);
+            prop.Value = new[] { value };
+            image.SetPropertyItem(prop);
         }
 
         /// <summary>
-        /// PropertyItem no tiene constructor público.
-        /// Usamos reflexión para crear una instancia.
+        /// Creates a blank <see cref="PropertyItem"/>.
+        /// <para>
+        /// PropertyItem has no public constructor. In .NET 5+ the recommended
+        /// approach is <see cref="RuntimeHelpers.GetUninitializedObject"/> which
+        /// supersedes the obsolete <c>FormatterServices.GetUninitializedObject</c>.
+        /// </para>
         /// </summary>
         private static PropertyItem CreatePropertyItem()
         {
-            var type = typeof(PropertyItem);
-            var ctor = type.GetConstructor(
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
-                null, Type.EmptyTypes, null);
+            // RuntimeHelpers.GetUninitializedObject is the .NET 5+ replacement for
+            // the obsolete FormatterServices.GetUninitializedObject.
+            return (PropertyItem)RuntimeHelpers.GetUninitializedObject(typeof(PropertyItem));
+        }
 
-            if (ctor != null)
-                return (PropertyItem)ctor.Invoke(null);
+        // ════════════════════════════════════════════════════════════════════
+        //  PRIVATE — I/O helpers
+        // ════════════════════════════════════════════════════════════════════
 
-            // Fallback: usar FormatterServices (funciona en .NET Framework y .NET Core)
-            return (PropertyItem)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(type);
+        private static void SaveImage(Image image, string path, string extension)
+        {
+            var codec = GetEncoder(extension.ToLowerInvariant());
+            if (codec is not null)
+            {
+                var encoderParams = new EncoderParameters(1);
+                encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, 98L);
+                image.Save(path, codec, encoderParams);
+            }
+            else
+            {
+                image.Save(path);
+            }
         }
 
         private static ImageCodecInfo? GetEncoder(string ext)
@@ -206,7 +217,7 @@ namespace FileExplorerr
             {
                 ".jpg" or ".jpeg" => "image/jpeg",
                 ".tiff" or ".tif" => "image/tiff",
-                _ => ""
+                _ => string.Empty
             };
 
             if (string.IsNullOrEmpty(mimeType)) return null;
@@ -215,6 +226,37 @@ namespace FileExplorerr
                 if (codec.MimeType == mimeType) return codec;
 
             return null;
+        }
+
+        private static void CleanupTemp(string? path)
+        {
+            if (path is null) return;
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { /* Non-fatal — temp file may be cleaned up on next run. */ }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  PRIVATE — validation
+        // ════════════════════════════════════════════════════════════════════
+
+        private static void ValidateCoordinates(double latitude, double longitude)
+        {
+            if (Math.Abs(latitude) > 90)
+                throw new ArgumentOutOfRangeException(nameof(latitude),
+                    "Latitud debe estar entre -90 y 90.");
+
+            if (Math.Abs(longitude) > 180)
+                throw new ArgumentOutOfRangeException(nameof(longitude),
+                    "Longitud debe estar entre -180 y 180.");
+        }
+
+        private static void ValidateExtension(string filePath)
+        {
+            string ext = Path.GetExtension(filePath).ToLowerInvariant();
+            bool supported = Array.IndexOf(SupportedExtensions, ext) >= 0;
+            if (!supported)
+                throw new NotSupportedException(
+                    "Solo se soporta escritura GPS en archivos JPEG y TIFF.");
         }
     }
 }

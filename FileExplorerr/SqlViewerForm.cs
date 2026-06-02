@@ -411,8 +411,8 @@ namespace FileExplorerr
         private static string TablaCsv(DataTable dt)
         {
             var sb = new StringBuilder();
-            sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\"")));
-            foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\"")));
+            sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{CsvHelper.EscapeField(c.ColumnName)}\"")));
+            foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{CsvHelper.EscapeField(x?.ToString() ?? "")}\"")));
             return sb.ToString();
         }
 
@@ -443,7 +443,6 @@ namespace FileExplorerr
         }
 
         private static string TablaXml(DataTable dt) { dt.TableName = "Resultados"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
-        private static string Esc(string s) => s.Replace("\"", "\"\"");
 
         // ════════════════════════════════════════════════════════════════════
         //  IMPORTAR ARCHIVO → BD
@@ -563,17 +562,10 @@ namespace FileExplorerr
             var dt = new DataTable();
             var lineas = contenido.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
             if (lineas.Length == 0) return dt;
-            var headers = SplitCsvLine(lineas[0]);
+            var headers = CsvHelper.SplitLine(lineas[0]);
             foreach (var h in headers) dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"Col{dt.Columns.Count + 1}");
-            for (int i = 1; i < lineas.Length; i++) { var cells = SplitCsvLine(lineas[i]); var row = dt.NewRow(); for (int c = 0; c < dt.Columns.Count; c++) row[c] = c < cells.Count ? cells[c].Trim('"') : ""; dt.Rows.Add(row); }
+            for (int i = 1; i < lineas.Length; i++) { var cells = CsvHelper.SplitLine(lineas[i]); var row = dt.NewRow(); for (int c = 0; c < dt.Columns.Count; c++) row[c] = c < cells.Count ? cells[c].Trim('"') : ""; dt.Rows.Add(row); }
             return dt;
-        }
-
-        private static List<string> SplitCsvLine(string line)
-        {
-            var result = new List<string>(); bool inQuote = false; var cur = new StringBuilder();
-            foreach (char c in line) { if (c == '"') inQuote = !inQuote; else if (c == ',' && !inQuote) { result.Add(cur.ToString()); cur.Clear(); } else cur.Append(c); }
-            result.Add(cur.ToString()); return result;
         }
 
         private static DataTable ParseTxt(string contenido)

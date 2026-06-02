@@ -272,19 +272,19 @@ namespace FileExplorerr
             try
             {
                 return Directory.GetFiles(currentPath)
-                    .FirstOrDefault(x => MusicPlayerForm.SupportedExtensions
-                        .Contains(Path.GetExtension(x).ToLower()));
+                    .FirstOrDefault(x => FileExtensions.Audio
+                        .Contains(Path.GetExtension(x)));
             }
             catch { return null; }
         }
 
         private string? GetFirstVideoFile()
         {
-            string[] exts = { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".3gp", ".mpg", ".mpeg" };
             try
             {
                 return Directory.GetFiles(currentPath)
-                    .FirstOrDefault(x => exts.Contains(Path.GetExtension(x).ToLower()));
+                    .FirstOrDefault(x => FileExtensions.Video
+                    .Contains(Path.GetExtension(x)));
             }
             catch { return null; }
         }
@@ -1375,7 +1375,7 @@ namespace FileExplorerr
                     if (token.IsCancellationRequested) break;
                     var item = new ListViewItem(f.Name) { ImageKey = IconKey(f.Extension), Tag = f.FullName };
                     item.SubItems.Add(FileTypeName(f.Extension));
-                    item.SubItems.Add(FormatSize(f.Length));
+                    item.SubItems.Add(FileSize.Format(f.Length));
                     item.SubItems.Add(f.Extension.ToUpper().TrimStart('.'));
                     item.SubItems.Add(f.LastWriteTime.ToString("dd/MM/yyyy  HH:mm"));
                     listView.Items.Add(item);
@@ -1521,15 +1521,15 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
-        private string IconKey(string ext)
-        {
-            ext = ext.ToLower();
-            if (new[] { ".jpg", ".jpeg", ".jfif", ".png", ".gif", ".bmp", ".tiff", ".tif", ".ico", ".webp", ".avif", ".heic", ".svg", ".raw", ".cr2", ".nef", ".arw", ".dng" }.Contains(ext)) return "image";
-            if (new[] { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".aiff" }.Contains(ext)) return "audio";
-            if (new[] { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".ts", ".m4v", ".3gp" }.Contains(ext)) return "video";
-            if (new[] { ".txt", ".csv", ".json", ".xml", ".log", ".ini", ".config", ".md", ".cs", ".py", ".js", ".html", ".css" }.Contains(ext)) return "text";
-            return "file";
-        }
+          private string IconKey(string ext) =>
+              FileExtensions.Categorise(ext) switch
+              {
+                  FileCategory.Image    => "image",
+                  FileCategory.Audio    => "audio",
+                  FileCategory.Video    => "video",
+                  FileCategory.Text     => "text",
+                   _                     => "file"
+              };
 
         private string FileTypeName(string ext)
         {
@@ -1547,13 +1547,6 @@ namespace FileExplorerr
             return map.TryGetValue(ext, out var t) ? t : "Archivo";
         }
 
-        private static string FormatSize(long bytes)
-        {
-            string[] u = { "B", "KB", "MB", "GB", "TB" };
-            double v = bytes; int i = 0;
-            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
-            return $"{v:0.##} {u[i]}";
-        }
 
         // ── Íconos ───────────────────────────────────────────────────────────
         private static Icon MakeFolderIcon()

@@ -24,13 +24,12 @@ namespace FileExplorerr
         private static readonly Dictionary<string, CoverSearchResult> _cache =
             new Dictionary<string, CoverSearchResult>();
 
-        private readonly HttpClient _httpClient;
-
-        public CoverSearcher()
+        private static readonly HttpClient _httpClient = CreateHttpClient();
+        private static HttpClient CreateHttpClient()
         {
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromSeconds(15);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0");
+            var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "FileExplorerr/1.0");
+            return client;
         }
 
         /// <summary>

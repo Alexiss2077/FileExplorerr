@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,46 +8,39 @@ using System.Threading.Tasks;
 namespace FileExplorerr
 {
     // ════════════════════════════════════════════════════════════════════════
-    //  GENERADOR DE ÍNDICE CSV
-    //  Recorre un directorio raíz y produce un CSV con conteos por tipo
-    //  de archivo para cada carpeta encontrada.
+    //  CSV INDEXER
+    //  Walks a root directory recursively and produces a CSV with one row
+    //  per file found in each sub-folder.
     // ════════════════════════════════════════════════════════════════════════
     internal static class CsvIndexer
     {
-        // ── Extensiones por categoría ────────────────────────────────────────
-        private static readonly string[] ExtImage = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".svg" };
-        private static readonly string[] ExtAudio = { ".mp3", ".wav", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus" };
-        private static readonly string[] ExtVideo = { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".ts" };
-        private static readonly string[] ExtText = { ".txt", ".csv", ".json", ".xml", ".log", ".ini", ".config",
-                                                        ".md", ".cs", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml" };
+        // ── CSV column header ────────────────────────────────────────────────
+        private const string CsvHeader =
+            "\"Ruta Carpeta\"," +
+            "\"Nombre Carpeta\"," +
+            "\"Nombre Archivo\"," +
+            "\"Extensión\"," +
+            "\"Tamaño\"," +
+            "\"Último Acceso\"";
 
-        // ── Punto de entrada asíncrono ───────────────────────────────────────
+        // ── Async entry point ────────────────────────────────────────────────
         /// <summary>
-        /// Genera el contenido CSV completo recorriendo <paramref name="rootPath"/>
-        /// de forma recursiva. Reporta la carpeta en proceso mediante
-        /// <paramref name="progress"/>.
+        /// Generates the full CSV content by recursively traversing
+        /// <paramref name="rootPath"/>. Reports the current folder name
+        /// via <paramref name="progress"/>.
         /// </summary>
         public static Task<string> GenerateAsync(string rootPath, IProgress<string>? progress = null)
         {
             return Task.Run(() =>
             {
                 var sb = new StringBuilder();
-
-                // Cabecera
-                sb.AppendLine(
-                    "\"Ruta Carpeta\"," +
-                    "\"Nombre Carpeta\"," +
-                    "\"Nombre Archivo\"," +
-                    "\"Extensión\"," +
-                    "\"Tamaño\"," +
-                    "\"Último Acceso\"");
-
+                sb.AppendLine(CsvHeader);
                 ProcessDirectory(rootPath, sb, progress);
                 return sb.ToString();
             });
         }
 
-        // ── Procesamiento recursivo 
+        // ── Recursive traversal ──────────────────────────────────────────────
         private static void ProcessDirectory(string path, StringBuilder sb, IProgress<string>? progress)
         {
             try
@@ -56,111 +50,131 @@ namespace FileExplorerr
 
                 var files = di.GetFiles()
                               .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
+                              .OrderBy(f => f.Name)
                               .ToArray();
 
                 var subdirs = di.GetDirectories()
                                 .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
+                                .OrderBy(d => d.Name)
                                 .ToArray();
 
-                // Una fila por archivo
-                foreach (var f in files.OrderBy(x => x.Name))
-                {
-                    sb.AppendLine(
-                        $"\"{Esc(di.FullName)}\"," +
-                        $"\"{Esc(di.Name)}\"," +
-                        $"\"{Esc(f.Name)}\"," +
-                        $"\"{f.Extension.TrimStart('.').ToUpper()}\"," +
-                        $"\"{FormatSize(f.Length)}\"," +
-                        $"\"{f.LastWriteTime:dd/MM/yyyy HH:mm}\"");
-                }
-
-                // Si la carpeta está vacía igual se registra
                 if (files.Length == 0)
                 {
+                    // Record empty folders explicitly so they appear in the index.
                     sb.AppendLine(
-                        $"\"{Esc(di.FullName)}\"," +
-                        $"\"{Esc(di.Name)}\"," +
-                        "\"(vacía)\"," +
-                        "\"\",\"\",\"\"");
+                        $"\"{Escape(di.FullName)}\"," +
+                        $"\"{Escape(di.Name)}\"," +
+                        "\"(vacía)\",,,");
+                }
+                else
+                {
+                    foreach (var file in files)
+                    {
+                        sb.AppendLine(
+                            $"\"{Escape(di.FullName)}\"," +
+                            $"\"{Escape(di.Name)}\"," +
+                            $"\"{Escape(file.Name)}\"," +
+                            $"\"{file.Extension.TrimStart('.').ToUpper()}\"," +
+                            $"\"{FileSize.Format(file.Length)}\"," +
+                            $"\"{file.LastWriteTime:dd/MM/yyyy HH:mm}\"");
+                    }
                 }
 
-                foreach (var sub in subdirs.OrderBy(d => d.Name))
+                foreach (var sub in subdirs)
                 {
-                    try { ProcessDirectory(sub.FullName, sb, progress); }
-                    catch { /* Sin acceso — continuar */ }
+                    try
+                    {
+                        ProcessDirectory(sub.FullName, sb, progress);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Skip folders we cannot read; continue with siblings.
+                    }
                 }
             }
-            catch { /* Sin acceso al directorio raíz — ignorar */ }
+            catch (UnauthorizedAccessException)
+            {
+                // Skip inaccessible root; caller decides how to handle the absence.
+            }
         }
 
-        // ── Clasificación de archivos 
+        // ── File classification ──────────────────────────────────────────────
+        /// <summary>Classifies an array of <see cref="FileInfo"/> by type.</summary>
         internal static FileStats ClassifyFiles(FileInfo[] files)
         {
-            int img = 0, aud = 0, vid = 0, txt = 0;
-            foreach (var f in files)
+            int images = 0, audio = 0, video = 0, text = 0, other = 0;
+
+            foreach (var file in files)
             {
-                string ext = f.Extension.ToLower();
-                if (ExtImage.Contains(ext)) img++;
-                else if (ExtAudio.Contains(ext)) aud++;
-                else if (ExtVideo.Contains(ext)) vid++;
-                else if (ExtText.Contains(ext)) txt++;
+                switch (FileExtensions.Categorise(file.Extension))
+                {
+                    case FileCategory.Image: images++; break;
+                    case FileCategory.Audio: audio++; break;
+                    case FileCategory.Video: video++; break;
+                    case FileCategory.Text: text++; break;
+                    default: other++; break;
+                }
             }
+
             return new FileStats
             {
-                Images = img,
-                Audio = aud,
-                Video = vid,
-                Text = txt,
-                Other = files.Length - img - aud - vid - txt
+                Images = images,
+                Audio = audio,
+                Video = video,
+                Text = text,
+                Other = other
             };
         }
 
-        // Versión que acepta sólo extensiones (más rápida para el panel)
+        /// <summary>Classifies an array of raw extensions (faster path for the info panel).</summary>
         internal static FileStats ClassifyByExtensions(string[] extensions)
         {
-            int img = 0, aud = 0, vid = 0, txt = 0;
-            foreach (var rawExt in extensions)
+            int images = 0, audio = 0, video = 0, text = 0, other = 0;
+
+            foreach (var ext in extensions)
             {
-                string ext = rawExt.ToLower();
-                if (ExtImage.Contains(ext)) img++;
-                else if (ExtAudio.Contains(ext)) aud++;
-                else if (ExtVideo.Contains(ext)) vid++;
-                else if (ExtText.Contains(ext)) txt++;
+                switch (FileExtensions.Categorise(ext))
+                {
+                    case FileCategory.Image: images++; break;
+                    case FileCategory.Audio: audio++; break;
+                    case FileCategory.Video: video++; break;
+                    case FileCategory.Text: text++; break;
+                    default: other++; break;
+                }
             }
+
             return new FileStats
             {
-                Images = img,
-                Audio = aud,
-                Video = vid,
-                Text = txt,
-                Other = extensions.Length - img - aud - vid - txt
+                Images = images,
+                Audio = audio,
+                Video = video,
+                Text = text,
+                Other = other
             };
         }
 
-        // ── Helper: formatear tamaño ─────────────────────────────────────
-        private static string FormatSize(long bytes)
-        {
-            string[] u = { "B", "KB", "MB", "GB" };
-            double v = bytes; int i = 0;
-            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
-            return $"{v:0.##} {u[i]}";
-        }
-
-        // ── Helper: escapar comillas en CSV ─────────────────────────────────
-        private static string Esc(string s) => s.Replace("\"", "\"\"");
+        // ── CSV escaping ─────────────────────────────────────────────────────
+        private static string Escape(string s) => s.Replace("\"", "\"\"");
     }
 
-    // ── DTO de estadísticas ──────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════════
+    //  FILE STATS — counters returned by CsvIndexer.ClassifyFiles
+    // ════════════════════════════════════════════════════════════════════════
     internal struct FileStats
     {
-        public int Images, Audio, Video, Text, Other;
-        public int Total => Images + Audio + Video + Text + Other;
+        public int Images;
+        public int Audio;
+        public int Video;
+        public int Text;
+        public int Other;
 
-        /// Representación compacta para la barra de estado
-        public string ToStatusString(int folders)
+        public readonly int Total => Images + Audio + Video + Text + Other;
+
+        /// <summary>Compact summary for the status bar.</summary>
+        public readonly string ToStatusString(int folderCount)
         {
-            var parts = new System.Collections.Generic.List<string>();
-            if (folders > 0) parts.Add($"📁 {folders} carpeta{(folders != 1 ? "s" : "")}");
+            var parts = new List<string>();
+            if (folderCount > 0) parts.Add($"📁 {folderCount} carpeta{(folderCount != 1 ? "s" : "")}");
             if (Total > 0) parts.Add($"📄 {Total} archivo{(Total != 1 ? "s" : "")}");
             if (Images > 0) parts.Add($"🖼️ {Images}");
             if (Audio > 0) parts.Add($"🎵 {Audio}");
@@ -170,11 +184,11 @@ namespace FileExplorerr
             return string.Join("  ·  ", parts);
         }
 
-        /// Representación compacta para la columna "Información" de carpetas
-        public string ToInfoColumn(int subfolders)
+        /// <summary>Compact summary for the "Información" column of folder rows.</summary>
+        public readonly string ToInfoColumn(int subfolderCount)
         {
-            var parts = new System.Collections.Generic.List<string>();
-            if (subfolders > 0) parts.Add($"{subfolders} sub");
+            var parts = new List<string>();
+            if (subfolderCount > 0) parts.Add($"{subfolderCount} sub");
             if (Images > 0) parts.Add($"{Images} img");
             if (Audio > 0) parts.Add($"{Audio} aud");
             if (Video > 0) parts.Add($"{Video} vid");

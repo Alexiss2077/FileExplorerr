@@ -793,7 +793,7 @@ namespace FileExplorerr
                 long pos = _mediaPlayer.Time;
                 if (!isSeeking && dur > 0)
                     seekBar.Value = (int)((double)pos / dur * 1000);
-                timeLabel.Text = $"{FmtTime(pos / 1000.0)} / {FmtTime(dur / 1000.0)}";
+                timeLabel.Text = $"{TimeSpanFormat.Format(pos / 1000.0)} / {TimeSpanFormat.Format(dur / 1000.0)}";
             }
             catch { }
         }
@@ -807,12 +807,12 @@ namespace FileExplorerr
             {
                 var fi = new FileInfo(path);
                 propValues[0].Text = fi.Name;
-                propValues[2].Text = FmtSize(fi.Length);
+                propValues[2].Text = FileSize.Format(fi.Length);
                 propValues[3].Text = fi.Extension.TrimStart('.').ToUpper();
                 propValues[9].Text = fi.FullName;
 
                 long durMs = _mediaPlayer.Length;
-                propValues[1].Text = durMs > 0 ? FmtTime(durMs / 1000.0) : "—";
+                propValues[1].Text = durMs > 0 ? TimeSpanFormat.Format(durMs / 1000.0) : "—";
 
                 propValues[4].Text = "—";
                 propValues[5].Text = "—";
@@ -898,7 +898,7 @@ namespace FileExplorerr
             foreach (var l in new[] { gpsLatLbl, gpsLonLbl, gpsAltLbl, gpsDateLbl })
             { l.ForeColor = Theme.TextPrimary; l.Visible = true; }
 
-            SetBrowserEmulation();
+            BrowserHelper.SetEdgeEmulation(); 
             string ls = g.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
             string lo = g.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
             mapBrowser.DocumentText = $@"<!DOCTYPE html><html><head><meta charset='utf-8'/>
@@ -923,19 +923,6 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}�
             });
         }
 
-        private static void SetBrowserEmulation()
-        {
-            try
-            {
-                string app = System.Diagnostics.Process.GetCurrentProcess().ProcessName + ".exe";
-                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION", true)
-                    ?? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
-                    @"Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION");
-                key?.SetValue(app, 11001, Microsoft.Win32.RegistryValueKind.DWord);
-            }
-            catch { }
-        }
 
         // ════════════════════════════════════════════════════════════════════
         //  WEBCAM
@@ -944,7 +931,7 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}�
         {
             if (_camForm != null && !_camForm.IsDisposed)
             {
-                if (_isCamRecording) StopCamRecording(autoAdd: false);
+                if (_isCamRecording) _ = StopCamRecording(autoAdd: false);
                 _frameTimer?.Stop(); _frameTimer?.Dispose();
                 _videoCapture?.Release(); _videoCapture?.Dispose();
                 _videoCapture = null;
@@ -1081,7 +1068,7 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}�
             catch (Exception ex) { MessageBox.Show($"Error al preparar grabación:\n{ex.Message}"); }
         }
 
-        private async void StopCamRecording(bool autoAdd)
+        private async Task StopCamRecording(bool autoAdd)
         {
             if (!_isCamRecording) return;
             _isCamRecording = false;
@@ -1108,7 +1095,7 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}�
             var fi = new FileInfo(path);
             var item = new ListViewItem((listView.Items.Count + 1).ToString()) { Tag = path };
             item.SubItems.Add(fi.Name);
-            item.SubItems.Add(FmtSize(fi.Length));
+            item.SubItems.Add(FileSize.Format(fi.Length));
             listView.Items.Add(item);
         }
 
@@ -1151,21 +1138,7 @@ L.marker([{ls},{lo}]).addTo(map).bindPopup('{g.Latitude:F5}°, {g.Longitude:F5}�
                     ".m4v", ".ts", ".3gp", ".mpg", ".mpeg", ".vob", ".divx", ".ogv" }
             .Contains(Path.GetExtension(p).ToLower());
 
-        private static string FmtTime(double s)
-        {
-            var t = TimeSpan.FromSeconds(Math.Max(0, s));
-            return t.Hours > 0
-                ? $"{t.Hours}:{t.Minutes:D2}:{t.Seconds:D2}"
-                : $"{t.Minutes}:{t.Seconds:D2}";
-        }
 
-        private static string FmtSize(long b)
-        {
-            string[] u = { "B", "KB", "MB", "GB" };
-            double v = b; int i = 0;
-            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
-            return $"{v:0.##} {u[i]}";
-        }
 
         private static Label GLbl(string t) => new()
         {

@@ -13,8 +13,10 @@ using System.Xml;
 
 namespace FileExplorerr
 {
+
     public class FileViewerForm : Form
     {
+       // private const long TextPreviewBytes = 512 * 1024;
         // ── Controles ────────────────────────────────────────────────────────
         private Label fileInfoLabel = null!;
         private Panel filterPanel = null!;
@@ -410,7 +412,7 @@ namespace FileExplorerr
             try
             {
                 var fi = new FileInfo(filePath);
-                fileInfoLabel.Text = $"  {fi.Name}  ·  {FormatSize(fi.Length)}  ·  {fi.LastWriteTime:dd/MM/yyyy HH:mm}";
+                fileInfoLabel.Text = $"  {fi.Name}  ·  {FileSize.Format(fi.Length)}  ·  {fi.LastWriteTime:dd/MM/yyyy HH:mm}";
 
                 string content = await Task.Run(() => File.ReadAllText(filePath));
 
@@ -454,9 +456,9 @@ namespace FileExplorerr
         private DataTable ParseCsvWithMismatch(string content)
         {
             var dt = new DataTable();
-            var lines = SplitLines(content);
+            var lines = CsvHelper.SplitLines(content);
             if (lines.Count == 0) return dt;
-            var headers = SplitCsvLine(lines[0]);
+            var headers = CsvHelper.SplitLine(lines[0]);
             expectedColumnCount = headers.Count;
             foreach (var h in headers)
                 dt.Columns.Add(h.Trim('"', ' ').Length > 0 ? h.Trim('"', ' ') : $"Col{dt.Columns.Count + 1}");
@@ -464,7 +466,7 @@ namespace FileExplorerr
             for (int i = 1; i < lines.Count; i++)
             {
                 if (string.IsNullOrWhiteSpace(lines[i])) continue;
-                var cells = SplitCsvLine(lines[i]);
+                var cells = CsvHelper.SplitLine(lines[i]);
                 if (cells.Count != expectedColumnCount)
                 {
                     columnMismatchRows.Add(i - 1);
@@ -480,7 +482,7 @@ namespace FileExplorerr
 
         private static DataTable ParseTxt(string content)
         {
-            var lines = SplitLines(content); if (lines.Count == 0) return SingleColumnTable(content);
+            var lines = CsvHelper.SplitLines(content); if (lines.Count == 0) return SingleColumnTable(content);
             char delim = '\0'; string first = lines[0];
             if (first.Contains('\t')) delim = '\t'; else if (first.Contains('|')) delim = '|'; else if (first.Contains(';')) delim = ';'; else if (first.Contains(',') && lines.Count > 1) delim = ',';
             if (delim == '\0') return SingleColumnTable(content);
@@ -490,7 +492,7 @@ namespace FileExplorerr
             return dt;
         }
 
-        private static DataTable SingleColumnTable(string content) { var dt = new DataTable(); dt.Columns.Add("Línea"); foreach (var line in SplitLines(content)) if (!string.IsNullOrWhiteSpace(line)) dt.Rows.Add(line); return dt; }
+        private static DataTable SingleColumnTable(string content) { var dt = new DataTable(); dt.Columns.Add("Línea"); foreach (var line in CsvHelper.SplitLines(content)) if (!string.IsNullOrWhiteSpace(line)) dt.Rows.Add(line); return dt; }
 
         private static DataTable ParseJson(string content)
         {
@@ -845,7 +847,7 @@ namespace FileExplorerr
             _ => TableToTsv(dt)
         };
 
-        private static string TableToCsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{Esc(c.ColumnName)}\""))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{Esc(x?.ToString() ?? "")}\""))); return sb.ToString(); }
+        private static string TableToCsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => $"\"{CsvHelper.EscapeField(c.ColumnName)}\""))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join(",", row.ItemArray.Select(x => $"\"{CsvHelper.EscapeField(x?.ToString() ?? "")}\""))); return sb.ToString(); }
         private static string TableToTsv(DataTable dt) { var sb = new StringBuilder(); sb.AppendLine(string.Join("\t", dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName))); foreach (DataRow row in dt.Rows) sb.AppendLine(string.Join("\t", row.ItemArray.Select(x => x?.ToString() ?? ""))); return sb.ToString(); }
 
         private static string TableToJson(DataTable dt)
@@ -861,20 +863,5 @@ namespace FileExplorerr
         }
 
         private static string TableToXml(DataTable dt) { dt.TableName = "Records"; using var sw = new StringWriter(); dt.WriteXml(sw); return sw.ToString(); }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  HELPERS
-        // ════════════════════════════════════════════════════════════════════
-        private static List<string> SplitLines(string c) => c.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None).Where(l => !string.IsNullOrEmpty(l)).ToList();
-
-        private static List<string> SplitCsvLine(string line)
-        {
-            var result = new List<string>(); bool inQuote = false; var cur = new StringBuilder();
-            for (int i = 0; i < line.Length; i++) { char c = line[i]; if (c == '"') { if (inQuote && i + 1 < line.Length && line[i + 1] == '"') { cur.Append('"'); i++; } else inQuote = !inQuote; } else if (c == ',' && !inQuote) { result.Add(cur.ToString()); cur.Clear(); } else cur.Append(c); }
-            result.Add(cur.ToString()); return result;
-        }
-
-        private static string Esc(string s) => s.Replace("\"", "\"\"");
-        private static string FormatSize(long bytes) { string[] u = { "B", "KB", "MB", "GB" }; double v = bytes; int i = 0; while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; } return $"{v:0.##} {u[i]}"; }
     }
 }

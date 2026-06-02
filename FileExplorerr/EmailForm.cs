@@ -10,39 +10,40 @@ namespace FileExplorerr
 {
     public partial class EmailForm : Form
     {
-        private string _filePath;
+        // ── Constants ────────────────────────────────────────────────────────
+        private const int FormWidth = 400;
+        private const int FormHeight = 310;
+        private const int ConfigFormWidth = 420;
+        private const int ConfigFormHeight = 240;
 
-        // Controles de la UI
+        // ── State ────────────────────────────────────────────────────────────
+        private readonly string _filePath;
+        private SmtpConfig _smtpConfig;
+
+        // ── Controls ─────────────────────────────────────────────────────────
         private TextBox txtTo = null!;
         private TextBox txtSubject = null!;
         private Button btnSend = null!;
         private Label lblStatus = null!;
 
-        // ── CONFIGURACIÓN DEL BOT (Cuenta de Sistema) ───────────────
-        // Reemplaza esto con el correo que crees para el explorador
-        private readonly string correoSistema = "nat.fileexplorer@gmail.com";
-        // Reemplaza esto con la Contraseña de Aplicación de 16 caracteres
-        private readonly string passwordApp = "nzojefxvcolaolsl";
-        // ────────────────────────────────────────────────────────────
-
         public EmailForm(string filePath)
         {
             _filePath = filePath;
+            _smtpConfig = SmtpConfig.Load();
             BuildUI();
         }
 
         private void BuildUI()
         {
-            this.Text = "Enviar Archivo por Correo";
-            this.Size = new Size(400, 260);
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.BackColor = Color.FromArgb(30, 30, 35);
-            this.ForeColor = Color.White;
+            Text = "Enviar Archivo por Correo";
+            Size = new Size(FormWidth, FormHeight);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            BackColor = Color.FromArgb(30, 30, 35);
+            ForeColor = Color.White;
 
-            // Nombre del archivo a enviar
             var lblFile = new Label
             {
                 Text = $"Archivo adjunto: {Path.GetFileName(_filePath)}",
@@ -52,7 +53,6 @@ namespace FileExplorerr
                 AutoEllipsis = true
             };
 
-            // Etiqueta y TextBox para Destinatario
             var lblTo = new Label { Text = "Para (Correo):", Location = new Point(20, 45), AutoSize = true };
             txtTo = new TextBox
             {
@@ -63,7 +63,6 @@ namespace FileExplorerr
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            // Etiqueta y TextBox para Asunto
             var lblSubject = new Label { Text = "Asunto:", Location = new Point(20, 100), AutoSize = true };
             txtSubject = new TextBox
             {
@@ -74,7 +73,6 @@ namespace FileExplorerr
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            // Etiqueta de estado (para mostrar "Enviando...")
             lblStatus = new Label
             {
                 Text = "",
@@ -83,11 +81,10 @@ namespace FileExplorerr
                 ForeColor = Color.Yellow
             };
 
-            // Botón Enviar
             btnSend = new Button
             {
                 Text = "✉ Enviar",
-                Location = new Point(260, 165),
+                Location = new Point(200, 165),
                 Size = new Size(100, 35),
                 BackColor = Color.FromArgb(0, 120, 215),
                 ForeColor = Color.White,
@@ -95,96 +92,239 @@ namespace FileExplorerr
                 Cursor = Cursors.Hand
             };
             btnSend.FlatAppearance.BorderSize = 0;
-            btnSend.Click += async (s, e) => await SendEmailAsync();
+            btnSend.Click += async (_, _) => await SendEmailAsync();
 
-            // Agregar controles al formulario
-            this.Controls.Add(lblFile);
-            this.Controls.Add(lblTo);
-            this.Controls.Add(txtTo);
-            this.Controls.Add(lblSubject);
-            this.Controls.Add(txtSubject);
-            this.Controls.Add(lblStatus);
-            this.Controls.Add(btnSend);
+            // Button to configure SMTP credentials without hardcoding them.
+            var btnConfigure = new Button
+            {
+                Text = "⚙ Configurar SMTP",
+                Location = new Point(20, 230),
+                Size = new Size(150, 30),
+                BackColor = Color.FromArgb(45, 45, 50),
+                ForeColor = Color.FromArgb(150, 180, 220),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnConfigure.FlatAppearance.BorderSize = 0;
+            btnConfigure.Click += (_, _) => OpenSmtpConfig();
+
+            Controls.AddRange(new Control[]
+            {
+                lblFile, lblTo, txtTo, lblSubject, txtSubject,
+                lblStatus, btnSend, btnConfigure
+            });
         }
 
+        // ════════════════════════════════════════════════════════════════════
+        //  SEND
+        // ════════════════════════════════════════════════════════════════════
         private async Task SendEmailAsync()
         {
-            string emailDestino = txtTo.Text.Trim();
-            string asunto = txtSubject.Text.Trim();
+            // Reload in case the user just configured credentials.
+            _smtpConfig = SmtpConfig.Load();
 
-            // 1. VALIDACIÓN DEL CORREO
-            if (!IsValidEmail(emailDestino))
+            if (!_smtpConfig.IsConfigured)
             {
-                MessageBox.Show("Por favor, ingresa una dirección de correo válida.", "Formato Incorrecto", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(
+                    "Primero configura tu cuenta SMTP.\nHaz clic en '⚙ Configurar SMTP'.",
+                    "Sin configuración SMTP",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            string destination = txtTo.Text.Trim();
+
+            if (!IsValidEmail(destination))
+            {
+                MessageBox.Show(
+                    "Por favor, ingresa una dirección de correo válida.",
+                    "Formato Incorrecto",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
                 txtTo.Focus();
                 return;
             }
 
-            if (string.IsNullOrEmpty(asunto))
-            {
-                asunto = $"Archivo compartido: {Path.GetFileName(_filePath)}";
-            }
+            string subject = string.IsNullOrWhiteSpace(txtSubject.Text)
+                ? $"Archivo compartido: {Path.GetFileName(_filePath)}"
+                : txtSubject.Text.Trim();
 
-            // Bloquear interfaz mientras envía
-            btnSend.Enabled = false;
-            txtTo.Enabled = false;
-            txtSubject.Enabled = false;
-            lblStatus.Text = "Enviando correo...";
+            SetSendingState(true);
 
             try
             {
-                // 2. LÓGICA DE ENVÍO (SMTP)
-                using var mailMessage = new MailMessage();
-                mailMessage.From = new MailAddress(correoSistema, "File Explorer App");
-                mailMessage.To.Add(emailDestino);
-                mailMessage.Subject = asunto;
-                mailMessage.Body = $"Hola,\n\nSe ha compartido un archivo contigo desde File Explorer.\n\nNombre del archivo: {Path.GetFileName(_filePath)}";
+                using var message = new MailMessage();
+                message.From = new MailAddress(_smtpConfig.SenderAddress, "File Explorer App");
+                message.To.Add(destination);
+                message.Subject = subject;
+                message.Body =
+                    $"Hola,\n\nSe ha compartido un archivo contigo desde File Explorer." +
+                    $"\n\nNombre del archivo: {Path.GetFileName(_filePath)}";
 
-                // Adjuntar el archivo (envuelto en using para liberar el archivo después)
                 using var attachment = new Attachment(_filePath);
-                mailMessage.Attachments.Add(attachment);
+                message.Attachments.Add(attachment);
 
-                using var smtpClient = new SmtpClient("smtp.gmail.com", 587);
-                smtpClient.Credentials = new NetworkCredential(correoSistema, passwordApp);
-                smtpClient.EnableSsl = true;
+                using var smtp = new SmtpClient(_smtpConfig.Host, _smtpConfig.Port)
+                {
+                    Credentials = new NetworkCredential(
+                        _smtpConfig.SenderAddress,
+                        _smtpConfig.AppPassword),
+                    EnableSsl = true
+                };
 
-                // Envío asíncrono
-                await smtpClient.SendMailAsync(mailMessage);
+                await smtp.SendMailAsync(message);
 
                 lblStatus.ForeColor = Color.LightGreen;
                 lblStatus.Text = "¡Enviado con éxito!";
-                MessageBox.Show("El archivo se envió correctamente.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                this.Close(); // Cerrar ventana al terminar
+                MessageBox.Show(
+                    "El archivo se envió correctamente.",
+                    "Éxito",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                Close();
+            }
+            catch (SmtpException ex)
+            {
+                lblStatus.Text = "Error al enviar.";
+                lblStatus.ForeColor = Color.Red;
+
+                MessageBox.Show(
+                    $"Error SMTP al enviar el correo:\n\n{ex.Message}\n\n" +
+                    "Verifica tu configuración SMTP.",
+                    "Error de envío",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
             catch (Exception ex)
             {
                 lblStatus.Text = "Error al enviar.";
                 lblStatus.ForeColor = Color.Red;
-                MessageBox.Show($"Ocurrió un error al intentar enviar el correo:\n\n{ex.Message}", "Error de SMTP", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                MessageBox.Show(
+                    $"Error inesperado:\n\n{ex.Message}",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
             finally
             {
-                // Restaurar interfaz por si falló y quiere reintentar
-                btnSend.Enabled = true;
-                txtTo.Enabled = true;
-                txtSubject.Enabled = true;
-                if (lblStatus.Text == "Enviando correo...") lblStatus.Text = "";
+                SetSendingState(false);
             }
         }
 
-        // Método auxiliar para validar el formato del correo
-        private bool IsValidEmail(string email)
+        private void SetSendingState(bool isSending)
+        {
+            btnSend.Enabled = !isSending;
+            txtTo.Enabled = !isSending;
+            txtSubject.Enabled = !isSending;
+
+            if (isSending)
+                lblStatus.Text = "Enviando correo...";
+            else if (lblStatus.Text == "Enviando correo...")
+                lblStatus.Text = string.Empty;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  SMTP CONFIGURATION DIALOG
+        // ════════════════════════════════════════════════════════════════════
+        private void OpenSmtpConfig()
+        {
+            using var dlg = new Form
+            {
+                Text = "Configurar SMTP",
+                Size = new Size(ConfigFormWidth, ConfigFormHeight),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                BackColor = Color.FromArgb(30, 30, 35),
+                ForeColor = Color.White
+            };
+
+            var lblInfo = new Label
+            {
+                Text = "Las credenciales se guardan en AppData, no en el código fuente.",
+                Location = new Point(14, 14),
+                Size = new Size(380, 30),
+                ForeColor = Color.FromArgb(140, 160, 180)
+            };
+
+            var lblAddr = new Label { Text = "Cuenta Gmail:", Location = new Point(14, 52), AutoSize = true };
+            var txtAddr = new TextBox
+            {
+                Location = new Point(14, 70),
+                Size = new Size(380, 25),
+                BackColor = Color.FromArgb(45, 45, 50),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = _smtpConfig.SenderAddress
+            };
+
+            var lblPass = new Label { Text = "Contraseña de aplicación (16 caracteres):", Location = new Point(14, 102), AutoSize = true };
+            var txtPass = new TextBox
+            {
+                Location = new Point(14, 120),
+                Size = new Size(380, 25),
+                BackColor = Color.FromArgb(45, 45, 50),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                PasswordChar = '●',
+                Text = _smtpConfig.AppPassword
+            };
+
+            var btnSave = new Button
+            {
+                Text = "Guardar",
+                Location = new Point(220, 160),
+                Size = new Size(90, 32),
+                BackColor = Color.FromArgb(0, 120, 215),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                DialogResult = DialogResult.OK
+            };
+            btnSave.FlatAppearance.BorderSize = 0;
+            btnSave.Click += (_, _) =>
+            {
+                _smtpConfig.SenderAddress = txtAddr.Text.Trim();
+                _smtpConfig.AppPassword = txtPass.Text.Trim();
+                _smtpConfig.Save();
+            };
+
+            var btnCancel = new Button
+            {
+                Text = "Cancelar",
+                Location = new Point(318, 160),
+                Size = new Size(76, 32),
+                BackColor = Color.FromArgb(45, 45, 50),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                DialogResult = DialogResult.Cancel
+            };
+            btnCancel.FlatAppearance.BorderSize = 0;
+
+            dlg.Controls.AddRange(new Control[]
+                { lblInfo, lblAddr, txtAddr, lblPass, txtPass, btnSave, btnCancel });
+
+            dlg.ShowDialog(this);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HELPERS
+        // ════════════════════════════════════════════════════════════════════
+        private static bool IsValidEmail(string email)
         {
             if (string.IsNullOrWhiteSpace(email)) return false;
-
             try
             {
-                // MailAddress es la forma más segura y nativa de validar correos en C#
                 var addr = new MailAddress(email);
                 return addr.Address == email;
             }
-            catch
+            catch (FormatException)
             {
                 return false;
             }

@@ -15,7 +15,12 @@ namespace FileExplorerr
 {
     public class MusicPlayerForm : Form
     {
-        // ── Controles ────────────────────────────────────────────────────────
+        private static readonly HttpClient _sharedHttpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+
+        };
+// ── Controles ────────────────────────────────────────────────────────
         private Panel topBar = null!, controlBar = null!, progressPanel = null!;
         private DataGridView grid = null!;
         private PictureBox coverBox = null!;
@@ -72,6 +77,8 @@ namespace FileExplorerr
             uiTimer = new System.Windows.Forms.Timer { Interval = 300 };
             uiTimer.Tick += UiTimer_Tick;
             uiTimer.Start();
+            _sharedHttpClient.DefaultRequestHeaders.TryAddWithoutValidation(
+           "User-Agent", "FileExplorerr/1.0");
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -729,7 +736,7 @@ namespace FileExplorerr
                 outputDevice.Volume = isMuted ? 0 : volBar.Value / 100f;
                 outputDevice.Play();
                 seekBar.Maximum = 1000;
-                lblDuration.Text = FormatTime(audioFile.TotalTime.TotalSeconds);
+                lblDuration.Text = TimeSpanFormat.Format(audioFile.TotalTime.TotalSeconds);
                 SetPlayState(true);
             }
             catch (Exception ex)
@@ -800,7 +807,7 @@ namespace FileExplorerr
                 double pos = audioFile.CurrentTime.TotalSeconds;
                 double dur = audioFile.TotalTime.TotalSeconds;
                 if (dur > 0) seekBar.Value = Math.Min(seekBar.Maximum, (int)(pos / dur * 1000));
-                lblTime.Text = FormatTime(pos);
+                lblTime.Text = TimeSpanFormat.Format(pos);
             }
             if (audioFile.TotalTime.TotalSeconds - audioFile.CurrentTime.TotalSeconds <= 0.8
                 && outputDevice.PlaybackState == PlaybackState.Playing)
@@ -890,8 +897,7 @@ namespace FileExplorerr
                 string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? "";
                 string title = grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "";
                 if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title)) return;
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                client.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0");
+                var client = _sharedHttpClient;
                 string json = await client.GetStringAsync($"https://itunes.apple.com/search?term={Uri.EscapeDataString($"{artist} {title}")}&limit=3&entity=song");
                 using var doc = JsonDocument.Parse(json);
                 var results = doc.RootElement.GetProperty("results");
@@ -929,8 +935,7 @@ namespace FileExplorerr
             lyricsBox.Text = "Buscando..."; btnLyrics.Enabled = false;
             try
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                client.DefaultRequestHeaders.Add("User-Agent", "FileExplorerr/1.0");
+                var client = _sharedHttpClient;
                 var response = await client.GetAsync($"https://lrclib.net/api/get?artist_name={Uri.EscapeDataString(artist)}&track_name={Uri.EscapeDataString(title)}");
                 if (!response.IsSuccessStatusCode) { lyricsBox.Text = "No encontrada."; return; }
                 using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -1164,12 +1169,6 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
-        private static string FormatTime(double secs)
-        {
-            var t = TimeSpan.FromSeconds(Math.Max(0, secs));
-            return t.Hours > 0 ? $"{t.Hours}:{t.Minutes:D2}:{t.Seconds:D2}" : $"{t.Minutes}:{t.Seconds:D2}";
-        }
-
         private static string CleanArtist(string s)
         {
             if (string.IsNullOrWhiteSpace(s)) return "—";
