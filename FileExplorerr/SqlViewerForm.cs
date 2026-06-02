@@ -9,9 +9,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
-using Npgsql;
-using MySqlConnector;
-using Microsoft.Data.SqlClient;
 
 namespace FileExplorerr
 {
@@ -40,6 +37,7 @@ namespace FileExplorerr
         private DbTipo tipoConexion = DbTipo.Ninguno;
         private string connectionString = "";
         private DataTable? resultadoActual;
+        private IDbConnector? _connector;
 
         // ════════════════════════════════════════════════════════════════════
         //  CONSTRUCTOR
@@ -213,7 +211,16 @@ namespace FileExplorerr
             ShowLoading("Conectando...");
             try
             {
-                await Task.Run(() => TestConexion());
+                _connector = tipo switch
+                {
+                    DbTipo.Postgres => new PostgreSqlConnector(connectionString),
+                    DbTipo.Maria => new MariaDbConnector(connectionString),
+                    DbTipo.SqlServer => new SqlServerConnector(connectionString),
+                    _ => throw new InvalidOperationException("Tipo desconocido.")
+                };
+
+                string mensaje = await _connector.TestConnectionAsync();
+
                 string nombreTipo = tipo switch { DbTipo.Postgres => "PostgreSQL", DbTipo.Maria => "MariaDB", DbTipo.SqlServer => "SQL Server", _ => "BD" };
                 lblConexion.Text = $"● {nombreTipo} conectado";
                 lblConexion.ForeColor = Theme.Success;
@@ -224,22 +231,17 @@ namespace FileExplorerr
             {
                 tipoConexion = DbTipo.Ninguno;
                 connectionString = "";
+                _connector = null;
                 MessageBox.Show($"Error de conexión:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally { HideLoading(); }
-        }
-
-        private void TestConexion()
-        {
-            if (tipoConexion == DbTipo.Postgres) { using var conn = new NpgsqlConnection(connectionString); conn.Open(); }
-            else if (tipoConexion == DbTipo.Maria) { using var conn = new MySqlConnection(connectionString); conn.Open(); }
-            else if (tipoConexion == DbTipo.SqlServer) { using var conn = new SqlConnection(connectionString); conn.Open(); }
         }
 
         private void Desconectar()
         {
             tipoConexion = DbTipo.Ninguno;
             connectionString = "";
+            _connector = null;
             listaTablas.Items.Clear();
             grid.DataSource = null;
             resultadoActual = null;
@@ -252,47 +254,17 @@ namespace FileExplorerr
 
         private async Task CargarTablasAsync()
         {
-            if (tipoConexion == DbTipo.Ninguno) return;
+            if (_connector is null) return;
             ShowLoading("Cargando tablas...");
             try
             {
-                var tablas = await Task.Run(() => ObtenerTablas());
+                var tables = await _connector.GetTablesAsync();
                 listaTablas.Items.Clear();
-                foreach (var t in tablas) listaTablas.Items.Add(t);
-                lblStatus.Text = $"  {tablas.Count} tabla(s)";
+                foreach (var t in tables) listaTablas.Items.Add(t);
+                lblStatus.Text = $"  {tables.Count} tabla(s)";
             }
             catch (Exception ex) { lblStatus.Text = $"  Error: {ex.Message}"; }
             finally { HideLoading(); }
-        }
-
-        private List<string> ObtenerTablas()
-        {
-            var lista = new List<string>();
-            if (tipoConexion == DbTipo.Postgres)
-            {
-                using var conn = new NpgsqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new NpgsqlCommand("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename", conn);
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read()) lista.Add(reader.GetString(0));
-            }
-            else if (tipoConexion == DbTipo.Maria)
-            {
-                using var conn = new MySqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new MySqlCommand("SHOW TABLES", conn);
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read()) lista.Add(reader.GetString(0));
-            }
-            else if (tipoConexion == DbTipo.SqlServer)
-            {
-                using var conn = new SqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new SqlCommand("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME", conn);
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read()) lista.Add(reader.GetString(0));
-            }
-            return lista;
         }
 
         private void ListaTablas_DoubleClick(object? sender, EventArgs e)
@@ -317,7 +289,12 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private async Task EjecutarConsultaAsync()
         {
-            if (tipoConexion == DbTipo.Ninguno) { MessageBox.Show("No hay conexión activa.", "Sin conexión", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (_connector is null)
+            {
+                MessageBox.Show("No hay conexión activa.", "Sin conexión", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             string sql = editorSql.SelectedText.Length > 0 ? editorSql.SelectedText : editorSql.Text.Trim();
             if (string.IsNullOrWhiteSpace(sql)) return;
 
@@ -329,21 +306,21 @@ namespace FileExplorerr
             try
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                var result = await Task.Run(() => EjecutarSql(sql));
+                var (dt, rowsAffected) = await _connector.ExecuteAsync(sql);
                 sw.Stop();
 
-                if (result.dt != null)
+                if (dt is not null)
                 {
-                    resultadoActual = result.dt;
+                    resultadoActual = dt;
                     grid.DataSource = resultadoActual;
                     foreach (DataGridViewColumn col in grid.Columns)
                         col.Width = Math.Min(260, Math.Max(60, col.Width));
-                    lblStatus.Text = $"  {result.dt.Rows.Count} fila(s)  ·  {sw.ElapsedMilliseconds} ms";
-                    SetExportButtonsEnabled(result.dt.Rows.Count > 0);
+                    lblStatus.Text = $"  {dt.Rows.Count} fila(s)  ·  {sw.ElapsedMilliseconds} ms";
+                    SetExportButtonsEnabled(dt.Rows.Count > 0);
                 }
                 else
                 {
-                    lblStatus.Text = $"  {result.filas} fila(s) afectada(s)  ·  {sw.ElapsedMilliseconds} ms";
+                    lblStatus.Text = $"  {rowsAffected} fila(s) afectada(s)  ·  {sw.ElapsedMilliseconds} ms";
                     await CargarTablasAsync();
                 }
             }
@@ -353,39 +330,6 @@ namespace FileExplorerr
                 MessageBox.Show(ex.Message, "Error SQL", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally { HideLoading(); }
-        }
-
-        private (DataTable? dt, int filas) EjecutarSql(string sql)
-        {
-            bool esSelect = sql.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
-                         || sql.TrimStart().StartsWith("WITH", StringComparison.OrdinalIgnoreCase)
-                         || sql.TrimStart().StartsWith("SHOW", StringComparison.OrdinalIgnoreCase)
-                         || sql.TrimStart().StartsWith("DESCRIBE", StringComparison.OrdinalIgnoreCase);
-
-            if (tipoConexion == DbTipo.Postgres)
-            {
-                using var conn = new NpgsqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new NpgsqlCommand(sql, conn) { CommandTimeout = 60 };
-                if (esSelect) { var adapter = new NpgsqlDataAdapter(cmd); var dt = new DataTable(); adapter.Fill(dt); return (dt, 0); }
-                else return (null, cmd.ExecuteNonQuery());
-            }
-            else if (tipoConexion == DbTipo.Maria)
-            {
-                using var conn = new MySqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new MySqlCommand(sql, conn) { CommandTimeout = 60 };
-                if (esSelect) { var adapter = new MySqlDataAdapter(cmd); var dt = new DataTable(); adapter.Fill(dt); return (dt, 0); }
-                else return (null, cmd.ExecuteNonQuery());
-            }
-            else // SqlServer
-            {
-                using var conn = new SqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new SqlCommand(sql, conn) { CommandTimeout = 60 };
-                if (esSelect) { var adapter = new SqlDataAdapter(cmd); var dt = new DataTable(); adapter.Fill(dt); return (dt, 0); }
-                else return (null, cmd.ExecuteNonQuery());
-            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -474,7 +418,12 @@ namespace FileExplorerr
             ShowLoading($"Creando tabla '{nombreTabla}'...");
             try
             {
-                await Task.Run(() => CrearEInsertarTabla(dt, nombreTabla));
+                if (_connector is null) { HideLoading(); return; }
+
+                var writeResult = await _connector.InsertDataTableAsync(dt, nombreTabla);
+                if (!writeResult.Success)
+                    throw new Exception(writeResult.Message);
+
                 HideLoading();
                 await CargarTablasAsync();
 
@@ -490,69 +439,6 @@ namespace FileExplorerr
                 _ = EjecutarConsultaAsync();
             }
             catch (Exception ex) { HideLoading(); MessageBox.Show($"Error al importar:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        }
-
-        private void CrearEInsertarTabla(DataTable dt, string nombreTabla)
-        {
-            if (tipoConexion == DbTipo.Postgres) CrearEInsertarPostgres(dt, nombreTabla);
-            else if (tipoConexion == DbTipo.Maria) CrearEInsertarMaria(dt, nombreTabla);
-            else CrearEInsertarSqlServer(dt, nombreTabla);
-        }
-
-        private void CrearEInsertarPostgres(DataTable dt, string nombreTabla)
-        {
-            using var conn = new NpgsqlConnection(connectionString);
-            conn.Open();
-            var colDefs = dt.Columns.Cast<DataColumn>().Select(c => $"\"{SanitizarColumna(c.ColumnName)}\" TEXT");
-            using (var cmd = new NpgsqlCommand($"CREATE TABLE IF NOT EXISTS \"{nombreTabla}\" ({string.Join(", ", colDefs)})", conn)) cmd.ExecuteNonQuery();
-            using var tx = conn.BeginTransaction();
-            foreach (DataRow row in dt.Rows)
-            {
-                var cols = dt.Columns.Cast<DataColumn>().Select(c => $"\"{SanitizarColumna(c.ColumnName)}\"");
-                var parms = Enumerable.Range(1, dt.Columns.Count).Select(i => $"@p{i}");
-                using var cmd = new NpgsqlCommand($"INSERT INTO \"{nombreTabla}\" ({string.Join(",", cols)}) VALUES ({string.Join(",", parms)})", conn, tx);
-                for (int i = 0; i < dt.Columns.Count; i++) cmd.Parameters.AddWithValue($"@p{i + 1}", row[i]?.ToString() ?? "");
-                cmd.ExecuteNonQuery();
-            }
-            tx.Commit();
-        }
-
-        private void CrearEInsertarMaria(DataTable dt, string nombreTabla)
-        {
-            using var conn = new MySqlConnection(connectionString);
-            conn.Open();
-            var colDefs = dt.Columns.Cast<DataColumn>().Select(c => $"`{SanitizarColumna(c.ColumnName)}` TEXT");
-            using (var cmd = new MySqlCommand($"CREATE TABLE IF NOT EXISTS `{nombreTabla}` ({string.Join(", ", colDefs)})", conn)) cmd.ExecuteNonQuery();
-            using var tx = conn.BeginTransaction();
-            foreach (DataRow row in dt.Rows)
-            {
-                var cols = dt.Columns.Cast<DataColumn>().Select(c => $"`{SanitizarColumna(c.ColumnName)}`");
-                var parms = Enumerable.Range(1, dt.Columns.Count).Select(i => $"@p{i}");
-                using var cmd = new MySqlCommand($"INSERT INTO `{nombreTabla}` ({string.Join(",", cols)}) VALUES ({string.Join(",", parms)})", conn, tx);
-                for (int i = 0; i < dt.Columns.Count; i++) cmd.Parameters.AddWithValue($"@p{i + 1}", row[i]?.ToString() ?? "");
-                cmd.ExecuteNonQuery();
-            }
-            tx.Commit();
-        }
-
-        private void CrearEInsertarSqlServer(DataTable dt, string nombreTabla)
-        {
-            using var conn = new SqlConnection(connectionString);
-            conn.Open();
-            var colDefs = dt.Columns.Cast<DataColumn>().Select(c => $"[{SanitizarColumna(c.ColumnName)}] NVARCHAR(MAX)");
-            string createSql = $@"IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{nombreTabla.Replace("'", "''")}')
-                                  CREATE TABLE [{nombreTabla}] ({string.Join(", ", colDefs)})";
-            using (var cmd = new SqlCommand(createSql, conn)) cmd.ExecuteNonQuery();
-            using var tx = conn.BeginTransaction();
-            foreach (DataRow row in dt.Rows)
-            {
-                var cols = dt.Columns.Cast<DataColumn>().Select(c => $"[{SanitizarColumna(c.ColumnName)}]");
-                var parms = Enumerable.Range(1, dt.Columns.Count).Select(i => $"@p{i}");
-                using var cmd = new SqlCommand($"INSERT INTO [{nombreTabla}] ({string.Join(",", cols)}) VALUES ({string.Join(",", parms)})", conn, tx);
-                for (int i = 0; i < dt.Columns.Count; i++) cmd.Parameters.AddWithValue($"@p{i + 1}", row[i]?.ToString() ?? "");
-                cmd.ExecuteNonQuery();
-            }
-            tx.Commit();
         }
 
         private static DataTable ParsearArchivo(string contenido, string ext) => ext switch { ".csv" => ParseCsv(contenido), ".json" => ParseJson(contenido), ".xml" => ParseXml(contenido), _ => ParseTxt(contenido) };
@@ -668,7 +554,6 @@ namespace FileExplorerr
         private TextBox txtHost = null!, txtPuerto = null!, txtBd = null!,
                          txtUser = null!, txtPass = null!;
         private CheckBox chkTrusted = null!;
-        private Panel panelCredenciales = null!;
 
         public ConexionDialog(SqlViewerForm.DbTipo tipo)
         {

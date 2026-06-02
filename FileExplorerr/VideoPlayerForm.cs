@@ -6,6 +6,7 @@ using System.Drawing;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WinForms;
 
+
 namespace FileExplorerr
 {
     public class VideoPlayerForm : Form
@@ -46,7 +47,7 @@ namespace FileExplorerr
         private System.Windows.Forms.WebBrowser mapBrowser = null!;
         private Button btnGps = null!;
         private bool gpsVisible;
-        private GpsReader.GpsData? _gpsData;
+        private GpsData? _gpsData;
         private int _gpsLoadedFor = -1;
 
         // ── Estado ────────────────────────────────────────────────────────────

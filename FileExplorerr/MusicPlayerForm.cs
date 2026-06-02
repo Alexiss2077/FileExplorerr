@@ -4,8 +4,6 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
-using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using NAudio.Wave;
@@ -15,12 +13,7 @@ namespace FileExplorerr
 {
     public class MusicPlayerForm : Form
     {
-        private static readonly HttpClient _sharedHttpClient = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(15)
-
-        };
-// ── Controles ────────────────────────────────────────────────────────
+        // ── Controles ────────────────────────────────────────────────────────
         private Panel topBar = null!, controlBar = null!, progressPanel = null!;
         private DataGridView grid = null!;
         private PictureBox coverBox = null!;
@@ -77,8 +70,6 @@ namespace FileExplorerr
             uiTimer = new System.Windows.Forms.Timer { Interval = 300 };
             uiTimer.Tick += UiTimer_Tick;
             uiTimer.Start();
-            _sharedHttpClient.DefaultRequestHeaders.TryAddWithoutValidation(
-           "User-Agent", "FileExplorerr/1.0");
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -358,10 +349,6 @@ namespace FileExplorerr
             btnShuffle.Click += (s, e) => ToggleShuffle();
 
             // ── REPEAT ────────────────────────────────────────────────────────
-            // 3 estados visuales distintos:
-            //   OFF  → ↻  gris   (no repetir)
-            //   ALL  → ↻  verde  (repetir lista — con número de pistas)
-            //   ONE  → ➀  ámbar  (repetir una canción — ícono completamente diferente)
             btnRepeat = MakeCtrlBtn("↻", false);
             btnRepeat.Size = new Size(40, 40);
             btnRepeat.Font = new Font("Segoe UI", 16F);
@@ -894,31 +881,36 @@ namespace FileExplorerr
             catch { }
             try
             {
-                string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? "";
-                string title = grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "";
-                if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title)) return;
-                var client = _sharedHttpClient;
-                string json = await client.GetStringAsync($"https://itunes.apple.com/search?term={Uri.EscapeDataString($"{artist} {title}")}&limit=3&entity=song");
-                using var doc = JsonDocument.Parse(json);
-                var results = doc.RootElement.GetProperty("results");
-                if (results.GetArrayLength() > 0)
+                string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? string.Empty;
+                string title = grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? string.Empty;
+
+                byte[]? imgData = await CoverSearchService.FetchFromITunesAsync(artist, title);
+                if (imgData is not null && imgData.Length > 0)
                 {
-                    string coverUrl = results[0].GetProperty("artworkUrl100").GetString()!.Replace("100x100", "600x600");
-                    byte[] imgData = await client.GetByteArrayAsync(coverUrl);
                     using var ms = new System.IO.MemoryStream(imgData);
                     coverBox.Image = System.Drawing.Image.FromStream(ms);
+
+                    // Save embedded art back to the file tag.
                     await Task.Run(() =>
                     {
                         try
                         {
-                            var mp3 = TagFile.Create(path);
+                            var mp3 = TagLib.File.Create(path);
                             mp3.Tag.Pictures = new TagLib.IPicture[]
                             {
-                                new TagLib.Picture(imgData) { Type = TagLib.PictureType.FrontCover, MimeType = "image/png" }
+                                new TagLib.Picture(imgData)
+                                {
+                                    Type     = TagLib.PictureType.FrontCover,
+                                    MimeType = "image/png"
+                                }
                             };
                             mp3.Save();
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[MusicPlayerForm.LoadCover] tag write: {ex.Message}");
+                        }
                     });
                 }
             }
@@ -928,25 +920,23 @@ namespace FileExplorerr
         private async Task SearchLyrics()
         {
             if (currentIndex < 0 || currentIndex >= grid.Rows.Count) return;
-            string artist = NormalizeForSearch(grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? "");
-            string title = NormalizeForSearch(grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? "");
-            if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
-            { lyricsBox.Text = "Sin datos."; return; }
-            lyricsBox.Text = "Buscando..."; btnLyrics.Enabled = false;
+
+            string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? string.Empty;
+            string title = grid.Rows[currentIndex].Cells["Title"].Value?.ToString() ?? string.Empty;
+
+            lyricsBox.Text = "Buscando...";
+            btnLyrics.Enabled = false;
+
             try
             {
-                var client = _sharedHttpClient;
-                var response = await client.GetAsync($"https://lrclib.net/api/get?artist_name={Uri.EscapeDataString(artist)}&track_name={Uri.EscapeDataString(title)}");
-                if (!response.IsSuccessStatusCode) { lyricsBox.Text = "No encontrada."; return; }
-                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                lyricsBox.Text = doc.RootElement.TryGetProperty("plainLyrics", out var lyr) && !string.IsNullOrWhiteSpace(lyr.GetString())
-                    ? lyr.GetString()!
-                    : "No encontrada.";
+                var result = await LyricsService.SearchAsync(artist, title);
+                lyricsBox.Text = result.Found ? result.Lyrics : result.ErrorMessage;
             }
-            catch (Exception ex) { lyricsBox.Text = $"Error: {ex.Message}"; }
-            finally { btnLyrics.Enabled = true; }
+            finally
+            {
+                btnLyrics.Enabled = true;
+            }
         }
-
         // ════════════════════════════════════════════════════════════════════
         //  PLAYLIST
         // ════════════════════════════════════════════════════════════════════
@@ -1180,18 +1170,6 @@ namespace FileExplorerr
             if (string.IsNullOrWhiteSpace(s)) return "Sin título";
             s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\([^)]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K|Visualizer|Explicit|Clean|Remaster)[^)]*?\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\[[^\]]*?(Official|Audio|Video|Lyrics|Music Video|HD|4K)[^\]]*?\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            return s.Trim();
-        }
-
-        private static string NormalizeForSearch(string s)
-        {
-            if (string.IsNullOrWhiteSpace(s)) return "";
-            s = s.ToLower().Trim();
-            foreach (var sep in new[] { " feat.", " feat ", " ft.", " ft ", " featuring " })
-            {
-                int i = s.IndexOf(sep, StringComparison.OrdinalIgnoreCase);
-                if (i > 0) { s = s.Substring(0, i); break; }
-            }
             return s.Trim();
         }
 

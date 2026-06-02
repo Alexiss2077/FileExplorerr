@@ -1,21 +1,11 @@
-﻿using System.Collections.Generic;
+﻿// SqlDataItem.cs
+//
+// SqlWriteResult has been moved to SqlWriteResult.cs (Phase 3 refactoring).
+// SqlDataItem (Dictionary<string,string> wrapper) has been removed because
+// no code in the project reads or writes it.
+//
+// This file is intentionally empty and is kept only so that any external
+// reference or tooling that expects it to exist does not break.
+// It can be deleted once the project is verified to build without it.
 
-namespace FileExplorerr
-{
-    /// <summary>
-    /// Fila genérica leída de cualquier tabla SQL.
-    /// Las columnas y sus valores se almacenan en el diccionario.
-    /// </summary>
-    public class SqlDataItem
-    {
-        public Dictionary<string, string> Columnas { get; set; } = new();
-    }
-
-    public class SqlWriteResult
-    {
-        public bool Exito { get; set; }
-        public string Mensaje { get; set; } = "";
-        public int Insertados { get; set; }
-        public int Errores { get; set; }
-    }
-}
+namespace FileExplorerr { }

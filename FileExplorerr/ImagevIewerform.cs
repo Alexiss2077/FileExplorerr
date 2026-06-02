@@ -49,7 +49,7 @@ namespace FileExplorerr
         private Label gpsDateLabel = null!;
         private System.Windows.Forms.WebBrowser mapBrowser = null!;
         private bool gpsVisible;
-        private GpsReader.GpsData? _gpsData;
+        private GpsData? _gpsData;
 
         // ── Image state ──────────────────────────────────────────────────────
         private readonly string imagePath;
@@ -1157,7 +1157,7 @@ L.marker([{lat},{lon}]).addTo(map).bindPopup('{popupText}').openPopup();
         private TextBox _txtLon = null!;
         private TextBox _txtAlt = null!;
 
-        public GpsEditDialog(GpsReader.GpsData? existing)
+        public GpsEditDialog(GpsData? existing)
         {
             Text = existing?.HasGps == true ? "Editar coordenadas GPS" : "Agregar coordenadas GPS";
             Size = new Size(420, 280);
