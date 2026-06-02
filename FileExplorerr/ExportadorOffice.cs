@@ -1,7 +1,10 @@
 ﻿// ============================================================================
-//  ExportadorOffice.cs  — v6 async + progress window no-blocking
-//  Requiere export_office.py junto al .exe
+//  ExportadorOffice.cs
+//  Async Office/PDF export engine.
+//  Requires export_office.py next to the .exe.
 //  pip install openpyxl python-docx python-pptx reportlab
+//
+//  Phase 4 change: ExportProgressForm extracted to ExportProgressForm.cs
 // ============================================================================
 
 using System;
@@ -18,18 +21,19 @@ namespace FileExplorerr
 {
     public static class ExportadorOffice
     {
-        // ── Ruta del script Python ────────────────────────────────────────────
+        // ── Python script path ────────────────────────────────────────────────
         private static string ScriptPath
         {
             get
             {
-                string name = "export_office.py";
+                const string name = "export_office.py";
                 string[] candidates =
                 {
                     Path.Combine(AppContext.BaseDirectory, name),
                     Path.Combine(Directory.GetCurrentDirectory(), name),
-                    Path.Combine(Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData), "FileExplorerr", name)
+                    Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "FileExplorerr", name)
                 };
                 return candidates.FirstOrDefault(File.Exists)
                     ?? Path.Combine(AppContext.BaseDirectory, name);
@@ -37,12 +41,15 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  PUNTO DE ENTRADA — fire-and-forget, no bloquea la UI
+        //  PUBLIC ENTRY POINT — fire-and-forget, does not block the UI
         // ════════════════════════════════════════════════════════════════════
-        public static bool ExportarConDialogo(DataTable? dt,
-            string titulo, string ext, IWin32Window? owner = null)
+        public static bool ExportarConDialogo(
+            DataTable? dt,
+            string titulo,
+            string ext,
+            IWin32Window? owner = null)
         {
-            if (dt == null || dt.Rows.Count == 0)
+            if (dt is null || dt.Rows.Count == 0)
             {
                 MessageBox.Show("No hay datos para exportar.", "Sin datos",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -63,104 +70,121 @@ namespace FileExplorerr
             {
                 Title = $"Exportar como {extU}",
                 Filter = filter + "|Todos (*.*)|*.*",
-                FileName = $"{NombreSeguro(titulo)}_{DateTime.Now:yyyyMMdd_HHmm}{ext}"
+                FileName = $"{SafeFileName(titulo)}_{DateTime.Now:yyyyMMdd_HHmm}{ext}"
             };
             if (dlg.ShowDialog(owner) != DialogResult.OK) return false;
 
-            // Clonar el DataTable para no tener problemas de hilo
+            // Clone the DataTable so the background thread gets its own copy.
             var dtCopy = dt.Copy();
             string outputPath = dlg.FileName;
             string fmt = ext.TrimStart('.');
 
-            // Lanzar sin bloquear — la ventana de progreso es independiente
             _ = ExportarAsync(dtCopy, titulo, fmt, outputPath, owner as Form);
             return true;
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  TAREA ASYNC PRINCIPAL
+        //  ASYNC EXPORT PIPELINE
         // ════════════════════════════════════════════════════════════════════
-        private static async Task ExportarAsync(DataTable dt, string titulo,
-            string fmt, string outputPath, Form? ownerForm)
+        private static async Task ExportarAsync(
+            DataTable dt,
+            string titulo,
+            string fmt,
+            string outputPath,
+            Form? ownerForm)
         {
             var cts = new CancellationTokenSource();
+            // ExportProgressForm is now in ExportProgressForm.cs
             var progress = new ExportProgressForm(titulo, fmt.ToUpper(), cts);
             progress.Show(ownerForm);
 
             string? csvPath = null;
             try
             {
-                // ── 1. Escribir CSV temporal (async, en hilo de fondo) ────────
+                // 1. Write temporary CSV on a background thread.
                 progress.SetStatus("Preparando datos...", 5);
                 csvPath = Path.GetTempFileName();
-
-                await Task.Run(() => EscribirCsv(dt, csvPath, cts.Token), cts.Token);
+                await Task.Run(() => WriteCsv(dt, csvPath, cts.Token), cts.Token);
                 cts.Token.ThrowIfCancellationRequested();
 
-                // ── 2. Llamar a Python (async) ────────────────────────────────
+                // 2. Call the Python script.
                 progress.SetStatus($"Generando {fmt.ToUpper()}...", 20);
 
-                string python = EncontrarPython();
+                string python = FindPython();
                 string script = ScriptPath;
 
                 if (!File.Exists(script))
                     throw new FileNotFoundException(
                         $"No se encontró export_office.py\nBuscado en: {script}");
 
-                string args = $"\"{script}\" {fmt} \"{csvPath}\" \"{outputPath}\" \"{EscapeArg(titulo)}\"";
+                string args =
+                    $"\"{script}\" {fmt} \"{csvPath}\" \"{outputPath}\" \"{EscapeArg(titulo)}\"";
 
                 await RunPythonAsync(python, args, progress, cts.Token);
                 cts.Token.ThrowIfCancellationRequested();
 
                 if (!File.Exists(outputPath))
-                    throw new Exception("Python terminó sin generar el archivo.");
+                    throw new InvalidOperationException(
+                        "Python terminó sin generar el archivo.");
 
                 progress.SetStatus("¡Listo!", 100);
                 await Task.Delay(400, cts.Token);
 
-                // ── 3. Notificar en UI thread ─────────────────────────────────
+                // 3. Notify on the UI thread.
                 progress.Invoke(() =>
                 {
                     progress.Close();
-                    string extU = fmt.ToUpper();
                     long size = new FileInfo(outputPath).Length / 1024;
                     if (MessageBox.Show(
-                            $"{extU} generado ({size:N0} KB):\n{outputPath}\n\n¿Abrir?",
+                            $"{fmt.ToUpper()} generado ({size:N0} KB):\n{outputPath}\n\n¿Abrir?",
                             "Exportación completa",
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Information)
-                        == DialogResult.Yes)
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Information) == DialogResult.Yes)
+                    {
                         Process.Start(new ProcessStartInfo
                         { FileName = outputPath, UseShellExecute = true });
+                    }
                 });
             }
             catch (OperationCanceledException)
             {
-                // Usuario canceló — eliminar archivo parcial
                 progress.Invoke(() => progress.Close());
-                try { if (outputPath != null) File.Delete(outputPath); } catch { }
+                try { if (outputPath is not null) File.Delete(outputPath); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ExportadorOffice] Cleanup on cancel: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {
                 progress.Invoke(() =>
                 {
                     progress.Close();
-                    MessageBox.Show($"Error al exportar:\n{ex.Message}", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($"Error al exportar:\n{ex.Message}",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 });
             }
             finally
             {
-                try { if (csvPath != null) File.Delete(csvPath); } catch { }
+                try { if (csvPath is not null) File.Delete(csvPath); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ExportadorOffice] Temp file cleanup: {ex.Message}");
+                }
                 cts.Dispose();
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CORRER PYTHON DE FORMA COMPLETAMENTE ASÍNCRONA
-        //  Lee stdout/stderr sin bloquear y actualiza el progreso
+        //  RUN PYTHON — fully async, reads stdout/stderr without blocking
         // ════════════════════════════════════════════════════════════════════
-        private static async Task RunPythonAsync(string python, string args,
-            ExportProgressForm prog, CancellationToken ct)
+        private static async Task RunPythonAsync(
+            string python,
+            string args,
+            ExportProgressForm prog,
+            CancellationToken ct)
         {
             var psi = new ProcessStartInfo
             {
@@ -174,23 +198,26 @@ namespace FileExplorerr
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            using var proc = new Process
+            { StartInfo = psi, EnableRaisingEvents = true };
+
             var stderr = new StringBuilder();
             int pct = 20;
 
-            proc.ErrorDataReceived += (s, e) =>
+            proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+            proc.OutputDataReceived += (_, e) =>
             {
-                if (e.Data != null) stderr.AppendLine(e.Data);
-            };
-            proc.OutputDataReceived += (s, e) =>
-            {
-                if (e.Data == null) return;
-                // El script Python escribe "PROGRESS:XX" para reportar avance
+                if (e.Data is null) return;
                 if (e.Data.StartsWith("PROGRESS:") &&
                     int.TryParse(e.Data[9..], out int p))
                 {
                     pct = Math.Max(pct, p);
-                    try { prog.Invoke(() => prog.SetStatus(null, pct)); } catch { }
+                    try { prog.Invoke(() => prog.SetStatus(null, pct)); }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[ExportadorOffice] Progress invoke: {ex.Message}");
+                    }
                 }
             };
 
@@ -198,66 +225,75 @@ namespace FileExplorerr
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
 
-            // Registrar cancelación para matar el proceso
+            // Register cancellation to kill the process tree.
             using var reg = ct.Register(() =>
             {
-                try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+                try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ExportadorOffice] Kill: {ex.Message}");
+                }
             });
 
-            // Animar progreso mientras esperamos (pseudo-progreso si Python no reporta)
+            // Animate progress while we wait.
             var animTask = Task.Run(async () =>
             {
                 while (!proc.HasExited)
                 {
-                    await Task.Delay(800);
+                    await Task.Delay(800, CancellationToken.None);
                     if (pct < 90) pct += 2;
-                    try { prog.Invoke(() => prog.SetStatus(null, Math.Min(pct, 90))); } catch { }
+                    try { prog.Invoke(() => prog.SetStatus(null, Math.Min(pct, 90))); }
+                    catch { /* form may have closed */ }
                 }
             }, ct);
 
             await Task.Run(() => proc.WaitForExit(), ct);
 
-            try { await animTask; } catch { }
+            try { await animTask; }
+            catch (OperationCanceledException) { /* expected on cancel */ }
 
             if (proc.ExitCode != 0)
             {
                 string err = stderr.ToString().Trim();
 
-                // Detectar librerías faltantes y dar mensaje claro
                 if (err.Contains("ModuleNotFoundError") || err.Contains("No module named"))
                 {
-                    string missing = "";
+                    string missing = string.Empty;
                     if (err.Contains("openpyxl")) missing = "openpyxl";
                     if (err.Contains("docx")) missing = "python-docx";
                     if (err.Contains("pptx")) missing = "python-pptx";
                     if (err.Contains("reportlab")) missing = "reportlab";
-                    throw new Exception(
+
+                    throw new InvalidOperationException(
                         $"Falta la librería Python: {missing}\n\n" +
-                        $"Ejecuta en la terminal:\n" +
-                        $"  pip install openpyxl python-docx python-pptx reportlab");
+                        "Ejecuta en la terminal:\n" +
+                        "  pip install openpyxl python-docx python-pptx reportlab");
                 }
-                throw new Exception($"Python error (código {proc.ExitCode}):\n{err}");
+
+                throw new InvalidOperationException(
+                    $"Python error (código {proc.ExitCode}):\n{err}");
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ESCRIBIR CSV TEMPORAL (con soporte de cancelación)
+        //  WRITE TEMPORARY CSV
         // ════════════════════════════════════════════════════════════════════
-        private static void EscribirCsv(DataTable dt, string path, CancellationToken ct)
+        private static void WriteCsv(DataTable dt, string path, CancellationToken ct)
         {
             using var sw = new StreamWriter(path, false, new UTF8Encoding(true), 65536);
 
-            // Cabecera
+            // Header
             for (int c = 0; c < dt.Columns.Count; c++)
             {
                 if (c > 0) sw.Write(',');
                 sw.Write('"');
-                sw.Write(dt.Columns[c].ColumnName.Replace("\"", "\"\""));
+                sw.Write(CsvHelper.EscapeField(dt.Columns[c].ColumnName));
                 sw.Write('"');
             }
             sw.WriteLine();
 
-            // Datos
+            // Data
             for (int r = 0; r < dt.Rows.Count; r++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -265,9 +301,8 @@ namespace FileExplorerr
                 for (int c = 0; c < dt.Columns.Count; c++)
                 {
                     if (c > 0) sw.Write(',');
-                    string val = dt.Rows[r][c]?.ToString() ?? "";
                     sw.Write('"');
-                    sw.Write(val.Replace("\"", "\"\""));
+                    sw.Write(CsvHelper.EscapeField(dt.Rows[r][c]?.ToString() ?? string.Empty));
                     sw.Write('"');
                 }
                 sw.WriteLine();
@@ -277,12 +312,11 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  HELPERS
+        //  FIND PYTHON
         // ════════════════════════════════════════════════════════════════════
-        private static string EncontrarPython()
+        private static string FindPython()
         {
-            string[] candidates = { "python", "python3", "py" };
-            foreach (string cmd in candidates)
+            foreach (string cmd in new[] { "python", "python3", "py" })
             {
                 try
                 {
@@ -299,59 +333,69 @@ namespace FileExplorerr
                     p?.WaitForExit(3000);
                     if (p?.ExitCode == 0) return cmd;
                 }
-                catch { }
+                catch
+                {
+                    // Try next candidate.
+                }
             }
 
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string[] winPaths =
             {
-                @"C:\Python313\python.exe", @"C:\Python312\python.exe",
-                @"C:\Python311\python.exe", @"C:\Python310\python.exe",
-                Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                    @"Programs\Python\Python313\python.exe"),
-                Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                    @"Programs\Python\Python312\python.exe"),
-                Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                    @"Programs\Python\Python311\python.exe"),
+                @"C:\Python313\python.exe",
+                @"C:\Python312\python.exe",
+                @"C:\Python311\python.exe",
+                @"C:\Python310\python.exe",
+                Path.Combine(local, @"Programs\Python\Python313\python.exe"),
+                Path.Combine(local, @"Programs\Python\Python312\python.exe"),
+                Path.Combine(local, @"Programs\Python\Python311\python.exe"),
             };
             foreach (string p in winPaths)
                 if (File.Exists(p)) return p;
 
-            throw new Exception(
+            throw new InvalidOperationException(
                 "No se encontró Python 3.\n\n" +
                 "Descárgalo en https://python.org y marca 'Add Python to PATH'.\n" +
                 "Luego ejecuta:\n  pip install openpyxl python-docx python-pptx reportlab");
         }
 
+        // ════════════════════════════════════════════════════════════════════
+        //  HELPERS
+        // ════════════════════════════════════════════════════════════════════
         private static string EscapeArg(string s) =>
             s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
-        private static string NombreSeguro(string s) =>
+        private static string SafeFileName(string s) =>
             new string(s.Select(c =>
                 Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
 
-        // Métodos públicos para llamadas directas desde otros módulos
-        public static void ExportarExcel(DataTable dt, string titulo, string ruta) =>
-            ExportarConPython(dt, titulo, "xlsx", ruta);
-        public static void ExportarWord(DataTable dt, string titulo, string ruta) =>
-            ExportarConPython(dt, titulo, "docx", ruta);
-        public static void ExportarPowerPoint(DataTable dt, string titulo, string ruta) =>
-            ExportarConPython(dt, titulo, "pptx", ruta);
-        public static void ExportarPdf(DataTable dt, string titulo, string ruta) =>
-            ExportarConPython(dt, titulo, "pdf", ruta);
+        // ── Direct-call overloads (used by modules that bypass the dialog) ──
 
-        private static void ExportarConPython(DataTable dt, string titulo,
-            string fmt, string outputPath)
+        public static void ExportarExcel(DataTable dt, string titulo, string ruta) =>
+            ExportarDirecto(dt, titulo, "xlsx", ruta);
+
+        public static void ExportarWord(DataTable dt, string titulo, string ruta) =>
+            ExportarDirecto(dt, titulo, "docx", ruta);
+
+        public static void ExportarPowerPoint(DataTable dt, string titulo, string ruta) =>
+            ExportarDirecto(dt, titulo, "pptx", ruta);
+
+        public static void ExportarPdf(DataTable dt, string titulo, string ruta) =>
+            ExportarDirecto(dt, titulo, "pdf", ruta);
+
+        private static void ExportarDirecto(
+            DataTable dt, string titulo, string fmt, string outputPath)
         {
             string? csvPath = null;
             try
             {
                 csvPath = Path.GetTempFileName();
-                EscribirCsv(dt, csvPath, CancellationToken.None);
-                string python = EncontrarPython();
-                string args = $"\"{ScriptPath}\" {fmt} \"{csvPath}\" \"{outputPath}\" \"{EscapeArg(titulo)}\"";
+                WriteCsv(dt, csvPath, CancellationToken.None);
+
+                string python = FindPython();
+                string args =
+                    $"\"{ScriptPath}\" {fmt} \"{csvPath}\" \"{outputPath}\" \"{EscapeArg(titulo)}\"";
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = python,
@@ -362,124 +406,19 @@ namespace FileExplorerr
                 };
                 using var proc = Process.Start(psi)!;
                 proc.WaitForExit(300_000);
+
                 if (proc.ExitCode != 0)
-                    throw new Exception(proc.StandardError.ReadToEnd());
+                    throw new InvalidOperationException(proc.StandardError.ReadToEnd());
             }
-            finally { try { if (csvPath != null) File.Delete(csvPath); } catch { } }
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  VENTANA DE PROGRESO — no modal, cancelable, barra animada
-    // ════════════════════════════════════════════════════════════════════════
-    internal class ExportProgressForm : Form
-    {
-        private readonly Label _lblTitulo;
-        private readonly Label _lblStatus;
-        private readonly ProgressBar _bar;
-        private readonly Button _btnCancel;
-        private readonly System.Windows.Forms.Timer _timer;
-        private readonly CancellationTokenSource _cts;
-        private int _animPct;
-
-        public ExportProgressForm(string titulo, string fmt, CancellationTokenSource cts)
-        {
-            _cts = cts;
-
-            Text = $"Exportando {fmt}...";
-            Size = new System.Drawing.Size(440, 170);
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            StartPosition = FormStartPosition.CenterScreen;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            ControlBox = false;
-            TopMost = true;
-            BackColor = System.Drawing.Color.FromArgb(26, 26, 32);
-
-            _lblTitulo = new Label
+            finally
             {
-                Text = $"Exportando: {titulo}",
-                Left = 16,
-                Top = 14,
-                Width = 400,
-                Height = 20,
-                ForeColor = System.Drawing.Color.FromArgb(220, 220, 236),
-                Font = new System.Drawing.Font("Segoe UI", 9F,
-                    System.Drawing.FontStyle.Bold),
-                AutoEllipsis = true
-            };
-
-            _lblStatus = new Label
-            {
-                Text = "Iniciando...",
-                Left = 16,
-                Top = 38,
-                Width = 400,
-                Height = 18,
-                ForeColor = System.Drawing.Color.FromArgb(72, 202, 188),
-                Font = new System.Drawing.Font("Segoe UI", 8.5F)
-            };
-
-            _bar = new ProgressBar
-            {
-                Left = 16,
-                Top = 62,
-                Width = 400,
-                Height = 22,
-                Minimum = 0,
-                Maximum = 100,
-                Value = 0,
-                Style = ProgressBarStyle.Continuous
-            };
-
-            _btnCancel = new Button
-            {
-                Text = "Cancelar",
-                Left = 160,
-                Top = 96,
-                Width = 110,
-                Height = 32,
-                BackColor = System.Drawing.Color.FromArgb(80, 30, 30),
-                ForeColor = System.Drawing.Color.FromArgb(220, 95, 85),
-                FlatStyle = FlatStyle.Flat,
-                Font = new System.Drawing.Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
-            };
-            _btnCancel.FlatAppearance.BorderColor =
-                System.Drawing.Color.FromArgb(220, 95, 85);
-            _btnCancel.Click += (s, e) =>
-            {
-                _btnCancel.Enabled = false;
-                _btnCancel.Text = "Cancelando...";
-                _cts.Cancel();
-            };
-
-            Controls.AddRange(new Control[]
-                { _lblTitulo, _lblStatus, _bar, _btnCancel });
-
-            // Timer para smooth animation de la barra
-            _timer = new System.Windows.Forms.Timer { Interval = 40 };
-            _timer.Tick += (s, e) =>
-            {
-                if (_bar.Value < _animPct)
+                try { if (csvPath is not null) File.Delete(csvPath); }
+                catch (Exception ex)
                 {
-                    int next = Math.Min(_bar.Value + 2, _animPct);
-                    _bar.Value = next;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ExportadorOffice.ExportarDirecto] Temp cleanup: {ex.Message}");
                 }
-            };
-            _timer.Start();
-        }
-
-        public void SetStatus(string? msg, int pct = -1)
-        {
-            if (msg != null) _lblStatus.Text = msg;
-            if (pct >= 0) _animPct = Math.Min(pct, 100);
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing) _timer?.Dispose();
-            base.Dispose(disposing);
+            }
         }
     }
 }

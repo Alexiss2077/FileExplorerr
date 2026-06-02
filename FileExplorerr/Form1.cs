@@ -1099,7 +1099,7 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private void CreateFolder()
         {
-            string? name = InputDialog("Nueva carpeta", "Nombre:");
+            string? name = InputDialog.Show(this, "Nueva carpeta", "Nombre:");
             if (string.IsNullOrWhiteSpace(name)) return;
             if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             { MessageBox.Show("Nombre no válido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
@@ -1114,7 +1114,7 @@ namespace FileExplorerr
             if (listView.SelectedItems.Count == 0) return;
             string oldPath = listView.SelectedItems[0].Tag!.ToString()!;
             string oldName = Path.GetFileName(oldPath);
-            string? newName = InputDialog("Renombrar", "Nuevo nombre:", oldName);
+            string? newName = InputDialog.Show(this, "Renombrar", "Nuevo nombre:", oldName);
             if (string.IsNullOrWhiteSpace(newName) || newName == oldName) return;
             string newPath = Path.Combine(Path.GetDirectoryName(oldPath)!, newName);
             try
@@ -1492,44 +1492,17 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  INPUT DIALOG
-        // ════════════════════════════════════════════════════════════════════
-        private string? InputDialog(string title, string prompt, string def = "")
-        {
-            using Form dlg = new()
-            {
-                Text = title,
-                Width = 440,
-                Height = 170,
-                StartPosition = FormStartPosition.CenterParent,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                BackColor = Theme.BgSurface,
-                ForeColor = Theme.TextPrimary
-            };
-            var lbl = new Label { Text = prompt, Left = 14, Top = 20, Width = 400, ForeColor = Theme.TextSecondary, Font = Theme.FontBody };
-            var txt = Theme.MakeTextBox(); txt.Text = def; txt.Left = 14; txt.Top = 48; txt.Width = 400; txt.SelectAll();
-            var ok = Theme.MakeButton("Aceptar", 90, Theme.ButtonKind.Primary); ok.Left = 218; ok.Top = 92; ok.DialogResult = DialogResult.OK;
-            var cancel = Theme.MakeButton("Cancelar", 90); cancel.Left = 318; cancel.Top = 92; cancel.DialogResult = DialogResult.Cancel;
-            dlg.Controls.AddRange(new Control[] { lbl, txt, ok, cancel });
-            dlg.AcceptButton = (IButtonControl)ok;
-            dlg.CancelButton = (IButtonControl)cancel;
-            return dlg.ShowDialog(this) == DialogResult.OK ? txt.Text.Trim() : null;
-        }
-
-        // ════════════════════════════════════════════════════════════════════
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
-          private string IconKey(string ext) =>
-              FileExtensions.Categorise(ext) switch
-              {
-                  FileCategory.Image    => "image",
-                  FileCategory.Audio    => "audio",
-                  FileCategory.Video    => "video",
-                  FileCategory.Text     => "text",
-                   _                     => "file"
-              };
+        private string IconKey(string ext) =>
+            FileExtensions.Categorise(ext) switch
+            {
+                FileCategory.Image => "image",
+                FileCategory.Audio => "audio",
+                FileCategory.Video => "video",
+                FileCategory.Text => "text",
+                _ => "file"
+            };
 
         private string FileTypeName(string ext)
         {
@@ -1624,51 +1597,6 @@ namespace FileExplorerr
             g.DrawLine(pen, 11, 18, 21, 18);
             g.DrawLine(pen, 11, 22, 18, 22);
             return Icon.FromHandle(bmp.GetHicon());
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  MENU RENDERER MINIMALISTA (Arctic Night)
-    // ════════════════════════════════════════════════════════════════════════
-    internal class MinimalMenuRenderer : ToolStripProfessionalRenderer
-    {
-        public MinimalMenuRenderer() : base(new MinimalColorTable()) { }
-        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
-            => e.Graphics.FillRectangle(new SolidBrush(e.Item.Selected ? Theme.BgHover : Theme.BgElevated), new Rectangle(Point.Empty, e.Item.Size));
-        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
-        {
-            int y = e.Item.Height / 2;
-            e.Graphics.DrawLine(new Pen(Color.FromArgb(255, 255, 255, 14)), 8, y, e.Item.Width - 8, y);
-        }
-        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
-            => e.Graphics.FillRectangle(new SolidBrush(Theme.BgElevated), e.AffectedBounds);
-        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
-            => e.Graphics.DrawRectangle(new Pen(Color.FromArgb(255, 255, 255, 15)), new Rectangle(e.AffectedBounds.X, e.AffectedBounds.Y, e.AffectedBounds.Width - 1, e.AffectedBounds.Height - 1));
-    }
-
-    internal class MinimalColorTable : ProfessionalColorTable
-    {
-        public override Color MenuItemSelected => Theme.BgHover;
-        public override Color MenuItemBorder => Color.FromArgb(255, 255, 255, 15);
-        public override Color MenuBorder => Color.FromArgb(255, 255, 255, 15);
-        public override Color ToolStripDropDownBackground => Theme.BgElevated;
-        public override Color ImageMarginGradientBegin => Theme.BgSurface;
-        public override Color ImageMarginGradientMiddle => Theme.BgSurface;
-        public override Color ImageMarginGradientEnd => Theme.BgSurface;
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  COMPARADOR PARA LISTVIEW
-    // ════════════════════════════════════════════════════════════════════════
-    internal class LvComparer : System.Collections.IComparer
-    {
-        private readonly int col;
-        private readonly SortOrder order;
-        public LvComparer(int col, SortOrder order) { this.col = col; this.order = order; }
-        public int Compare(object? x, object? y)
-        {
-            int r = string.Compare(((ListViewItem)x!).SubItems[col].Text, ((ListViewItem)y!).SubItems[col].Text, StringComparison.CurrentCulture);
-            return order == SortOrder.Descending ? -r : r;
         }
     }
 }

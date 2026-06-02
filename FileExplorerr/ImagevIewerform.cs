@@ -10,6 +10,15 @@ using System.Windows.Forms;
 
 namespace FileExplorerr
 {
+    // ════════════════════════════════════════════════════════════════════════
+    //  IMAGE VIEWER FORM
+    //  Opens and edits raster images with zoom, pan, crop, draw, text,
+    //  filters, GPS panel and undo support.
+    //
+    //  Phase 4 change: GpsEditDialog  → GpsEditDialog.cs
+    //                  TextToolDialog → TextToolDialog.cs
+    //  File renamed from ImagevIewerform.cs to ImageViewerForm.cs.
+    // ════════════════════════════════════════════════════════════════════════
     public class ImageViewerForm : Form
     {
         // ── Tool enumeration ─────────────────────────────────────────────────
@@ -22,8 +31,6 @@ namespace FileExplorerr
         private const float ZoomInFactor = 1.15f;
         private const float ZoomOutFactor = 0.87f;
         private const int DefaultBrushSize = 4;
-        private const int ToastDisplayMs = 1400;
-        private const int GpsLoadDelayMs = 0;     // LoadGpsAsync is already awaited
 
         // ── Controls ─────────────────────────────────────────────────────────
         private Panel topToolbar = null!;
@@ -51,7 +58,7 @@ namespace FileExplorerr
         private bool gpsVisible;
         private GpsData? _gpsData;
 
-        // ── Image state ──────────────────────────────────────────────────────
+        // ── Image state ───────────────────────────────────────────────────────
         private readonly string imagePath;
         private Bitmap original = null!;
         private Bitmap working = null!;
@@ -72,13 +79,13 @@ namespace FileExplorerr
         private Font textFont = new("Segoe UI", 14F, FontStyle.Bold);
         private readonly Stack<Bitmap> undoStack = new();
 
-        // ── Text tool settings ───────────────────────────────────────────────
+        // ── Text tool settings ────────────────────────────────────────────────
         private string textFontFamily = "Segoe UI";
         private float textFontSize = 14F;
         private FontStyle textFontStyle = FontStyle.Bold;
         private Color textColor = Color.White;
 
-        // ── Loading overlay ──────────────────────────────────────────────────
+        // ── Loading overlay ───────────────────────────────────────────────────
         private Panel _loadingOverlay = null!;
         private Label _loadingLabel = null!;
 
@@ -214,8 +221,8 @@ namespace FileExplorerr
             leftToolbar.Controls.Add(brushSizeBar);
             y += 44;
 
-            var sep = new Panel { Left = 6, Top = y, Width = 44, Height = 1, BackColor = Theme.Border };
-            leftToolbar.Controls.Add(sep);
+            leftToolbar.Controls.Add(
+                new Panel { Left = 6, Top = y, Width = 44, Height = 1, BackColor = Theme.Border });
             y += 10;
 
             btnToggleGps = new Button
@@ -237,16 +244,17 @@ namespace FileExplorerr
         private void BuildCanvas()
         {
             canvasPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(12, 12, 16) };
+
             canvas = new PictureBox
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(12, 12, 16),
                 SizeMode = PictureBoxSizeMode.Normal
             };
-            // Enable double buffering via reflection (WinForms quirk).
             typeof(PictureBox)
                 .GetProperty("DoubleBuffered",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Instance)
                 ?.SetValue(canvas, true);
 
             canvas.Resize += (_, _) => canvas.Invalidate();
@@ -254,9 +262,9 @@ namespace FileExplorerr
             canvas.MouseDown += Canvas_MouseDown;
             canvas.MouseMove += Canvas_MouseMove;
             canvas.MouseUp += Canvas_MouseUp;
-            canvas.MouseWheel += (_, e) => SetZoom(zoom * (e.Delta > 0 ? ZoomInFactor : ZoomOutFactor));
+            canvas.MouseWheel += (_, e) =>
+                SetZoom(zoom * (e.Delta > 0 ? ZoomInFactor : ZoomOutFactor));
 
-            // Loading overlay.
             _loadingOverlay = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -281,7 +289,13 @@ namespace FileExplorerr
 
         private void BuildGpsPanel()
         {
-            gpsPanel = new Panel { Width = 280, Dock = DockStyle.Right, BackColor = Theme.BgSurface, Visible = false };
+            gpsPanel = new Panel
+            {
+                Width = 280,
+                Dock = DockStyle.Right,
+                BackColor = Theme.BgSurface,
+                Visible = false
+            };
 
             var gpsHeader = new Panel { Height = 38, Dock = DockStyle.Top, BackColor = Theme.BgElevated };
             gpsHeader.Controls.Add(new Label
@@ -300,6 +314,7 @@ namespace FileExplorerr
                 BackColor = Theme.BgSurface,
                 Padding = new Padding(12, 8, 12, 8)
             };
+
             gpsLatLabel = MakeGpsLabel("Lat:   —");
             gpsLonLabel = MakeGpsLabel("Lon:  —");
             gpsAltLabel = MakeGpsLabel("Alt:   —");
@@ -307,7 +322,8 @@ namespace FileExplorerr
             gpsDateLabel = MakeGpsLabel("Fecha: —");
 
             int gy = 8;
-            foreach (var lbl in new[] { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel })
+            foreach (var lbl in new[]
+                { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel })
             {
                 lbl.Left = 12;
                 lbl.Top = gy;
@@ -327,8 +343,8 @@ namespace FileExplorerr
             btnOpenMap.Click += (_, _) =>
             {
                 if (_gpsData?.HasGps == true)
-                    OpenBrowserUrl(
-                        $"https://www.google.com/maps?q=" +
+                    OpenUrl(
+                        "https://www.google.com/maps?q=" +
                         $"{_gpsData.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
                         $"{_gpsData.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             };
@@ -361,7 +377,6 @@ namespace FileExplorerr
             try
             {
                 Bitmap? bmp = await Task.Run(() => LoadBitmapFromDisk(imagePath, ext));
-
                 if (bmp is null)
                     throw new InvalidOperationException("No se pudo decodificar la imagen.");
 
@@ -407,7 +422,7 @@ namespace FileExplorerr
                     return bmp;
                 }
                 using var fs2 = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var tmp2 = Image.FromStream(fs2, useEmbeddedColorManagement: true, validateImageData: true);
+                using var tmp2 = Image.FromStream(fs2, true, true);
                 return new Bitmap(tmp2);
             }
             catch (Exception ex)
@@ -415,14 +430,6 @@ namespace FileExplorerr
                 System.Diagnostics.Debug.WriteLine($"[ImageViewerForm] LoadBitmap: {ex.Message}");
                 return null;
             }
-        }
-
-        private void SetToolsEnabled(bool enabled)
-        {
-            foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
-                if (btn is not null) btn.Enabled = enabled;
-            foreach (Control c in topToolbar.Controls)
-                if (c is Button b) b.Enabled = enabled;
         }
 
         private void LoadSvg()
@@ -434,19 +441,25 @@ namespace FileExplorerr
             };
             canvasPanel.Controls.Remove(canvas);
             canvasPanel.Controls.Add(svgBrowser);
-
-            string svgContent = File.ReadAllText(imagePath);
             svgBrowser.DocumentText =
                 "<!DOCTYPE html><html><head>" +
                 "<style>*{margin:0;padding:0}html,body{width:100%;height:100%;" +
                 "background:#0c0c10;display:flex;align-items:center;justify-content:center}" +
                 "svg{max-width:100%;max-height:100%}</style></head>" +
-                $"<body>{svgContent}</body></html>";
+                $"<body>{File.ReadAllText(imagePath)}</body></html>";
 
             foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
                 btn.Enabled = false;
 
             infoLabel.Text = $"  {Path.GetFileName(imagePath)}  ·  SVG";
+        }
+
+        private void SetToolsEnabled(bool enabled)
+        {
+            foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
+                if (btn is not null) btn.Enabled = enabled;
+            foreach (Control c in topToolbar.Controls)
+                if (c is Button b) b.Enabled = enabled;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -481,24 +494,26 @@ namespace FileExplorerr
             gpsCameraLabel.Text = $"Cam:  {g.CameraModel ?? "—"}";
             gpsDateLabel.Text = $"Fecha: {g.Date ?? "—"}";
 
-            foreach (var lbl in new[] { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel })
+            foreach (var lbl in new[]
+                { gpsLatLabel, gpsLonLabel, gpsAltLabel, gpsCameraLabel, gpsDateLabel })
             {
                 lbl.ForeColor = Theme.TextPrimary;
                 lbl.Visible = true;
             }
 
-            // Use the shared BrowserHelper instead of the former private method.
             BrowserHelper.SetEdgeEmulation();
 
             string ls = g.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
             string lo = g.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            mapBrowser.DocumentText = BuildLeafletHtml(ls, lo, $"{g.Latitude:F5}°, {g.Longitude:F5}°");
+            mapBrowser.DocumentText = BuildLeafletHtml(ls, lo,
+                $"{g.Latitude:F5}°, {g.Longitude:F5}°");
         }
 
         private void SetGpsCoordinates()
         {
             string extLow = Path.GetExtension(imagePath).ToLowerInvariant();
-            if (extLow != ".jpg" && extLow != ".jpeg" && extLow != ".tiff" && extLow != ".tif")
+            if (extLow != ".jpg" && extLow != ".jpeg" &&
+                extLow != ".tiff" && extLow != ".tif")
             {
                 MessageBox.Show(
                     "Solo se pueden escribir coordenadas GPS en archivos JPEG y TIFF.",
@@ -508,6 +523,7 @@ namespace FileExplorerr
                 return;
             }
 
+            // GpsEditDialog is now in GpsEditDialog.cs
             using var dlg = new GpsEditDialog(_gpsData);
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
@@ -525,13 +541,13 @@ namespace FileExplorerr
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al escribir GPS:\n{ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error al escribir GPS:\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CANVAS — paint and mouse handling
+        //  CANVAS — paint and mouse
         // ════════════════════════════════════════════════════════════════════
         private void Canvas_Paint(object? sender, PaintEventArgs e)
         {
@@ -566,8 +582,8 @@ namespace FileExplorerr
             g.FillRectangle(overlay, rx, oy, rw, ry - oy);
             g.FillRectangle(overlay, rx, ry + rh, rw, dh - (ry - oy + rh));
 
-            using var borderPen = new Pen(Theme.Accent, 2) { DashStyle = DashStyle.Dash };
-            g.DrawRectangle(borderPen, rx, ry, rw, rh);
+            using var pen = new Pen(Theme.Accent, 2) { DashStyle = DashStyle.Dash };
+            g.DrawRectangle(pen, rx, ry, rw, rh);
         }
 
         private Point CanvasToImage(Point p)
@@ -612,7 +628,7 @@ namespace FileExplorerr
                     PlaceText(imgPt);
                     break;
                 case Tool.ColorPicker:
-                    PickColorFromImage(imgPt);
+                    PickColor(imgPt);
                     break;
             }
         }
@@ -620,7 +636,6 @@ namespace FileExplorerr
         private void Canvas_MouseMove(object? sender, MouseEventArgs e)
         {
             if (working is null) return;
-
             var imgPt = CanvasToImage(e.Location);
 
             if (isPanning)
@@ -631,7 +646,6 @@ namespace FileExplorerr
                 canvas.Invalidate();
                 return;
             }
-
             if (isCropping)
             {
                 cropEnd = imgPt;
@@ -644,7 +658,6 @@ namespace FileExplorerr
                 canvas.Invalidate();
                 return;
             }
-
             if (isDrawing)
             {
                 DrawLine(lastDrawPt, imgPt);
@@ -664,25 +677,18 @@ namespace FileExplorerr
             if (isCropping && e.Button == MouseButtons.Left)
             {
                 isCropping = false;
-                if (cropRect.Width > 4 && cropRect.Height > 4)
-                    ConfirmCrop();
-                else
-                    canvas.Invalidate();
+                if (cropRect.Width > 4 && cropRect.Height > 4) ConfirmCrop();
+                else canvas.Invalidate();
             }
-            if (isDrawing)
-            {
-                isDrawing = false;
-                canvas.Invalidate();
-            }
+            if (isDrawing) { isDrawing = false; canvas.Invalidate(); }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  DRAWING TOOLS
+        //  TOOLS
         // ════════════════════════════════════════════════════════════════════
         private void SelectTool(Tool t)
         {
             currentTool = (currentTool == t) ? Tool.None : t;
-
             foreach (var btn in new[] { btnCrop, btnDraw, btnErase, btnText, btnPicker })
                 btn.BackColor = Theme.BgElevated;
 
@@ -699,7 +705,8 @@ namespace FileExplorerr
 
             canvas.Cursor = currentTool switch
             {
-                Tool.Draw or Tool.Erase or Tool.Crop or Tool.ColorPicker => Cursors.Cross,
+                Tool.Draw or Tool.Erase or
+                Tool.Crop or Tool.ColorPicker => Cursors.Cross,
                 Tool.Text => Cursors.IBeam,
                 _ => Cursors.Default
             };
@@ -711,7 +718,9 @@ namespace FileExplorerr
             using var g = Graphics.FromImage(working);
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using var br = new SolidBrush(currentTool == Tool.Erase ? Color.White : drawColor);
-            g.FillEllipse(br, p.X - brushSize / 2, p.Y - brushSize / 2, brushSize, brushSize);
+            g.FillEllipse(br,
+                p.X - brushSize / 2, p.Y - brushSize / 2,
+                brushSize, brushSize);
         }
 
         private void DrawLine(Point from, Point to)
@@ -728,7 +737,9 @@ namespace FileExplorerr
 
         private void PlaceText(Point imgPt)
         {
-            using var dlg = new TextToolDialog(textFontFamily, textFontSize, textFontStyle, textColor);
+            // TextToolDialog is now in TextToolDialog.cs
+            using var dlg = new TextToolDialog(
+                textFontFamily, textFontSize, textFontStyle, textColor);
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
             textFontFamily = dlg.SelectedFontFamily;
@@ -753,20 +764,17 @@ namespace FileExplorerr
         {
             if (MessageBox.Show(
                     $"¿Recortar a {cropRect.Width}×{cropRect.Height}?",
-                    "Recortar",
-                    MessageBoxButtons.YesNo) != DialogResult.Yes)
+                    "Recortar", MessageBoxButtons.YesNo) != DialogResult.Yes)
             {
                 canvas.Invalidate();
                 return;
             }
-
             PushUndo();
             var cropped = new Bitmap(cropRect.Width, cropRect.Height);
             using (var g = Graphics.FromImage(cropped))
                 g.DrawImage(working,
                     new Rectangle(0, 0, cropRect.Width, cropRect.Height),
-                    cropRect,
-                    GraphicsUnit.Pixel);
+                    cropRect, GraphicsUnit.Pixel);
 
             working.Dispose();
             working = cropped;
@@ -774,7 +782,7 @@ namespace FileExplorerr
             FitToWindow();
         }
 
-        private void PickColorFromImage(Point p)
+        private void PickColor(Point p)
         {
             if (p.X >= 0 && p.Y >= 0 && p.X < working.Width && p.Y < working.Height)
             {
@@ -792,7 +800,6 @@ namespace FileExplorerr
             PushUndo();
             ShowLoading("Rotando...");
             SetToolsEnabled(false);
-
             var src = new Bitmap(working);
             var rotated = await Task.Run(() =>
             {
@@ -801,7 +808,6 @@ namespace FileExplorerr
                     : RotateFlipType.Rotate270FlipNone);
                 return src;
             });
-
             working.Dispose();
             working = rotated;
             HideLoading();
@@ -814,7 +820,6 @@ namespace FileExplorerr
             PushUndo();
             ShowLoading("Volteando...");
             SetToolsEnabled(false);
-
             var src = new Bitmap(working);
             var flipped = await Task.Run(() =>
             {
@@ -826,7 +831,6 @@ namespace FileExplorerr
                 });
                 return src;
             });
-
             working.Dispose();
             working = flipped;
             HideLoading();
@@ -835,7 +839,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ASYNC FILTERS — LockBits (no GetPixel/SetPixel)
+        //  ASYNC FILTERS
         // ════════════════════════════════════════════════════════════════════
         private enum FilterType { Grayscale, Sepia, Invert }
 
@@ -848,13 +852,11 @@ namespace FileExplorerr
             int w = working.Width;
             int h = working.Height;
             byte[] pixels = BitmapToBytes(working, out PixelFormat fmt);
-
             byte[] result = await Task.Run(() => ApplyFilterToBytes(pixels, w, h, filter));
-
             Bitmap newBmp = BytesToBitmap(result, w, h, fmt);
+
             working.Dispose();
             working = newBmp;
-
             HideLoading();
             SetToolsEnabled(true);
             canvas.Invalidate();
@@ -882,18 +884,15 @@ namespace FileExplorerr
             return bmp;
         }
 
-        private static byte[] ApplyFilterToBytes(byte[] pixels, int w, int h, FilterType filter)
+        private static byte[] ApplyFilterToBytes(byte[] px, int w, int h, FilterType filter)
         {
-            // Format32bppArgb byte order: B G R A
-            byte[] result = new byte[pixels.Length];
+            byte[] result = new byte[px.Length];
             int stride = w * 4;
-
             for (int y = 0; y < h; y++)
-            {
                 for (int x = 0; x < w; x++)
                 {
                     int i = y * stride + x * 4;
-                    byte b = pixels[i], gch = pixels[i + 1], r = pixels[i + 2], a = pixels[i + 3];
+                    byte b = px[i], gch = px[i + 1], r = px[i + 2], a = px[i + 3];
 
                     switch (filter)
                     {
@@ -908,14 +907,11 @@ namespace FileExplorerr
                             result[i + 3] = a;
                             break;
                         case FilterType.Invert:
-                            result[i] = (byte)(255 - b);
-                            result[i + 1] = (byte)(255 - gch);
-                            result[i + 2] = (byte)(255 - r);
-                            result[i + 3] = a;
+                            result[i] = (byte)(255 - b); result[i + 1] = (byte)(255 - gch);
+                            result[i + 2] = (byte)(255 - r); result[i + 3] = a;
                             break;
                     }
                 }
-            }
             return result;
         }
 
@@ -953,7 +949,6 @@ namespace FileExplorerr
         {
             if (undoStack.Count >= MaxUndoStates)
             {
-                // Dispose the oldest entry before it falls off.
                 var arr = undoStack.ToArray();
                 arr[^1].Dispose();
             }
@@ -972,10 +967,7 @@ namespace FileExplorerr
         {
             if (MessageBox.Show("¿Restaurar original?", "Restaurar",
                     MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-
-            while (undoStack.Count > 0)
-                undoStack.Pop().Dispose();
-
+            while (undoStack.Count > 0) undoStack.Pop().Dispose();
             working.Dispose();
             working = new Bitmap(original);
             FitToWindow();
@@ -990,16 +982,15 @@ namespace FileExplorerr
                 Filter = "PNG|*.png|JPEG|*.jpg|BMP|*.bmp"
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
             try
             {
-                var format = Path.GetExtension(dlg.FileName).ToLowerInvariant() switch
+                var fmt = Path.GetExtension(dlg.FileName).ToLowerInvariant() switch
                 {
                     ".jpg" or ".jpeg" => ImageFormat.Jpeg,
                     ".bmp" => ImageFormat.Bmp,
                     _ => ImageFormat.Png
                 };
-                working.Save(dlg.FileName, format);
+                working.Save(dlg.FileName, fmt);
                 MessageBox.Show("Guardado.", "OK", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
@@ -1027,8 +1018,9 @@ namespace FileExplorerr
         private void UpdateInfo()
         {
             if (working is not null)
-                infoLabel.Text = $"  {Path.GetFileName(imagePath)}  ·  " +
-                                 $"{working.Width}×{working.Height}  ·  {zoom:P0}";
+                infoLabel.Text =
+                    $"  {Path.GetFileName(imagePath)}  ·  " +
+                    $"{working.Width}×{working.Height}  ·  {zoom:P0}";
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1101,7 +1093,7 @@ namespace FileExplorerr
             AutoEllipsis = true
         };
 
-        private static string BuildLeafletHtml(string lat, string lon, string popupText) =>
+        private static string BuildLeafletHtml(string lat, string lon, string popup) =>
             $@"<!DOCTYPE html><html><head><meta charset='utf-8'/>
 <meta http-equiv='X-UA-Compatible' content='IE=edge'/>
 <link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/>
@@ -1110,15 +1102,16 @@ namespace FileExplorerr
 </head><body><div id='map'></div><script>
 var map=L.map('map',{{attributionControl:false}}).setView([{lat},{lon}],15);
 L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}}).addTo(map);
-L.marker([{lat},{lon}]).addTo(map).bindPopup('{popupText}').openPopup();
+L.marker([{lat},{lon}]).addTo(map).bindPopup('{popup}').openPopup();
 </script></body></html>";
 
-        private static void OpenBrowserUrl(string url)
+        private static void OpenUrl(string url)
         {
             try
             {
                 System.Diagnostics.Process.Start(
-                    new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+                    new System.Diagnostics.ProcessStartInfo
+                    { FileName = url, UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -1136,461 +1129,10 @@ L.marker([{lat},{lon}]).addTo(map).bindPopup('{popupText}').openPopup();
                 original?.Dispose();
                 working?.Dispose();
                 display?.Dispose();
-                while (undoStack.Count > 0)
-                    undoStack.Pop()?.Dispose();
+                while (undoStack.Count > 0) undoStack.Pop()?.Dispose();
                 textFont?.Dispose();
             }
             base.Dispose(disposing);
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  GPS EDIT DIALOG
-    // ════════════════════════════════════════════════════════════════════════
-    internal class GpsEditDialog : Form
-    {
-        public double Latitude { get; private set; }
-        public double Longitude { get; private set; }
-        public double? Altitude { get; private set; }
-
-        private TextBox _txtLat = null!;
-        private TextBox _txtLon = null!;
-        private TextBox _txtAlt = null!;
-
-        public GpsEditDialog(GpsData? existing)
-        {
-            Text = existing?.HasGps == true ? "Editar coordenadas GPS" : "Agregar coordenadas GPS";
-            Size = new Size(420, 280);
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            StartPosition = FormStartPosition.CenterParent;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            BackColor = Color.FromArgb(18, 18, 22);
-            ForeColor = Color.FromArgb(230, 230, 236);
-            Font = new Font("Segoe UI", 9.5F);
-
-            var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = Color.FromArgb(26, 26, 32) };
-            header.Controls.Add(new Label
-            {
-                Text = "📍  Coordenadas GPS",
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(82, 196, 120),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(14, 0, 0, 0)
-            });
-
-            var lblInfo = new Label
-            {
-                Text = "Ingresa las coordenadas en formato decimal.\nEjemplo: Lat 27.057918, Lon -101.543602",
-                Location = new Point(14, 56),
-                Size = new Size(380, 36),
-                ForeColor = Color.FromArgb(140, 140, 156),
-                Font = new Font("Segoe UI", 8.5F)
-            };
-
-            AddFieldLabel("Latitud:", 14, 100);
-            _txtLat = AddField(120, 98, 260,
-                existing?.HasGps == true
-                    ? existing.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    : string.Empty);
-
-            AddFieldLabel("Longitud:", 14, 136);
-            _txtLon = AddField(120, 134, 260,
-                existing?.HasGps == true
-                    ? existing.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    : string.Empty);
-
-            AddFieldLabel("Altitud (m):", 14, 172);
-            _txtAlt = AddField(120, 170, 120,
-                existing?.Altitude.HasValue == true
-                    ? existing.Altitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    : string.Empty);
-
-            var btnSave = new Button
-            {
-                Text = "Guardar GPS",
-                Location = new Point(170, 210),
-                Size = new Size(120, 36),
-                BackColor = Color.FromArgb(22, 100, 40),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand,
-                DialogResult = DialogResult.OK
-            };
-            btnSave.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
-            btnSave.Click += BtnSave_Click;
-
-            var btnCancel = new Button
-            {
-                Text = "Cancelar",
-                Location = new Point(300, 210),
-                Size = new Size(100, 36),
-                BackColor = Color.FromArgb(34, 34, 42),
-                ForeColor = Color.FromArgb(230, 230, 236),
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F),
-                Cursor = Cursors.Hand,
-                DialogResult = DialogResult.Cancel
-            };
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(44, 44, 54);
-
-            Controls.AddRange(new Control[] { header, lblInfo, btnSave, btnCancel });
-            AcceptButton = btnSave;
-            CancelButton = btnCancel;
-        }
-
-        private void BtnSave_Click(object? sender, EventArgs e)
-        {
-            if (!double.TryParse(_txtLat.Text.Trim(),
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double lat) || Math.Abs(lat) > 90)
-            {
-                MessageBox.Show("Latitud inválida. Debe ser un número entre -90 y 90.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                DialogResult = DialogResult.None;
-                return;
-            }
-            if (!double.TryParse(_txtLon.Text.Trim(),
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double lon) || Math.Abs(lon) > 180)
-            {
-                MessageBox.Show("Longitud inválida. Debe ser un número entre -180 y 180.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                DialogResult = DialogResult.None;
-                return;
-            }
-
-            Latitude = lat;
-            Longitude = lon;
-            Altitude = double.TryParse(_txtAlt.Text.Trim(),
-                System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out double alt) ? alt : null;
-        }
-
-        private void AddFieldLabel(string text, int x, int y) =>
-            Controls.Add(new Label
-            {
-                Text = text,
-                Location = new Point(x, y + 4),
-                AutoSize = true,
-                ForeColor = Color.FromArgb(110, 140, 180),
-                Font = new Font("Segoe UI", 9F)
-            });
-
-        private TextBox AddField(int x, int y, int width, string value)
-        {
-            var txt = new TextBox
-            {
-                Location = new Point(x, y),
-                Size = new Size(width, 28),
-                BackColor = Color.FromArgb(34, 34, 42),
-                ForeColor = Color.FromArgb(230, 230, 236),
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Cascadia Code", 10F),
-                Text = value
-            };
-            Controls.Add(txt);
-            return txt;
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  TEXT TOOL DIALOG
-    // ════════════════════════════════════════════════════════════════════════
-    internal class TextToolDialog : Form
-    {
-        public string TextContent { get; private set; } = string.Empty;
-        public string SelectedFontFamily { get; private set; }
-        public float SelectedFontSize { get; private set; }
-        public FontStyle SelectedFontStyle { get; private set; }
-        public Color SelectedColor { get; private set; }
-
-        private TextBox _txtContent = null!;
-        private ComboBox _cmbFont = null!;
-        private NumericUpDown _nudSize = null!;
-        private CheckBox _chkBold = null!;
-        private CheckBox _chkItalic = null!;
-        private CheckBox _chkUnderline = null!;
-        private Panel _colorSwatch = null!;
-        private Label _previewLabel = null!;
-        private Color _currentColor;
-
-        // ── Static colour palette ─────────────────────────────────────────
-        private static readonly Color BgForm = Color.FromArgb(18, 18, 22);
-        private static readonly Color BgField = Color.FromArgb(34, 34, 42);
-        private static readonly Color BgHeader = Color.FromArgb(26, 26, 32);
-        private static readonly Color BorderCol = Color.FromArgb(44, 44, 54);
-        private static readonly Color AccentCol = Color.FromArgb(72, 202, 188);
-        private static readonly Color TextPri = Color.FromArgb(230, 230, 236);
-        private static readonly Color TextSec = Color.FromArgb(110, 140, 180);
-
-        // ── Common font families ──────────────────────────────────────────
-        private static readonly string[] FontFamilies =
-        {
-            "Segoe UI", "Arial", "Times New Roman", "Courier New", "Verdana",
-            "Georgia", "Trebuchet MS", "Impact", "Comic Sans MS", "Tahoma",
-            "Calibri", "Cambria", "Consolas", "Cascadia Code", "Palatino Linotype"
-        };
-
-        public TextToolDialog(string fontFamily, float fontSize, FontStyle fontStyle, Color color)
-        {
-            SelectedFontFamily = fontFamily;
-            SelectedFontSize = fontSize;
-            SelectedFontStyle = fontStyle;
-            SelectedColor = color;
-            _currentColor = color;
-            BuildUI();
-        }
-
-        private void BuildUI()
-        {
-            Text = "Insertar texto";
-            Size = new Size(520, 420);
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            StartPosition = FormStartPosition.CenterParent;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            BackColor = BgForm;
-            ForeColor = TextPri;
-            Font = new Font("Segoe UI", 9.5F);
-
-            var header = new Panel { Height = 44, Dock = DockStyle.Top, BackColor = BgHeader };
-            header.Controls.Add(new Label
-            {
-                Text = "✏  Insertar texto en imagen",
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = AccentCol,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(14, 0, 0, 0)
-            });
-
-            AddLabel("Texto:", 14, 58);
-            _txtContent = new TextBox
-            {
-                Location = new Point(110, 56),
-                Size = new Size(384, 28),
-                BackColor = BgField,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 10F)
-            };
-            _txtContent.TextChanged += (_, _) => UpdatePreview();
-
-            AddLabel("Fuente:", 14, 100);
-            _cmbFont = new ComboBox
-            {
-                Location = new Point(110, 98),
-                Size = new Size(230, 28),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = BgField,
-                ForeColor = TextPri,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F)
-            };
-            foreach (var fam in FontFamilies) _cmbFont.Items.Add(fam);
-            int fontIdx = _cmbFont.Items.IndexOf(SelectedFontFamily);
-            _cmbFont.SelectedIndex = fontIdx >= 0 ? fontIdx : 0;
-            _cmbFont.SelectedIndexChanged += (_, _) => UpdatePreview();
-
-            AddLabel("Tamaño:", 354, 100);
-            _nudSize = new NumericUpDown
-            {
-                Location = new Point(420, 98),
-                Size = new Size(74, 28),
-                Minimum = 6,
-                Maximum = 200,
-                Value = (decimal)Math.Clamp(SelectedFontSize, 6, 200),
-                BackColor = BgField,
-                ForeColor = TextPri,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 9.5F)
-            };
-            _nudSize.ValueChanged += (_, _) => UpdatePreview();
-
-            AddLabel("Estilo:", 14, 142);
-            _chkBold = MakeCheckBox("Negrita", 110, 140);
-            _chkItalic = MakeCheckBox("Cursiva", 188, 140);
-            _chkUnderline = MakeCheckBox("Subrayado", 266, 140);
-            _chkBold.Checked = (SelectedFontStyle & FontStyle.Bold) != 0;
-            _chkItalic.Checked = (SelectedFontStyle & FontStyle.Italic) != 0;
-            _chkUnderline.Checked = (SelectedFontStyle & FontStyle.Underline) != 0;
-            _chkBold.CheckedChanged += (_, _) => UpdatePreview();
-            _chkItalic.CheckedChanged += (_, _) => UpdatePreview();
-            _chkUnderline.CheckedChanged += (_, _) => UpdatePreview();
-
-            AddLabel("Color:", 14, 184);
-            _colorSwatch = new Panel
-            {
-                Location = new Point(110, 182),
-                Size = new Size(44, 26),
-                BackColor = _currentColor,
-                BorderStyle = BorderStyle.FixedSingle,
-                Cursor = Cursors.Hand
-            };
-            _colorSwatch.Click += PickColor;
-
-            var btnColorPick = new Button
-            {
-                Text = "Elegir color...",
-                Location = new Point(162, 181),
-                Size = new Size(110, 28),
-                BackColor = BgField,
-                ForeColor = TextSec,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.5F),
-                Cursor = Cursors.Hand
-            };
-            btnColorPick.FlatAppearance.BorderColor = BorderCol;
-            btnColorPick.Click += PickColor;
-
-            var previewBox = new Panel
-            {
-                Location = new Point(14, 222),
-                Size = new Size(480, 90),
-                BackColor = Color.FromArgb(10, 10, 14),
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            _previewLabel = new Label
-            {
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true,
-                Text = "Vista previa"
-            };
-            previewBox.Controls.Add(_previewLabel);
-
-            var lblPreviewHint = new Label
-            {
-                Text = "Vista previa",
-                Location = new Point(14, 208),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 7.5F),
-                ForeColor = TextSec
-            };
-
-            var btnOk = new Button
-            {
-                Text = "Insertar",
-                Location = new Point(280, 326),
-                Size = new Size(100, 36),
-                BackColor = Color.FromArgb(22, 100, 40),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand,
-                DialogResult = DialogResult.OK
-            };
-            btnOk.FlatAppearance.BorderColor = Color.FromArgb(35, 134, 54);
-            btnOk.Click += BtnOk_Click;
-
-            var btnCancel = new Button
-            {
-                Text = "Cancelar",
-                Location = new Point(390, 326),
-                Size = new Size(100, 36),
-                BackColor = BgField,
-                ForeColor = TextPri,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F),
-                Cursor = Cursors.Hand,
-                DialogResult = DialogResult.Cancel
-            };
-            btnCancel.FlatAppearance.BorderColor = BorderCol;
-
-            Controls.AddRange(new Control[]
-            {
-                header, _txtContent, _cmbFont, _nudSize,
-                _chkBold, _chkItalic, _chkUnderline,
-                _colorSwatch, btnColorPick,
-                lblPreviewHint, previewBox,
-                btnOk, btnCancel
-            });
-
-            AcceptButton = btnOk;
-            CancelButton = btnCancel;
-            UpdatePreview();
-            _txtContent.Focus();
-        }
-
-        private void PickColor(object? sender, EventArgs e)
-        {
-            using var dlg = new ColorDialog { Color = _currentColor, FullOpen = true };
-            if (dlg.ShowDialog(this) == DialogResult.OK)
-            {
-                _currentColor = dlg.Color;
-                _colorSwatch.BackColor = _currentColor;
-                UpdatePreview();
-            }
-        }
-
-        private void UpdatePreview()
-        {
-            try
-            {
-                FontStyle style = FontStyle.Regular;
-                if (_chkBold?.Checked == true) style |= FontStyle.Bold;
-                if (_chkItalic?.Checked == true) style |= FontStyle.Italic;
-                if (_chkUnderline?.Checked == true) style |= FontStyle.Underline;
-
-                string family = _cmbFont?.SelectedItem?.ToString() ?? "Segoe UI";
-                float size = (float)(_nudSize?.Value ?? 14);
-
-                _previewLabel.Font?.Dispose();
-                _previewLabel.Font = new Font(family, Math.Min(size, 40), style);
-                _previewLabel.ForeColor = _currentColor;
-                _previewLabel.Text = string.IsNullOrWhiteSpace(_txtContent?.Text)
-                    ? "Vista previa"
-                    : _txtContent.Text;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[TextToolDialog] UpdatePreview: {ex.Message}");
-            }
-        }
-
-        private void BtnOk_Click(object? sender, EventArgs e)
-        {
-            TextContent = _txtContent.Text;
-            SelectedFontFamily = _cmbFont.SelectedItem?.ToString() ?? "Segoe UI";
-            SelectedFontSize = (float)_nudSize.Value;
-            SelectedColor = _currentColor;
-            SelectedFontStyle = FontStyle.Regular;
-            if (_chkBold.Checked) SelectedFontStyle |= FontStyle.Bold;
-            if (_chkItalic.Checked) SelectedFontStyle |= FontStyle.Italic;
-            if (_chkUnderline.Checked) SelectedFontStyle |= FontStyle.Underline;
-        }
-
-        private void AddLabel(string text, int x, int y) =>
-            Controls.Add(new Label
-            {
-                Text = text,
-                Location = new Point(x, y + 4),
-                AutoSize = true,
-                ForeColor = TextSec,
-                Font = new Font("Segoe UI", 9F)
-            });
-
-        private CheckBox MakeCheckBox(string text, int x, int y)
-        {
-            var chk = new CheckBox
-            {
-                Text = text,
-                Location = new Point(x, y),
-                AutoSize = true,
-                ForeColor = TextPri,
-                BackColor = Color.Transparent,
-                Font = new Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
-            };
-            Controls.Add(chk);
-            return chk;
         }
     }
 }
