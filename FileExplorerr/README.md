@@ -1,6 +1,6 @@
-# FileExplorer
+# FileExplorerr
 
-> Explorador de archivos de escritorio avanzado, construido con **C# / .NET 8** y **Windows Forms**, con tema oscuro "Arctic Frost", visualizadores integrados para múltiples formatos, reproductor de música y video, y herramientas de edición de imágenes.
+> Explorador de archivos de escritorio avanzado para Windows, construido con **C# 12 / .NET 8** y **Windows Forms**. Tema oscuro "Arctic Night", visualizadores integrados para imágenes, audio y video, visor de datos con análisis de calidad, bloc de notas, y conexión directa a bases de datos SQL.
 
 ---
 
@@ -8,223 +8,242 @@
 
 - [Vista general](#vista-general)
 - [Características](#características)
-- [Requisitos](#requisitos)
-- [Instalación y compilación](#instalación-y-compilación)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Módulos y componentes](#módulos-y-componentes)
+- [Arquitectura del proyecto](#arquitectura-del-proyecto)
+- [Estructura de carpetas](#estructura-de-carpetas)
+- [Módulos principales](#módulos-principales)
 - [Visualizadores integrados](#visualizadores-integrados)
 - [Atajos de teclado](#atajos-de-teclado)
-- [Dependencias](#dependencias)
+- [Dependencias NuGet](#dependencias-nuget)
+- [Requisitos](#requisitos)
+- [Instalación y compilación](#instalación-y-compilación)
 - [Tecnologías](#tecnologías)
 
 ---
 
 ## Vista general
 
-FileExplorerr es un reemplazo del Explorador de Windows con una interfaz oscura minimalista y funcionalidades que van más allá de la navegación básica. Incluye un reproductor de música con letras y carátulas automáticas, un visor/editor de imágenes con GPS, un reproductor de video con metadatos, un visor de archivos de datos (CSV/JSON/XML) con análisis automático, y un bloc de notas con numeración de líneas.
+FileExplorerr es un reemplazo funcional del Explorador de Windows con una interfaz oscura minimalista. Integra un reproductor de música con búsqueda automática de carátulas y letras, un visor/editor de imágenes con soporte GPS, un reproductor de video con LibVLC, un visor de datos estructurados (CSV/JSON/XML) con análisis automático de calidad, un bloc de notas avanzado, y un cliente SQL para PostgreSQL, MariaDB y SQL Server.
 
 ---
 
 ## Características
 
-### Navegación principal
-- **Barra de dirección editable** — escribe una ruta y presiona `Enter` para navegar directamente
-- **Historial de navegación** — botón `←` para volver a directorios anteriores
-- **Subir nivel** — botón `↑` para ir al directorio padre
-- **Actualización** — botón `↻` o `F5` para recargar el directorio actual
-- **Doble clic** en carpetas para entrar, en archivos para abrirlos con el visualizador apropiado
+### Explorador de archivos
+- Barra de dirección editable con historial de navegación (atrás / adelante / subir nivel)
+- Actualización con `F5` o botón dedicado
+- Doble clic en carpetas para navegar, en archivos para abrirlos con el visor correspondiente
+- Nueva carpeta con validación de nombre y caracteres inválidos
+- Renombrar y eliminar (a Papelera de Reciclaje) desde el menú contextual
+- **Drag & Drop** entre carpetas con resaltado visual del destino y manejo de conflictos
+- **Papelera integrada** en la barra de estado: arrastra archivos directamente sobre el icono
+- Panel lateral derecho con árbol de contenido categorizado (carpetas, imágenes, audio, video, texto, documentos, otros) con lazy-loading de subcarpetas
+- Búsqueda recursiva en el panel lateral por nombre de archivo o carpeta
+- Barra de estado con desglose de contenido por tipo: `📁 4 carpetas · 📄 30 archivos · 🖼️ 12 · 🎵 3`
+- Columna **Info** con resumen por categoría en cada fila de carpeta
+- **Exportación de índice CSV** asíncrona con progreso en tiempo real
 
 ### Gestión de archivos
-- **Nueva carpeta** — validación de nombre y caracteres inválidos
-- **Renombrar** — desde el menú contextual (clic derecho)
-- **Eliminar** — envía a la Papelera de Reciclaje de Windows vía `SHFileOperation` (recuperable)
-- **Mover mediante Drag & Drop** — arrastra sobre otra carpeta para moverla; la carpeta destino se resalta en color azul-teal
-- **Manejo de conflictos** — al mover, si el nombre ya existe ofrece sobreescribir, saltar o cancelar
-- **Protección recursiva** — no permite mover una carpeta dentro de sí misma
-
-### Papelera de reciclaje integrada
-- Panel en la esquina inferior derecha con icono de papelera del sistema
-- Arrastra archivos o carpetas sobre él para eliminarlos con confirmación
-- El icono cambia al estado "llena" al hacer hover
-
-### Panel lateral derecho
-El panel derecho opera en dos modos:
-
-**Modo árbol (normal):** Al navegar a un directorio, muestra su contenido completo en un `TreeView` con propietario de dibujo personalizado. Organiza los archivos por categorías expandibles:
-- 📁 Carpetas (con expansión lazy-load para subcarpetas)
-- 🖼️ Imágenes
-- 🎵 Audio
-- 🎬 Video
-- 📝 Texto / Código
-- 📄 Documentos
-- 📦 Otros
-
-**Modo búsqueda:** Escribe en la barra y presiona `Enter` para buscar recursivamente por nombre de archivo o carpeta dentro del directorio actual. Los resultados muestran la ruta relativa y son expandibles. Vaciar el campo y buscar vuelve al modo árbol.
-
-**Colores del TreeView:**
-| Color | Elemento |
-|---|---|
-| Teal (acento) | Headers de grupo |
-| Gris claro | Categorías de archivos |
-| Amarillo cálido | Carpetas individuales |
-| Blanco | Archivos individuales |
-| Gris | Mensajes de estado (vacía, sin acceso) |
-
-### Estadísticas en barra de estado
-Al cargar cualquier carpeta la barra inferior muestra el desglose completo de contenido:
-```
-📁 4 carpetas  ·  📄 30 archivos  ·  🖼️ 12  ·  🎵 3  ·  🎬 5  ·  📝 8  ·  📦 2
-```
-La columna **Info** de cada fila también muestra un resumen por categoría: `3 sub, 12 img, 5 txt`.
-
-### Exportación de índice CSV
-El botón **Exportar CSV** recorre el directorio actual de forma recursiva y genera un archivo `.csv` con una fila por archivo encontrado:
-
-```csv
-"Ruta Carpeta","Nombre Carpeta","Nombre Archivo","Extensión","Tamaño","Último Acceso"
-"C:\Fotos\Vacaciones","Vacaciones","playa.jpg","JPG","2.4 MB","15/01/2025 18:22"
-```
-
-- La generación es completamente **asíncrona** — la barra de estado muestra la carpeta en proceso en tiempo real
-- El botón se deshabilita durante la generación
-- Al finalizar ofrece abrir el archivo directamente
+- Menú contextual con renderer personalizado (tema oscuro)
+- Propiedades detalladas de archivos y carpetas: tamaño, fechas, atributos, propietario NTFS, metadatos específicos por tipo (imagen, audio, video, texto)
+- Ordenamiento por cualquier columna con indicador visual
 
 ---
 
-## Módulos y componentes
+## Arquitectura del proyecto
+
+El proyecto sigue una arquitectura en capas con separación clara de responsabilidades:
+
+```
+┌─────────────────────────────────────────────┐
+│                  UI Layer                    │
+│   Forms · Dialogs · Components · Theme       │
+├─────────────────────────────────────────────┤
+│               Services Layer                 │
+│   FileOpener · FileOperationService ·        │
+│   FileTypeHelper · ExportadorOffice          │
+├─────────────────────────────────────────────┤
+│                 Data Layer                   │
+│   DataParsers · DataQualityAnalyzer ·        │
+│   DataSerializer · QualityReport             │
+├──────────────────┬──────────────────────────┤
+│   Core Layer     │      Media Layer          │
+│  FileExtensions  │  CoverSearcher/Service   │
+│  FileClassifier  │  GpsReader · GpsWriter   │
+│  FileStats       │  LyricsService           │
+│  CsvIndexer      │  GpsData                 │
+│  AppHelpers      │                          │
+├──────────────────┴──────────────────────────┤
+│               Database Layer                 │
+│  IDbConnector · PostgreSqlConnector ·        │
+│  MariaDbConnector · SqlServerConnector ·     │
+│  SqlConnector (façade) · SqlWriteResult      │
+└─────────────────────────────────────────────┘
+```
+
+**Principios de diseño aplicados:**
+- **Single Responsibility**: cada clase tiene una responsabilidad bien definida (p. ej. `DataParsers` solo parsea, `DataQualityAnalyzer` solo analiza)
+- **Interface Segregation**: `IDbConnector` define el contrato común para los tres motores de base de datos
+- **DRY**: helpers centralizados en `AppHelpers.cs` eliminan implementaciones duplicadas (`FileSize`, `CsvHelper`, `BrowserHelper`, `SmtpConfig`)
+- **Façade Pattern**: `SqlConnector` mantiene compatibilidad con código legado sin exponer los conectores concretos
+
+---
+
+## Estructura de carpetas
+
+```
+FileExplorerr/
+│
+├── FileExplorerr.csproj          # Proyecto WinForms .NET 8
+├── Program.cs                    # Punto de entrada — STAThread, manejo global de excepciones
+├── export_office.py              # Script Python para exportación a Excel/Word/PowerPoint/PDF
+│
+├── Core/                         # Lógica de dominio transversal
+│   ├── AppHelpers.cs             # FileExtensions, FileSize, CsvHelper, BrowserHelper, SmtpConfig
+│   ├── CsvIndexer.cs             # Generador de índice CSV asíncrono
+│   ├── FileClassifier.cs         # Clasificación de archivos por extensión → FileStats
+│   ├── FileStats.cs              # Contadores con métodos de formateo para barra de estado
+│   └── QualityReport.cs          # DTO con resultados del análisis de calidad de datos
+│
+├── Data/                         # Parsers y análisis de archivos de datos
+│   ├── DataParsers.cs            # Parsers para CSV, TXT, JSON y XML → DataTable
+│   ├── DataQualityAnalizer.cs    # Detección de duplicados, fechas, emails, teléfonos
+│   └── DatSerializer.cs          # Serialización DataTable → CSV, TSV, JSON, XML
+│
+├── DataBase/                     # Conectores y abstracción de bases de datos
+│   ├── IDbConnector.cs           # Interfaz común + enum DbConnectorType
+│   ├── PostgreSqlConnector.cs    # Implementación PostgreSQL via Npgsql
+│   ├── MariaDbConnector.cs       # Implementación MariaDB via MySqlConnector
+│   ├── SqlServerConnector.cs     # Implementación SQL Server via Microsoft.Data.SqlClient
+│   ├── SqlConnector.cs           # Façade de compatibilidad (métodos estáticos legacy)
+│   └── SqlWriteResult.cs         # DTO de resultado de inserción masiva
+│
+├── Media/                        # Servicios multimedia y metadatos
+│   ├── CoverSearcher.cs          # Búsqueda multi-fuente de carátulas (iTunes, Last.fm, Spotify)
+│   ├── CoverSearchResult.cs      # DTO de resultado de búsqueda de carátulas
+│   ├── CoverSearchService.cs     # Façade de alto nivel para descarga de carátulas
+│   ├── GpsData.cs                # Record inmutable con coordenadas GPS y metadatos
+│   ├── GpsReader.cs              # Extractor GPS de imágenes (EXIF) y videos (átomos MP4)
+│   ├── GpsWriter.cs              # Escritura de coordenadas GPS en EXIF de JPEG/TIFF
+│   └── LyricsService.cs          # Búsqueda de letras via lrclib.net
+│
+├── Services/                     # Servicios de la capa de aplicación
+│   ├── ExportadorOffice.cs       # Motor de exportación a Excel/Word/PowerPoint/PDF via Python
+│   ├── FileOpener.cs             # Enrutador de apertura de archivos al visor correcto
+│   ├── FileOperationService.cs   # Crear carpeta, renombrar, eliminar, mover (DnD)
+│   └── FileTypeHelper.cs         # Etiquetas legibles por tipo + columna Info de carpetas
+│
+└── UI/
+    ├── Components/
+    │   ├── FileIconFactory.cs    # Iconos programáticos 32×32 + resolución de clave ImageList
+    │   ├── MinimalMenuRenderer.cs # Renderer de menú contextual + LvComparer para ListView
+    │   └── Theme.cs              # Sistema de diseño "Arctic Night" — colores, fuentes, factory methods
+    │
+    ├── Dialogs/
+    │   ├── ConexionDialog.cs     # Formulario de conexión a BD (PostgreSQL/MariaDB/SQL Server)
+    │   ├── EmailForm.cs          # Formulario de envío de archivo por SMTP
+    │   ├── ExportProgressForm.cs # Ventana de progreso para exportación Office/PDF
+    │   ├── GpsEditDialog.cs      # Diálogo para agregar/editar coordenadas GPS
+    │   ├── InputDialog.cs        # Diálogo genérico de entrada de texto de una línea
+    │   ├── NombreTablaDialog.cs  # Diálogo para nombre de tabla en importación a BD
+    │   ├── TagEditDialog.cs      # Edición de tags ID3 (título, artista, álbum, año, pista, género)
+    │   └── TextToolDialog.cs     # Selector de fuente/estilo/color para texto en imágenes
+    │
+    └── Forms/
+        ├── Form1.cs              # Ventana principal del explorador
+        ├── Form1.Designer.cs
+        ├── FilePropertiesForm.cs # Propiedades detalladas de archivo/carpeta
+        ├── FileViewerform.cs     # Visor de datos CSV/JSON/XML/TXT con análisis de calidad
+        ├── ImagevIewerform.cs    # Visor y editor de imágenes con GPS
+        ├── MusicPlayerForm.cs    # Reproductor de música con letras y carátulas
+        ├── NotepadForm.cs        # Bloc de notas con numeración de líneas y búsqueda
+        ├── SqlViewerForm.cs      # Cliente SQL para PostgreSQL, MariaDB y SQL Server
+        └── VideoPlayerForm.cs    # Reproductor de video con LibVLC y webcam
+```
+
+---
+
+## Módulos principales
 
 ### `Form1.cs` — Ventana principal
-Corazón de la aplicación. Gestiona:
-- Toda la navegación y el ciclo de carga de directorios
-- El `ListView` con `OwnerDraw` para cabeceras personalizadas
-- El panel lateral `TreeView` con lazy-loading de subcarpetas
-- Drag & Drop completo (entre carpetas y hacia la papelera)
-- El menú contextual con renderer personalizado
-- Título de barra con colores DWM (`DwmSetWindowAttribute` vía P/Invoke)
-- Apertura de cada tipo de archivo en su visualizador correspondiente
+Gestiona la navegación, el ciclo de carga de directorios, el `ListView` con `OwnerDraw` para cabeceras personalizadas, el `TreeView` lateral con lazy-loading, Drag & Drop completo (entre carpetas y hacia la papelera), el menú contextual y el título de barra oscuro via `DwmSetWindowAttribute`. Delega las operaciones de archivos a `FileOperationService` y la apertura de archivos a `FileOpener`.
 
-### `CsvIndexer.cs` — Generador de índice y estadísticas
-Clase estática con dos responsabilidades:
-1. **`GenerateAsync`** — Recorre recursivamente un directorio y produce el contenido CSV completo en un hilo de fondo, reportando progreso via `IProgress<string>`
-2. **`ClassifyFiles` / `ClassifyByExtensions`** — Clasifica arrays de archivos por tipo (imagen, audio, video, texto, otro) y devuelve un `FileStats` con métodos para generar cadenas de estado y columnas de info
+### `Core/AppHelpers.cs` — Helpers centralizados
+Fuente única de verdad para las extensiones categorizadas (`FileExtensions`), formateo de tamaños (`FileSize`), formateo de duración (`TimeSpanFormat`), parsing de CSV (`CsvHelper`), emulación de navegador IE-Edge (`BrowserHelper`) y configuración SMTP persistida en AppData (`SmtpConfig`).
 
-### `FileViewerForm.cs` — Visor de archivos de datos
-Abre y visualiza archivos `.csv`, `.json`, `.xml`, `.txt` (con delimitador), `.log` en un `DataGridView` con:
-- **Parsers propios** para CSV (respeta comillas y escapes), JSON (arrays, objetos simples y objetos con array anidado), XML (mapea atributos y elementos hijo como columnas) y TXT con detección automática de delimitador
-- **Análisis automático** al cargar:
-  - Detección de **filas duplicadas** (resaltadas en rojo)
-  - Detección y propuesta de corrección de **fechas con formato inconsistente** → normaliza a `yyyy-MM-dd` (resaltadas en azul)
-  - Detección de **campos vacíos** (resaltados en amarillo)
-  - Popup informativo con el resumen del análisis
-- **Formato de celdas numéricas**: detecta columnas con ≥80% de valores numéricos y aplica formato `N2`; si el nombre de la columna contiene palabras clave monetarias (`price`, `costo`, `total`, etc.) agrega prefijo `$`
-- **Filtrado** por columna o en todas con búsqueda de texto
-- **Ordenamiento** por columna al hacer clic en la cabecera
-- **Guardar copia corregida** — aplica todas las correcciones detectadas y elimina duplicados
-- **Exportar** a CSV, JSON, TXT (TSV) o XML
+### `Core/CsvIndexer.cs` — Generador de índice
+Recorre recursivamente un directorio en un hilo de fondo y produce un CSV con una fila por archivo. Reporta progreso via `IProgress<string>`. Delega la clasificación a `FileClassifier`.
 
-### `ImageViewerForm.cs` — Visor y editor de imágenes
-Abre más de 30 formatos de imagen (JPEG, PNG, GIF, BMP, TIFF, ICO, WebP, RAW, SVG, EMF, HEIC, etc.) con:
-- **Zoom** libre con rueda del ratón o botones (+/−/1:1/Ajustar)
-- **Pan** con clic central o arrastre sin herramienta
-- **Herramientas de edición:**
-  - ✂ **Recorte** — selección rectangular con overlay semitransparente y confirmación
-  - ✏ **Dibujo libre** — pincel con color y tamaño configurables
-  - ◻ **Borrador** — pinta en blanco
-  - **T Texto** — abre `TextToolDialog` para elegir fuente, tamaño, estilo, color y vista previa
-  - ◉ **Cuentagotas** — captura el color de un píxel de la imagen
-- **Transformaciones:** Rotar ±90°, voltear horizontal/vertical
-- **Filtros:** Escala de grises, Sepia, Invertir colores
-- **Deshacer** — pila de hasta 20 estados
-- **Restaurar original**
-- **Panel GPS** — lee coordenadas EXIF de la imagen y muestra un mapa Leaflet (OpenStreetMap) interactivo embebido en un `WebBrowser`
-- **Guardar copia** en PNG, JPEG o BMP
+### `Data/DataParsers.cs` — Parsers de datos
+Parsers estáticos y sin estado para CSV (respeta RFC 4180 con comillas y escapes), TXT (detección automática de delimitador), JSON (arrays, objetos simples y objetos con array anidado) y XML (atributos + elementos hijo como columnas, con fallback a tabla plana). El parser CSV devuelve `CsvParseResult` con información de filas con columnas desajustadas.
 
-### `GpsReader.cs` — Extractor de GPS
-Lee coordenadas GPS de imágenes y videos:
-- **Imágenes:** Lee EXIF directamente con `System.Drawing` (lat, lon, altitud, referencia N/S/E/W, fecha, cámara, software)
-- **Videos MP4/MOV:** Busca átomos QuickTime `©xyz` (iPhone), `loci`, y patrones ISO 6709 en los primeros 50 MB del archivo. También extrae la fecha de `©day` y como fallback lee el timestamp de creación del átomo `mvhd`
-- Convierte coordenadas a formato DMS (grados, minutos, segundos)
-- Devuelve un `record GpsData` inmutable con todos los metadatos
+### `Data/DataQualityAnalizer.cs` — Análisis de calidad
+Detecta filas duplicadas, fechas con formato inconsistente (y propone normalización a `yyyy-MM-dd`), campos vacíos, números de teléfono malformados (con sugerencia de corrección a 10 dígitos) y emails inválidos. Retorna un `QualityReport` DTO sin mutar estado externo.
 
-### `MusicPlayerForm.cs` — Reproductor de música
-Reproductor completo usando **NAudio** para audio y **TagLib** para metadatos:
-- Carga automáticamente todos los archivos de audio de la misma carpeta del archivo inicial
-- **Lista de reproducción** editable — agregar archivos individuales por diálogo o arrastrar, quitar pistas
-- **Controles:** Play/Pausa, Anterior, Siguiente, Seek, Volumen
-- **Modos:** Aleatorio (shuffle) con orden pre-generado; Repetir lista / Repetir pista / Sin repetir
-- **Carátulas:** Lee desde los tags ID3 del archivo; si no hay, consulta la **iTunes Search API** y guarda la imagen descargada de vuelta en el tag del archivo
-- **Letras:** Busca en **lrclib.net** y muestra en panel lateral
-- **Edición de tags** (`TagEditDialog`): Título, Artista, Álbum, Año, Nº de pista, Género (con combobox de géneros comunes)
-- **Guardar / Cargar playlist** en archivos `.txt` con rutas absolutas
-- Normalización de nombres de artista (elimina "- Topic", "VEVO") y títulos (elimina "(Official Audio)", "[HD]", etc.)
+### `DataBase/IDbConnector.cs` + conectores — Capa de base de datos
+Interfaz común con `TestConnectionAsync`, `GetTablesAsync`, `ExecuteAsync` e `InsertDataTableAsync`. Los tres conectores concretos (`PostgreSqlConnector`, `MariaDbConnector`, `SqlServerConnector`) implementan inserción masiva con transacción, manejo de cancelación y reporte de progreso. `SqlConnector` actúa como façade de compatibilidad.
 
-### `VideoPlayerForm.cs` — Reproductor de video
-Usa **Windows Media Player** vía COM (`WMPLib`) embebido en un control `AxHost` personalizado (`WmpControl`):
-- Soporta MP4, AVI, MKV, MOV, WMV, WebM, FLV, TS, 3GP y más
-- **Lista de reproducción** con Drag & Drop
-- **Controles:** Play/Pausa, Stop, Anterior, Siguiente, Seek, Volumen, Mute
-- **Velocidad de reproducción:** 0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x
-- **Modo bucle** y **Pantalla completa** (oculta todos los paneles, salvo el video)
-- **Panel de propiedades:** Nombre, duración, tamaño, formato, resolución, FPS, codec de video, codec de audio, canales/sample rate. Lee metadatos de WMP, con fallback al Shell de Windows (IShellFolder2) y fallback final leyendo átomos `stsd` del MP4 directamente para codecs `avc1`, `hvc1`, `mp4a`, `alac`, etc.
-- **Panel GPS** — igual que en el visor de imágenes, con mapa Leaflet
+### `Media/CoverSearcher.cs` — Búsqueda de carátulas
+Consulta en paralelo iTunes Search API, Last.fm API y Spotify API. Aplica un algoritmo de similitud que combina distancia Levenshtein y coincidencia de palabras con pesos ponderados (artista 35%, título 50%, palabras 15%). Normaliza el texto eliminando diacríticos, stopwords musicales y contenido entre paréntesis. Caché en memoria por clave normalizada.
 
-### `CoverSearcher.cs` — Buscador de carátulas
-Motor multi-fuente para buscar carátulas de álbumes/canciones:
-- Consulta en paralelo: **iTunes Search API**, **Last.fm API**, **Spotify API**
-- Algoritmo de similitud avanzado que combina distancia Levenshtein, similitud por palabras y pesos ponderados (artista 35%, título 50%, palabras 15%)
-- Preprocesamiento del texto: normalización Unicode, extracción del artista principal (elimina "feat.", "ft."), eliminación de stopwords musicales ("remix", "official", "remastered", etc.), limpieza de paréntesis y corchetes
-- Caché en memoria con clave normalizada
-- Retorna el resultado con mayor similitud si supera umbral de 0.5
+### `Media/GpsReader.cs` + `GpsWriter.cs` — GPS
+`GpsReader` extrae coordenadas de imágenes via EXIF (`System.Drawing`) y de videos MP4/MOV via átomos QuickTime (`©xyz`, `loci`) con fallback a scan de patrón ISO 6709 en los primeros 50 MB. `GpsWriter` escribe coordenadas GPS en EXIF de archivos JPEG y TIFF de forma atómica (archivo temporal + rename).
 
-### `NotepadForm.cs` — Bloc de notas
-Editor de texto plano con:
-- Detección automática de encoding (UTF-8 BOM, UTF-16 LE/BE)
-- Fuente monoespaciada Cascadia Code
-- **Numeración de líneas** con `OwnerDraw` sincronizada con el scroll
-- **Ajuste de líneas** (word wrap) configurable — oculta el panel de numeración cuando está activo
-- **Buscar** con resaltado y navegación circular; **Reemplazar uno** / **Reemplazar todos**
-- **Ir a línea** (`Ctrl+G`)
-- **Zoom** de fuente (`Ctrl++` / `Ctrl+-`)
-- Barra de estado con: línea/columna actual, total de líneas, palabras, caracteres y encoding
-- Indicador de cambios sin guardar (`●` en el título)
-- Protección al cerrar si hay cambios sin guardar
+### `Services/ExportadorOffice.cs` — Exportación Office/PDF
+Pipeline asíncrono: escribe un CSV temporal → invoca `export_office.py` → lee progreso por stdout. El script Python usa `openpyxl`, `python-docx`, `python-pptx` y `reportlab`. Soporta cancelación y muestra `ExportProgressForm` con barra animada.
 
-### `Theme.cs` — Sistema de diseño "Arctic Frost"
-Clase estática centralizada con:
-- **Paleta de colores** completa: fondos en 4 capas (base, surface, elevated, hover), acento teal, semánticos (danger, success, warning) con variantes dim para fondos
-- **Tipografía** con 9 variantes (body, bold, small, mono, icon, etc.)
-- **Factory methods** para crear controles con estilo consistente: `MakeButton`, `MakeIconButton`, `MakeTextBox`, `MakeLabel`, `MakeDivider`, `StyleGrid`
-- Enums `ButtonKind` (Default, Primary, Danger, Success, Ghost) y `LabelKind`
+### `UI/Forms/FileViewerform.cs` — Visor de datos
+Carga archivos de datos, aplica parsers y análisis de calidad, y muestra los resultados en un `DataGridView` con celdas coloreadas por tipo de problema. Permite filtrar, ordenar, guardar una copia corregida y exportar a CSV/JSON/TXT/XML/Excel/Word/PowerPoint/PDF. Incluye exportación directa a una base de datos SQL abierta.
+
+### `UI/Forms/MusicPlayerForm.cs` — Reproductor de música
+Carga todos los archivos de audio de la carpeta del archivo inicial. Soporta shuffle (orden pre-generado), tres modos de repetición (off / lista / pista), seek, volumen y mute. Busca carátulas via `CoverSearchService` y las guarda en el tag ID3. Busca letras via `LyricsService`. Incluye grabación de micrófono con `NAudio.WaveInEvent` y guarda en WAV.
+
+### `UI/Forms/VideoPlayerForm.cs` — Reproductor de video
+Inicialización asíncrona de LibVLC para no bloquear el hilo UI. Soporta lista de reproducción con Drag & Drop, tres modos de bucle (off / lista / uno), velocidades de 0.25× a 3×, pantalla completa, metadatos via `Media.Parse()` y grabación de webcam con OpenCvSharp.
+
+### `UI/Forms/NotepadForm.cs` — Bloc de notas
+Detección automática de encoding (UTF-8 BOM, UTF-16 LE/BE). Numeración de líneas con `OwnerDraw` sincronizada con el scroll. Búsqueda con resaltado y navegación circular, reemplazar uno / todos (async para archivos grandes), ir a línea, zoom de fuente y protección al cerrar con cambios pendientes.
+
+### `UI/Components/Theme.cs` — Sistema de diseño
+Paleta "Arctic Night" con 7 fondos en capas, acento violeta, colores semánticos (teal, coral, ámbar, azul cielo, rosa) con variantes dim para fondos. Factory methods para `Button`, `TextBox`, `Label`, `DataGridView` y divisores con estilos consistentes.
 
 ---
 
 ## Visualizadores integrados
 
-| Tipo | Extensiones soportadas | Visor |
-|---|---|---|
-| Imagen | `.jpg` `.jpeg` `.jfif` `.png` `.gif` `.bmp` `.webp` `.tiff` `.ico` `.svg` `.raw` `.cr2` `.nef` `.arw` `.dng` `.heic` y más | `ImageViewerForm` con editor |
+| Tipo | Extensiones | Visor |
+|------|-------------|-------|
+| Imagen | `.jpg` `.jpeg` `.jfif` `.png` `.gif` `.bmp` `.webp` `.tiff` `.ico` `.svg` `.emf` `.wmf` `.raw` `.cr2` `.cr3` `.nef` `.nrw` `.arw` `.dng` `.heic` y más | `ImageViewerForm` |
 | Audio | `.mp3` `.wav` `.wma` `.m4a` `.flac` `.aac` `.ogg` `.opus` `.aiff` | `MusicPlayerForm` |
-| Video | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.ts` `.3gp` `.divx` | `VideoPlayerForm` |
-| CSV | `.csv` | `FileViewerForm` con análisis |
-| JSON | `.json` | `FileViewerForm` con análisis |
-| XML | `.xml` | `FileViewerForm` con análisis |
-| Texto / Log | `.txt` `.log` | Elección entre `FileViewerForm` o `NotepadForm` |
-| Otros | Cualquier extensión | Abre con la aplicación predeterminada del sistema |
+| Video | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.ts` `.3gp` `.mpg` `.mpeg` `.vob` `.divx` | `VideoPlayerForm` |
+| CSV | `.csv` | `FileViewerForm` con análisis de calidad |
+| JSON | `.json` | `FileViewerForm` con análisis de calidad |
+| XML | `.xml` | `FileViewerForm` con análisis de calidad |
+| Log / Texto | `.txt` `.log` | Elección entre `FileViewerForm` o `NotepadForm` |
+| Código | `.cs` `.py` `.js` `.ts` `.html` `.css` `.md` `.yaml` `.yml` | `NotepadForm` |
+| Otros | Cualquier extensión | Aplicación predeterminada del sistema |
+
+### Capacidades del visor de imágenes
+- Zoom libre con rueda del ratón (5% – 2000%), pan, ajustar a ventana, 1:1
+- Herramientas: recorte rectangular, dibujo libre, borrador, texto (con selector de fuente), cuentagotas
+- Transformaciones: rotar ±90°, voltear horizontal/vertical
+- Filtros: escala de grises, sepia, invertir colores
+- Deshacer (hasta 20 estados), restaurar original
+- Panel GPS con mapa Leaflet/OpenStreetMap embebido y opción de escritura de coordenadas
 
 ---
 
 ## Atajos de teclado
 
-### Ventana principal
+### Explorador principal
 | Atajo | Acción |
-|---|---|
-| `Enter` en barra de dirección | Navegar a la ruta escrita |
+|-------|--------|
+| `F5` | Actualizar directorio |
+| `Enter` en barra de dirección | Navegar a la ruta |
 | `Enter` en barra de búsqueda | Buscar en panel lateral |
-| `F5` | Actualizar directorio actual |
 
 ### Visor de imágenes
 | Atajo | Acción |
-|---|---|
+|-------|--------|
 | `+` / `−` | Zoom in / Zoom out |
 | `Ctrl+Z` | Deshacer |
 | `Ctrl+S` | Guardar copia |
@@ -232,15 +251,15 @@ Clase estática centralizada con:
 
 ### Reproductor de música
 | Atajo | Acción |
-|---|---|
-| `Space` | Play / Pausa |
+|-------|--------|
+| `Espacio` | Play / Pausa |
 | `←` / `→` | Retroceder / Avanzar 5 s |
 | `↑` / `↓` | Subir / Bajar volumen 5% |
 
 ### Reproductor de video
 | Atajo | Acción |
-|---|---|
-| `Space` | Play / Pausa |
+|-------|--------|
+| `Espacio` | Play / Pausa |
 | `←` / `→` | Retroceder / Avanzar 10 s |
 | `↑` / `↓` | Subir / Bajar volumen 5% |
 | `M` | Silenciar / Activar audio |
@@ -249,117 +268,106 @@ Clase estática centralizada con:
 
 ### Bloc de notas
 | Atajo | Acción |
-|---|---|
+|-------|--------|
 | `Ctrl+S` | Guardar |
 | `Ctrl+Shift+S` | Guardar como |
 | `Ctrl+F` | Abrir búsqueda |
 | `Ctrl+H` | Abrir reemplazar |
 | `Ctrl+G` | Ir a línea |
 | `F3` | Siguiente coincidencia |
-| `Ctrl++` / `Ctrl+-` | Zoom de fuente |
+| `Ctrl++` / `Ctrl+−` | Zoom de fuente |
 | `Escape` | Cerrar panel de búsqueda |
+
+### Visor SQL
+| Atajo | Acción |
+|-------|--------|
+| `F5` o `Ctrl+Enter` | Ejecutar consulta |
+
+---
+
+## Dependencias NuGet
+
+| Paquete | Versión | Uso |
+|---------|---------|-----|
+| `LibVLCSharp` | 3.9.7.1 | Motor de video multiplataforma |
+| `LibVLCSharp.WinForms` | 3.9.3 | Control `VideoView` para Windows Forms |
+| `VideoLAN.LibVLC.Windows` | 3.0.21 | Binarios nativos de VLC para Windows |
+| `OpenCvSharp4` | 4.13.0.20260526 | Captura y grabación de webcam |
+| `OpenCvSharp4.Extensions` | 4.13.0.20260526 | Conversión `Mat` → `Bitmap` |
+| `OpenCvSharp4.runtime.win` | 4.13.0.20260302 | Binarios nativos de OpenCV para Windows |
+| `NAudio` | 2.2.1 | Reproducción de audio y grabación de micrófono |
+| `taglib-sharp-netstandard2.0` | 2.1.0 | Lectura y escritura de tags ID3, Vorbis, APE |
+| `Npgsql` | 9.0.2 | Conector ADO.NET para PostgreSQL |
+| `MySqlConnector` | 2.3.7 | Conector ADO.NET para MariaDB / MySQL |
+| `Microsoft.Data.SqlClient` | 5.2.2 | Conector ADO.NET para SQL Server |
+
+### Dependencias Python (exportación Office/PDF)
+```bash
+pip install openpyxl python-docx python-pptx reportlab
+```
+
+### APIs externas (opcionales, requieren internet)
+- **iTunes Search API** — carátulas de álbumes
+- **lrclib.net** — letras de canciones en texto plano
+- **Last.fm API** — carátulas alternativas
+- **Spotify API** — carátulas alternativas (sin autenticación, best-effort)
+- **OpenStreetMap / Leaflet.js** — mapas GPS embebidos en `WebBrowser`
 
 ---
 
 ## Requisitos
 
-- **Sistema operativo:** Windows 10 / 11 (x64 recomendado)
+- **Sistema operativo:** Windows 10 / 11 (x64)
 - **Runtime:** .NET 8.0 (Windows)
-- **Windows Media Player** instalado (para el reproductor de video)
-- Conexión a internet opcional (para carátulas automáticas, letras y mapas GPS)
+- **Python 3.10+** en el PATH (para exportación a Excel/Word/PowerPoint/PDF)
+- Conexión a internet opcional (carátulas, letras, mapas GPS)
 
 ---
 
 ## Instalación y compilación
 
 ```bash
-# Clonar el repositorio
+# 1. Clonar el repositorio
 git clone <repo-url>
 cd FileExplorerr
 
-# Restaurar dependencias
+# 2. Restaurar dependencias NuGet
 dotnet restore
 
-# Compilar
+# 3. Compilar en modo Release
 dotnet build -c Release
 
-# Ejecutar
+# 4. Ejecutar
 dotnet run --project FileExplorerr/FileExplorerr.csproj
 ```
 
-O abrir `FileExplorerr.slnx` en **Visual Studio 2022** (v17.8+) y compilar con `Ctrl+Shift+B`.
+O abrir `FileExplorerr.slnx` en **Visual Studio 2022 v17.8+** y compilar con `Ctrl+Shift+B`.
 
----
-
-## Estructura del proyecto
-
-```
-FileExplorerr/
-│
-├── FileExplorerr.csproj        # Proyecto WinForms .NET 8 con refs COM y NuGet
-├── Program.cs                  # Punto de entrada — STAThread, Application.Run
-│
-├── Form1.cs                    # Ventana principal: navegación, ListView, drag&drop
-├── Form1.Designer.cs           # Declaración de campos de controles
-├── Form1.resx                  # Recursos del formulario principal
-│
-├── Theme.cs                    # Sistema de diseño "Arctic Frost" — colores, fuentes, factory methods
-├── CsvIndexer.cs               # Generador de índice CSV asíncrono + clasificador de archivos
-│
-├── FileViewerform.cs           # Visor/analizador de CSV, JSON, XML, TXT
-├── FileViewerform.resx
-│
-├── ImagevIewerform.cs          # Visor + editor de imágenes con GPS
-│                               # → TextToolDialog (diálogo de texto inline)
-│
-├── MusicPlayerForm.cs          # Reproductor de audio con letras y carátulas
-├── MusicPlayerForm.resx
-│
-├── VideoPlayerForm.cs          # Reproductor de video con WMP COM + metadatos
-│                               # → WmpControl (wrapper AxHost)
-│
-├── NotepadForm.cs              # Bloc de notas con numeración, búsqueda y zoom
-├── NotepadForm.resx
-│
-├── GpsReader.cs                # Extractor de GPS de imágenes (EXIF) y videos (átomos MP4)
-├── CoverSearcher.cs            # Buscador multi-fuente de carátulas (iTunes, Last.fm, Spotify)
-├── TagEditDialog.cs            # Diálogo de edición de tags ID3
-│
-└── *.resx                      # Archivos de recursos adicionales
-
-FileExplorerr.slnx              # Solución (.NET SDK solution format)
-.gitignore                      # Visual Studio + .NET gitignore
-.gitattributes                  # Normalización de finales de línea
+Para habilitar la exportación Office/PDF, instalar las dependencias Python:
+```bash
+pip install openpyxl python-docx python-pptx reportlab
 ```
 
----
-
-## Dependencias
-
-| Paquete | Versión | Uso |
-|---|---|---|
-| [NAudio](https://github.com/naudio/NAudio) | 2.2.1 | Reproducción de audio (MP3, WAV, FLAC, AAC, etc.) |
-| [taglib-sharp-netstandard2.0](https://github.com/mono/taglib-sharp) | 2.1.0 | Lectura y escritura de tags ID3, Vorbis, APE, etc. |
-| WMPLib (COM Reference) | 1.0 | Interfaz con Windows Media Player para video |
-
-**APIs externas (opcionales, requieren internet):**
-- iTunes Search API — carátulas
-- lrclib.net — letras de canciones
-- Last.fm API — carátulas alternativas
-- OpenStreetMap / Leaflet — mapas GPS embebidos
-- Spotify API — carátulas alternativas
+El archivo `export_office.py` debe estar en el mismo directorio que el ejecutable (se copia automáticamente en el build gracias a la regla `CopyToOutputDirectory` en el `.csproj`).
 
 ---
 
 ## Tecnologías
 
-- **C# 12 / .NET 8** con `nullable enable` e `implicit usings`
-- **Windows Forms** con `OwnerDraw` personalizado en `ListView`, `TreeView` y `DataGridView`
-- **P/Invoke** — `SHFileOperation` (papelera), `DwmSetWindowAttribute` (título oscuro), `ExtractIcon` (icono de papelera del sistema)
-- **COM Interop** — Windows Media Player (`WMPLib`) embebido en `AxHost`
-- **async/await** — carga de directorios, exportación CSV, búsqueda de carátulas y letras sin bloquear la UI
-- **System.Text.Json** — parsing de respuestas de APIs y archivos JSON
-- **System.Drawing** — edición de imágenes, lectura de EXIF, iconos personalizados
-- **TagLib** — metadatos de audio (ID3v2, Vorbis, APE)
-- **NAudio** — decodificación y reproducción de audio PCM
-- **Leaflet.js** + **OpenStreetMap** — mapas GPS en `WebBrowser` embebido
+| Tecnología | Uso |
+|------------|-----|
+| C# 12 / .NET 8 (Windows) | Lenguaje y runtime principal |
+| Windows Forms | Framework de UI con `OwnerDraw` personalizado |
+| P/Invoke | `SHFileOperation` (papelera), `DwmSetWindowAttribute` (título oscuro), `ExtractIcon` (icono de papelera) |
+| LibVLC / LibVLCSharp | Decodificación y reproducción de video |
+| NAudio | Decodificación y reproducción de audio PCM, grabación de micrófono |
+| TagLib Sharp | Metadatos de audio (ID3v2, Vorbis, APE, M4A) |
+| OpenCvSharp4 | Captura de webcam y grabación de video |
+| Npgsql | Cliente PostgreSQL async |
+| MySqlConnector | Cliente MariaDB/MySQL async |
+| Microsoft.Data.SqlClient | Cliente SQL Server async |
+| System.Text.Json | Parsing de JSON y respuestas de APIs |
+| System.Drawing | Edición de imágenes, lectura de EXIF, iconos programáticos |
+| Leaflet.js + OpenStreetMap | Mapas GPS en `WebBrowser` embebido |
+| Python 3 + openpyxl/python-docx/python-pptx/reportlab | Generación de archivos Office y PDF |
+| async/await | Carga de directorios, exportación, búsqueda de carátulas y letras sin bloquear la UI |
