@@ -57,40 +57,6 @@ namespace FileExplorerr
             catch { }
         }
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-        private struct SHFILEOPSTRUCT
-        {
-            public IntPtr hwnd;
-            [MarshalAs(UnmanagedType.U4)] public int wFunc;
-            public string? pFrom;
-            public string? pTo;
-            public short fFlags;
-            [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
-            public IntPtr hNameMappings;
-            public string? lpszProgressTitle;
-        }
-        [DllImport("shell32.dll", CharSet = CharSet.Auto)]
-        private static extern int SHFileOperation(ref SHFILEOPSTRUCT op);
-        private const int FO_DELETE = 3;
-        private const int FOF_ALLOWUNDO = 0x40;
-        private const int FOF_NOCONFIRMATION = 0x10;
-
-        private bool SendToRecycleBin(string path)
-        {
-            try
-            {
-                var op = new SHFILEOPSTRUCT
-                {
-                    hwnd = Handle,
-                    wFunc = FO_DELETE,
-                    pFrom = path + '\0' + '\0',
-                    fFlags = (short)(FOF_ALLOWUNDO | FOF_NOCONFIRMATION)
-                };
-                return SHFileOperation(ref op) == 0;
-            }
-            catch { return false; }
-        }
-
         // ════════════════════════════════════════════════════════════════════
         //  CONSTRUCTOR
         // ════════════════════════════════════════════════════════════════════
@@ -111,12 +77,12 @@ namespace FileExplorerr
 
             // ── ImageList ────────────────────────────────────────────────────
             imageList = new ImageList { ImageSize = new Size(32, 32), ColorDepth = ColorDepth.Depth32Bit };
-            imageList.Images.Add("folder", MakeFolderIcon());
-            imageList.Images.Add("file", MakeFileIcon());
-            imageList.Images.Add("image", MakeImageIcon());
-            imageList.Images.Add("audio", MakeAudioIcon());
-            imageList.Images.Add("video", MakeVideoIcon());
-            imageList.Images.Add("text", MakeTextIcon());
+            imageList.Images.Add("folder", FileIconFactory.MakeFolderIcon());
+            imageList.Images.Add("file", FileIconFactory.MakeFileIcon());
+            imageList.Images.Add("image", FileIconFactory.MakeImageIcon());
+            imageList.Images.Add("audio", FileIconFactory.MakeAudioIcon());
+            imageList.Images.Add("video", FileIconFactory.MakeVideoIcon());
+            imageList.Images.Add("text", FileIconFactory.MakeTextIcon());
 
             BuildTopNav();
             BuildExplorerPage();
@@ -352,7 +318,8 @@ namespace FileExplorerr
             exportCsvButton = Theme.MakeButton("↓ Exportar CSV", 126, Theme.ButtonKind.Primary);
             newFolderButton.Height = 34;
             exportCsvButton.Height = 34;
-            newFolderButton.Click += (s, e) => CreateFolder();
+
+            newFolderButton.Click += (s, e) => FileOperationService.CreateFolder(currentPath, this, () => LoadDirectory(currentPath));
             exportCsvButton.Click += async (s, e) => await ExportCsvAsync();
 
             // Añadir todos los controles al toolbar
@@ -591,7 +558,7 @@ namespace FileExplorerr
             listView.DoubleClick += (s, e) =>
             {
                 if (listView.SelectedItems.Count > 0)
-                    OpenEntry(listView.SelectedItems[0].Tag!.ToString()!);
+                    FileOpener.Open(listView.SelectedItems[0].Tag!.ToString()!, this, NavigateToPath);
             };
             listView.ColumnClick += ListView_ColumnClick;
             listView.ItemDrag += ListView_ItemDrag;
@@ -796,10 +763,22 @@ namespace FileExplorerr
             var sep4 = new ToolStripSeparator();
             var miRefresh = new ToolStripMenuItem("Actualizar  (F5)") { ForeColor = Theme.Accent2 };
 
-            miOpen.Click += (s, e) => { if (listView.SelectedItems.Count > 0) OpenEntry(listView.SelectedItems[0].Tag!.ToString()!); };
-            miNewFolder.Click += (s, e) => CreateFolder();
-            miRename.Click += (s, e) => RenameSelected();
-            miDelete.Click += (s, e) => DeleteSelected();
+            miOpen.Click += (s, e) =>
+            {
+                if (listView.SelectedItems.Count > 0)
+                    FileOpener.Open(listView.SelectedItems[0].Tag!.ToString()!, this, NavigateToPath);
+            };
+            miNewFolder.Click += (s, e) => FileOperationService.CreateFolder(currentPath, this, () => LoadDirectory(currentPath));
+            miRename.Click += (s, e) =>
+            {
+                if (listView.SelectedItems.Count > 0)
+                    FileOperationService.RenameSelected(listView.SelectedItems[0].Tag!.ToString()!, this, () => LoadDirectory(currentPath));
+            };
+            miDelete.Click += (s, e) =>
+            {
+                var paths = listView.SelectedItems.Cast<ListViewItem>().Select(i => i.Tag!.ToString()!).ToArray();
+                FileOperationService.DeleteSelected(paths, Handle, this, () => LoadDirectory(currentPath));
+            };
             miRefresh.Click += (s, e) => RefreshView();
             miProps.Click += (s, e) =>
             {
@@ -1014,7 +993,7 @@ namespace FileExplorerr
             if (nt.Path == null || nt.Path == "__dummy__") return;
 
             if (nt.Kind == NodeKind.File && File.Exists(nt.Path))
-                OpenEntry(nt.Path);
+                FileOpener.Open(nt.Path, this, NavigateToPath);
             // Las carpetas ya se manejan con clic simple (expand/collapse)
             // Si quieres navegar al explorador con doble clic en carpeta, descomenta:
             // else if (nt.Kind == NodeKind.Folder && Directory.Exists(nt.Path))
@@ -1095,50 +1074,6 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  CREAR / RENOMBRAR / ELIMINAR
-        // ════════════════════════════════════════════════════════════════════
-        private void CreateFolder()
-        {
-            string? name = InputDialog.Show(this, "Nueva carpeta", "Nombre:");
-            if (string.IsNullOrWhiteSpace(name)) return;
-            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            { MessageBox.Show("Nombre no válido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-            string newDir = Path.Combine(currentPath, name);
-            if (Directory.Exists(newDir)) { MessageBox.Show("Ya existe.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-            try { Directory.CreateDirectory(newDir); LoadDirectory(currentPath); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        }
-
-        private void RenameSelected()
-        {
-            if (listView.SelectedItems.Count == 0) return;
-            string oldPath = listView.SelectedItems[0].Tag!.ToString()!;
-            string oldName = Path.GetFileName(oldPath);
-            string? newName = InputDialog.Show(this, "Renombrar", "Nuevo nombre:", oldName);
-            if (string.IsNullOrWhiteSpace(newName) || newName == oldName) return;
-            string newPath = Path.Combine(Path.GetDirectoryName(oldPath)!, newName);
-            try
-            {
-                if (File.Exists(oldPath)) File.Move(oldPath, newPath);
-                else if (Directory.Exists(oldPath)) Directory.Move(oldPath, newPath);
-                LoadDirectory(currentPath);
-            }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        }
-
-        private void DeleteSelected()
-        {
-            if (listView.SelectedItems.Count == 0) return;
-            string[] paths = listView.SelectedItems.Cast<ListViewItem>().Select(i => i.Tag!.ToString()!).ToArray();
-            string msg = paths.Length == 1
-                ? $"¿Eliminar \"{Path.GetFileName(paths[0])}\"?"
-                : $"¿Eliminar {paths.Length} elementos?";
-            if (MessageBox.Show(msg, "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            foreach (string p in paths) SendToRecycleBin(p);
-            LoadDirectory(currentPath);
-        }
-
-        // ════════════════════════════════════════════════════════════════════
         //  DRAG & DROP
         // ════════════════════════════════════════════════════════════════════
         private void ListView_ItemDrag(object sender, ItemDragEventArgs e)
@@ -1171,7 +1106,12 @@ namespace FileExplorerr
             Point pt = listView.PointToClient(new Point(e.X, e.Y));
             var target = listView.GetItemAt(pt.X, pt.Y);
             if (target == null || !Directory.Exists(target.Tag!.ToString())) return;
-            MoveItems((string[])e.Data.GetData(DataFormats.FileDrop)!, target.Tag!.ToString()!);
+
+            FileOperationService.MoveItems(
+                (string[])e.Data.GetData(DataFormats.FileDrop)!,
+                target.Tag!.ToString()!,
+                this,
+                () => LoadDirectory(currentPath));
         }
 
         private void ClearDragHighlight()
@@ -1213,43 +1153,10 @@ namespace FileExplorerr
                 ? $"¿Eliminar \"{Path.GetFileName(paths[0])}\"?"
                 : $"¿Eliminar {paths.Length} elementos?";
             if (MessageBox.Show(msg, "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            foreach (string p in paths) SendToRecycleBin(p);
-            LoadDirectory(currentPath);
-        }
 
-        // ════════════════════════════════════════════════════════════════════
-        //  MOVER ARCHIVOS
-        // ════════════════════════════════════════════════════════════════════
-        private void MoveItems(string[] sources, string targetDir)
-        {
-            foreach (string src in sources)
-            {
-                try
-                {
-                    string name = Path.GetFileName(src.TrimEnd(Path.DirectorySeparatorChar));
-                    string dest = Path.Combine(targetDir, name);
-                    if (dest.Equals(src, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (File.Exists(src))
-                    {
-                        if (File.Exists(dest))
-                        {
-                            var r = MessageBox.Show($"Ya existe \"{name}\". ¿Sobreescribir?", "Conflicto",
-                                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-                            if (r == DialogResult.Cancel) return;
-                            if (r == DialogResult.No) continue;
-                            File.Delete(dest);
-                        }
-                        File.Move(src, dest);
-                    }
-                    else if (Directory.Exists(src))
-                    {
-                        if (targetDir.StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                        { MessageBox.Show("No se puede mover dentro de sí misma.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning); continue; }
-                        Directory.Move(src, dest);
-                    }
-                }
-                catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-            }
+            foreach (string p in paths)
+                FileOperationService.SendToRecycleBin(p, Handle);
+
             LoadDirectory(currentPath);
         }
 
@@ -1350,7 +1257,7 @@ namespace FileExplorerr
                     try
                     {
                         if (token.IsCancellationRequested) return (d, "(cancelado)");
-                        string info = await Task.Run(() => DirInfoDetailed(d.FullName), token);
+                        string info = await Task.Run(() => FileTypeHelper.FolderInfoColumn(d.FullName), token);
                         return (d, info);
                     }
                     finally { sem.Release(); }
@@ -1373,8 +1280,8 @@ namespace FileExplorerr
                 foreach (var f in files)
                 {
                     if (token.IsCancellationRequested) break;
-                    var item = new ListViewItem(f.Name) { ImageKey = IconKey(f.Extension), Tag = f.FullName };
-                    item.SubItems.Add(FileTypeName(f.Extension));
+                    var item = new ListViewItem(f.Name) { ImageKey = FileIconFactory.IconKey(f.Extension), Tag = f.FullName };
+                    item.SubItems.Add(FileTypeHelper.TypeName(f.Extension));
                     item.SubItems.Add(FileSize.Format(f.Length));
                     item.SubItems.Add(f.Extension.ToUpper().TrimStart('.'));
                     item.SubItems.Add(f.LastWriteTime.ToString("dd/MM/yyyy  HH:mm"));
@@ -1385,7 +1292,7 @@ namespace FileExplorerr
                 if (!token.IsCancellationRequested)
                 {
                     var stats = CsvIndexer.ClassifyFiles(files.ToArray());
-                    statusLabel.Text = "  " + BuildStatusText(stats, dirs.Count);
+                    statusLabel.Text = "  " + FileIconFactory.BuildStatusText(stats, dirs.Count);
                     UpdateRightPanel(path);
                 }
             }
@@ -1394,209 +1301,12 @@ namespace FileExplorerr
             finally { if (!token.IsCancellationRequested) Cursor = Cursors.Default; }
         }
 
-        // ── Barra de estado con etiquetas descriptivas completas ─────────────
-        private static string BuildStatusText(FileStats s, int folders)
-        {
-            var parts = new System.Collections.Generic.List<string>();
-
-            if (folders > 0)
-                parts.Add($"📁 {folders} carpeta{(folders != 1 ? "s" : "")}");
-
-            int total = s.Total;
-            if (total > 0)
-                parts.Add($"📄 {total} archivo{(total != 1 ? "s" : "")}");
-
-            if (s.Images > 0)
-                parts.Add($"🖼️ {s.Images} imág{(s.Images != 1 ? "enes" : "en")}");
-
-            if (s.Audio > 0)
-                parts.Add($"🎵 {s.Audio} audio{(s.Audio != 1 ? "s" : "")}");
-
-            if (s.Video > 0)
-                parts.Add($"🎬 {s.Video} video{(s.Video != 1 ? "s" : "")}");
-
-            if (s.Text > 0)
-                parts.Add($"📝 {s.Text} texto{(s.Text != 1 ? "s" : "")}");
-
-            if (s.Other > 0)
-                parts.Add($"📦 {s.Other} otro{(s.Other != 1 ? "s" : "")}");
-
-            return parts.Count > 0
-                ? string.Join("  ·  ", parts)
-                : "Carpeta vacía";
-        }
-
-        private string DirInfoDetailed(string path)
-        {
-            try
-            {
-                var di = new DirectoryInfo(path);
-                var files = di.GetFiles().Where(f => (f.Attributes & FileAttributes.Hidden) == 0).ToArray();
-                var subs = di.GetDirectories().Where(d => (d.Attributes & FileAttributes.Hidden) == 0).ToArray();
-                return CsvIndexer.ClassifyFiles(files).ToInfoColumn(subs.Length);
-            }
-            catch { return "Sin acceso"; }
-        }
-
         private void ListView_ColumnClick(object sender, ColumnClickEventArgs e)
         {
             if (e.Column != sortColumn) { sortColumn = e.Column; listView.Sorting = SortOrder.Ascending; }
             else listView.Sorting = listView.Sorting == SortOrder.Ascending ? SortOrder.Descending : SortOrder.Ascending;
             listView.Sort();
             listView.ListViewItemSorter = new LvComparer(e.Column, listView.Sorting);
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  ABRIR ARCHIVO
-        // ════════════════════════════════════════════════════════════════════
-        private void OpenEntry(string path)
-        {
-            if (Directory.Exists(path)) { NavigateToPath(path); return; }
-            if (!File.Exists(path)) return;
-
-            string ext = Path.GetExtension(path).ToLower();
-            try
-            {
-                if (ext == ".txt")
-                {
-                    using var dlg = new Form
-                    {
-                        Text = "Abrir como...",
-                        Width = 360,
-                        Height = 170,
-                        StartPosition = FormStartPosition.CenterParent,
-                        FormBorderStyle = FormBorderStyle.FixedDialog,
-                        MaximizeBox = false,
-                        MinimizeBox = false,
-                        BackColor = Theme.BgSurface,
-                        ForeColor = Theme.TextPrimary
-                    };
-                    var lbl = new Label { Text = $"¿Cómo deseas abrir \"{Path.GetFileName(path)}\"?", Left = 14, Top = 20, Width = 320, ForeColor = Theme.TextSecondary, Font = Theme.FontBody };
-                    var btnTbl = Theme.MakeButton("Visor de tabla", 140); btnTbl.Left = 14; btnTbl.Top = 70; btnTbl.Click += (s, e) => { dlg.Tag = "table"; dlg.DialogResult = DialogResult.OK; };
-                    var btnNote = Theme.MakeButton("Bloc de notas", 140, Theme.ButtonKind.Primary); btnNote.Left = 164; btnNote.Top = 70; btnNote.Click += (s, e) => { dlg.Tag = "notepad"; dlg.DialogResult = DialogResult.OK; };
-                    dlg.Controls.AddRange(new Control[] { lbl, btnTbl, btnNote });
-                    if (dlg.ShowDialog(this) == DialogResult.OK)
-                    {
-                        if (dlg.Tag?.ToString() == "notepad") new NotepadForm(path).Show();
-                        else new FileViewerForm(path).Show();
-                    }
-                }
-                else if (new[] { ".csv", ".json", ".xml", ".log" }.Contains(ext)) new FileViewerForm(path).Show();
-                else if (ImageViewerForm.SupportedExtensions.Contains(ext)) new ImageViewerForm(path).Show();
-                else if (MusicPlayerForm.SupportedExtensions.Contains(ext)) new MusicPlayerForm(path).Show();
-                else if (new[] { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".3gp", ".mpg", ".mpeg", ".vob", ".divx" }.Contains(ext))
-                    new VideoPlayerForm(path).Show();
-                else Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
-            }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        //  HELPERS
-        // ════════════════════════════════════════════════════════════════════
-        private string IconKey(string ext) =>
-            FileExtensions.Categorise(ext) switch
-            {
-                FileCategory.Image => "image",
-                FileCategory.Audio => "audio",
-                FileCategory.Video => "video",
-                FileCategory.Text => "text",
-                _ => "file"
-            };
-
-        private string FileTypeName(string ext)
-        {
-            ext = ext.ToLower();
-            var map = new Dictionary<string, string>
-            {
-                {".txt","Texto"},{".csv","CSV"},{".json","JSON"},{".xml","XML"},{".md","Markdown"},{".log","Log"},
-                {".cs","C#"},{".py","Python"},{".js","JavaScript"},{".html","HTML"},{".css","CSS"},
-                {".jpg","JPEG"},{".jpeg","JPEG"},{".png","PNG"},{".gif","GIF"},{".bmp","BMP"},{".svg","SVG"},{".webp","WebP"},{".ico","Icono"},
-                {".mp3","MP3"},{".wav","WAV"},{".flac","FLAC"},{".aac","AAC"},{".m4a","M4A"},{".ogg","OGG"},
-                {".mp4","MP4"},{".avi","AVI"},{".mkv","MKV"},{".mov","MOV"},{".wmv","WMV"},{".webm","WebM"},
-                {".pdf","PDF"},{".doc","Word"},{".docx","Word"},{".xls","Excel"},{".xlsx","Excel"},{".ppt","PowerPoint"},{".pptx","PowerPoint"},
-                {".zip","ZIP"},{".rar","RAR"},{".7z","7-Zip"},{".exe","Ejecutable"},{".msi","Instalador"},
-            };
-            return map.TryGetValue(ext, out var t) ? t : "Archivo";
-        }
-
-
-        // ── Íconos ───────────────────────────────────────────────────────────
-        private static Icon MakeFolderIcon()
-        {
-            using var bmp = new Bitmap(32, 32);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var b = new SolidBrush(Color.FromArgb(251, 191, 36));
-            g.FillRectangle(b, 4, 12, 24, 16);
-            g.FillPolygon(b, new[] { new Point(4, 12), new Point(10, 8), new Point(16, 12) });
-            return Icon.FromHandle(bmp.GetHicon());
-        }
-        private static Icon MakeFileIcon()
-        {
-            using var bmp = new Bitmap(32, 32);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var body = new SolidBrush(Color.FromArgb(90, 96, 128));
-            using var fold = new SolidBrush(Color.FromArgb(167, 139, 250));
-            g.FillRectangle(body, 8, 4, 16, 24);
-            g.FillPolygon(fold, new[] { new Point(24, 4), new Point(24, 10), new Point(18, 4) });
-            return Icon.FromHandle(bmp.GetHicon());
-        }
-        private static Icon MakeImageIcon()
-        {
-            using var bmp = new Bitmap(32, 32);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var bg = new SolidBrush(Color.FromArgb(12, 44, 78));
-            using var sun = new SolidBrush(Color.FromArgb(251, 191, 36));
-            using var mnt = new SolidBrush(Color.FromArgb(96, 165, 250));
-            g.FillRectangle(bg, 6, 6, 20, 20);
-            g.FillEllipse(sun, 10, 9, 6, 6);
-            g.FillPolygon(mnt, new[] { new Point(6, 26), new Point(12, 17), new Point(18, 22), new Point(26, 26) });
-            return Icon.FromHandle(bmp.GetHicon());
-        }
-        private static Icon MakeAudioIcon()
-        {
-            using var bmp = new Bitmap(32, 32);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var b = new SolidBrush(Color.FromArgb(52, 211, 153));
-            g.FillEllipse(b, 8, 18, 8, 8);
-            g.FillRectangle(b, 14, 8, 2, 14);
-            g.FillEllipse(b, 16, 8, 6, 6);
-            return Icon.FromHandle(bmp.GetHicon());
-        }
-        private static Icon MakeVideoIcon()
-        {
-            using var bmp = new Bitmap(32, 32);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var bg = new SolidBrush(Color.FromArgb(72, 24, 60));
-            using var play = new SolidBrush(Color.FromArgb(244, 114, 182));
-            g.FillRectangle(bg, 6, 10, 14, 12);
-            g.FillPolygon(play, new[] { new Point(20, 13), new Point(26, 16), new Point(20, 19) });
-            return Icon.FromHandle(bmp.GetHicon());
-        }
-        private static Icon MakeTextIcon()
-        {
-            using var bmp = new Bitmap(32, 32);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var page = new SolidBrush(Color.FromArgb(28, 32, 48));
-            g.FillRectangle(page, 8, 4, 16, 24);
-            using var pen = new Pen(Color.FromArgb(124, 111, 247), 2);
-            g.DrawLine(pen, 11, 10, 21, 10);
-            g.DrawLine(pen, 11, 14, 21, 14);
-            g.DrawLine(pen, 11, 18, 21, 18);
-            g.DrawLine(pen, 11, 22, 18, 22);
-            return Icon.FromHandle(bmp.GetHicon());
         }
     }
 }
