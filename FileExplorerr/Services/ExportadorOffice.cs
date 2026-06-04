@@ -418,13 +418,13 @@ namespace FileExplorerr
                 {
                     string missing = string.Empty;
 
-                    if (err.Contains("pptx")) missing = "python-pptx";
+
                     if (err.Contains("reportlab")) missing = "reportlab";
 
                     throw new InvalidOperationException(
                         $"Falta la librería Python: {missing}\n\n" +
                         "Ejecuta en la terminal:\n" +
-                        "  pip install python-pptx reportlab");
+                        "  pip install reportlab");
                 }
 
                 throw new InvalidOperationException(
@@ -504,9 +504,9 @@ namespace FileExplorerr
 
             throw new InvalidOperationException(
                 "No se encontró Python 3.\n\n" +
-                "Python sigue siendo necesario para exportar PowerPoint y PDF.\n" +
+                "Python sigue siendo necesario para exportar PDF.\n" +
                 "Descárgalo en https://python.org y marca 'Add Python to PATH'.\n" +
-                "Luego ejecuta:\n  pip install python-pptx reportlab");
+                "Luego ejecuta:\n  pip install reportlab");
         }
 
         // ════════════════════════════════════════════════════════════════════

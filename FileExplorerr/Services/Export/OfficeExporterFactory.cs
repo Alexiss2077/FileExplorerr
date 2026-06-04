@@ -93,14 +93,14 @@ namespace FileExplorerr.Export
         /// Phases:
         ///   Phase 2 (done) — ExcelExporter (.xlsx)
         ///   Phase 3 (done) — WordExporter  (.docx)
-        ///   Phase 4 (TODO) — PowerPointExporter (.pptx)
+        ///   Phase 4 (done) — PowerPointExporter (.pptx)
         ///   Phase 5 (TODO) — PdfExporter (.pdf)  + delete export_office.py
         /// </summary>
         public static void RegisterNativeExporters()
         {
             Register(new ExcelExporter());
             Register(new WordExporter());
-            // Phase 4: Register(new PowerPointExporter());
+            Register(new PowerPointExporter());
             // Phase 5: Register(new PdfExporter());
         }
     }
