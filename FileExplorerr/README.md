@@ -22,7 +22,7 @@
 
 ## Vista general
 
-FileExplorerr es un reemplazo funcional del Explorador de Windows con una interfaz oscura minimalista. Integra un reproductor de música con búsqueda automática de carátulas y letras, un visor/editor de imágenes con soporte GPS, un reproductor de video con LibVLC, un visor de datos estructurados (CSV/JSON/XML) con análisis automático de calidad, un bloc de notas avanzado, y un cliente SQL para PostgreSQL, MariaDB y SQL Server.
+FileExplorerr es un reemplazo funcional del Explorador de Windows con una interfaz oscura minimalista. Integra un reproductor de música con búsqueda automática de carátulas y letras, un visor/editor de imágenes con soporte GPS, un reproductor de video con LibVLC, un visor de datos estructurados (CSV/JSON/XML) con análisis automático de calidad, un bloc de notas avanzado, exportación nativa a Excel/Word/PowerPoint/PDF, y un cliente SQL para PostgreSQL, MariaDB y SQL Server.
 
 ---
 
@@ -62,6 +62,12 @@ El proyecto sigue una arquitectura en capas con separación clara de responsabil
 │   FileOpener · FileOperationService ·        │
 │   FileTypeHelper · ExportadorOffice          │
 ├─────────────────────────────────────────────┤
+│              Export Layer                    │
+│   IOfficeExporter · ExportOptions ·          │
+│   ExportResult · OfficeExporterFactory ·     │
+│   ExcelExporter · WordExporter ·             │
+│   PowerPointExporter · PdfExporter           │
+├─────────────────────────────────────────────┤
 │                 Data Layer                   │
 │   DataParsers · DataQualityAnalyzer ·        │
 │   DataSerializer · QualityReport             │
@@ -82,9 +88,11 @@ El proyecto sigue una arquitectura en capas con separación clara de responsabil
 
 **Principios de diseño aplicados:**
 - **Single Responsibility**: cada clase tiene una responsabilidad bien definida (p. ej. `DataParsers` solo parsea, `DataQualityAnalyzer` solo analiza)
+- **Strategy Pattern**: `IOfficeExporter` define el contrato común para los cuatro exportadores de documentos
+- **Factory Pattern**: `OfficeExporterFactory` resuelve el exportador correcto por extensión de archivo
 - **Interface Segregation**: `IDbConnector` define el contrato común para los tres motores de base de datos
 - **DRY**: helpers centralizados en `AppHelpers.cs` eliminan implementaciones duplicadas (`FileSize`, `CsvHelper`, `BrowserHelper`, `SmtpConfig`)
-- **Façade Pattern**: `SqlConnector` mantiene compatibilidad con código legado sin exponer los conectores concretos
+- **Façade Pattern**: `SqlConnector` y `ExportadorOffice` mantienen compatibilidad con código legado sin exponer las implementaciones concretas
 
 ---
 
@@ -95,7 +103,6 @@ FileExplorerr/
 │
 ├── FileExplorerr.csproj          # Proyecto WinForms .NET 8
 ├── Program.cs                    # Punto de entrada — STAThread, manejo global de excepciones
-├── export_office.py              # Script Python para exportación a Excel/Word/PowerPoint/PDF
 │
 ├── Core/                         # Lógica de dominio transversal
 │   ├── AppHelpers.cs             # FileExtensions, FileSize, CsvHelper, BrowserHelper, SmtpConfig
@@ -127,7 +134,16 @@ FileExplorerr/
 │   └── LyricsService.cs          # Búsqueda de letras via lrclib.net
 │
 ├── Services/                     # Servicios de la capa de aplicación
-│   ├── ExportadorOffice.cs       # Motor de exportación a Excel/Word/PowerPoint/PDF via Python
+│   ├── Export/                   # Exportadores nativos de documentos Office y PDF
+│   │   ├── IOfficeExporter.cs    # Contrato Strategy — una operación, nunca lanza excepciones
+│   │   ├── ExportOptions.cs      # DTO inmutable con builder fluido para opciones de exportación
+│   │   ├── ExportResult.cs       # DTO de resultado: Success / Fail / Cancelled
+│   │   ├── OfficeExporterFactory.cs # Registro y resolución de exportadores por extensión
+│   │   ├── ExcelExporter.cs      # Exportador .xlsx — ClosedXML
+│   │   ├── WordExporter.cs       # Exportador .docx — DocumentFormat.OpenXml
+│   │   ├── PowerPointExporter.cs # Exportador .pptx — DocumentFormat.OpenXml
+│   │   └── PdfExporter.cs        # Exportador .pdf  — QuestPDF
+│   ├── ExportadorOffice.cs       # Façade público para exportación (API sin cambios)
 │   ├── FileOpener.cs             # Enrutador de apertura de archivos al visor correcto
 │   ├── FileOperationService.cs   # Crear carpeta, renombrar, eliminar, mover (DnD)
 │   └── FileTypeHelper.cs         # Etiquetas legibles por tipo + columna Info de carpetas
@@ -179,6 +195,30 @@ Parsers estáticos y sin estado para CSV (respeta RFC 4180 con comillas y escape
 ### `Data/DataQualityAnalizer.cs` — Análisis de calidad
 Detecta filas duplicadas, fechas con formato inconsistente (y propone normalización a `yyyy-MM-dd`), campos vacíos, números de teléfono malformados (con sugerencia de corrección a 10 dígitos) y emails inválidos. Retorna un `QualityReport` DTO sin mutar estado externo.
 
+### `Services/Export/` — Capa de exportación nativa
+
+Exportación 100% en C# sin dependencias externas de scripting.
+
+**`IOfficeExporter`** define el contrato Strategy: un único método `ExportAsync` que recibe `DataTable`, `ExportOptions` e `IProgress<int>`, y retorna `ExportResult`. Nunca lanza excepciones — todos los errores se encapsulan en `ExportResult.Fail()`.
+
+**`ExportOptions`** agrupa todos los parámetros configurables con un builder fluido: ruta de salida, título, límite de filas, paleta de colores Arctic Night y `CancellationToken`.
+
+**`ExportResult`** transporta `Success`, `OutputPath`, `BytesWritten`, `RowsWritten`, `WasTruncated` y `ErrorMessage`. Elimina el patrón de excepción implícita.
+
+**`OfficeExporterFactory`** es un diccionario de exportadores registrados por extensión. Registrar un nuevo formato es agregar una línea en `RegisterNativeExporters()`.
+
+| Exportador | Formato | Librería | Límites |
+|---|---|---|---|
+| `ExcelExporter` | `.xlsx` | ClosedXML | Sin límite práctico (hasta 1M filas) |
+| `WordExporter` | `.docx` | DocumentFormat.OpenXml | 20 columnas · 8 000 celdas |
+| `PowerPointExporter` | `.pptx` | DocumentFormat.OpenXml | 20 columnas · 500 filas · 18 filas/diapositiva |
+| `PdfExporter` | `.pdf` | QuestPDF | 500 000 celdas |
+
+Los límites de Word, PowerPoint y PDF son inherentes al motor de renderizado de cada formato. Para datasets que los superan, el exportador retorna `ExportResult.Fail()` con un mensaje claro que sugiere usar Excel.
+
+### `Services/ExportadorOffice.cs` — Façade de exportación
+Mantiene la API pública sin cambios (`ExportarConDialogo`, `ExportarExcel`, `ExportarWord`, `ExportarPowerPoint`, `ExportarPdf`). Internamente delega al `OfficeExporterFactory` y gestiona el `ExportProgressForm` con barra animada y botón de cancelación.
+
 ### `DataBase/IDbConnector.cs` + conectores — Capa de base de datos
 Interfaz común con `TestConnectionAsync`, `GetTablesAsync`, `ExecuteAsync` e `InsertDataTableAsync`. Los tres conectores concretos (`PostgreSqlConnector`, `MariaDbConnector`, `SqlServerConnector`) implementan inserción masiva con transacción, manejo de cancelación y reporte de progreso. `SqlConnector` actúa como façade de compatibilidad.
 
@@ -187,9 +227,6 @@ Consulta en paralelo iTunes Search API, Last.fm API y Spotify API. Aplica un alg
 
 ### `Media/GpsReader.cs` + `GpsWriter.cs` — GPS
 `GpsReader` extrae coordenadas de imágenes via EXIF (`System.Drawing`) y de videos MP4/MOV via átomos QuickTime (`©xyz`, `loci`) con fallback a scan de patrón ISO 6709 en los primeros 50 MB. `GpsWriter` escribe coordenadas GPS en EXIF de archivos JPEG y TIFF de forma atómica (archivo temporal + rename).
-
-### `Services/ExportadorOffice.cs` — Exportación Office/PDF
-Pipeline asíncrono: escribe un CSV temporal → invoca `export_office.py` → lee progreso por stdout. El script Python usa `openpyxl`, `python-docx`, `python-pptx` y `reportlab`. Soporta cancelación y muestra `ExportProgressForm` con barra animada.
 
 ### `UI/Forms/FileViewerform.cs` — Visor de datos
 Carga archivos de datos, aplica parsers y análisis de calidad, y muestra los resultados en un `DataGridView` con celdas coloreadas por tipo de problema. Permite filtrar, ordenar, guardar una copia corregida y exportar a CSV/JSON/TXT/XML/Excel/Word/PowerPoint/PDF. Incluye exportación directa a una base de datos SQL abierta.
@@ -300,11 +337,9 @@ Paleta "Arctic Night" con 7 fondos en capas, acento violeta, colores semánticos
 | `Npgsql` | 9.0.2 | Conector ADO.NET para PostgreSQL |
 | `MySqlConnector` | 2.3.7 | Conector ADO.NET para MariaDB / MySQL |
 | `Microsoft.Data.SqlClient` | 5.2.2 | Conector ADO.NET para SQL Server |
-
-### Dependencias Python (exportación Office/PDF)
-```bash
-pip install openpyxl python-docx python-pptx reportlab
-```
+| `ClosedXML` | 0.102.2 | Generación de archivos Excel (.xlsx) |
+| `DocumentFormat.OpenXml` | 2.20.0 | Generación de archivos Word (.docx) y PowerPoint (.pptx) |
+| `QuestPDF` | 2024.12.0 | Generación de archivos PDF — licencia Community MIT |
 
 ### APIs externas (opcionales, requieren internet)
 - **iTunes Search API** — carátulas de álbumes
@@ -319,7 +354,6 @@ pip install openpyxl python-docx python-pptx reportlab
 
 - **Sistema operativo:** Windows 10 / 11 (x64)
 - **Runtime:** .NET 8.0 (Windows)
-- **Python 3.10+** en el PATH (para exportación a Excel/Word/PowerPoint/PDF)
 - Conexión a internet opcional (carátulas, letras, mapas GPS)
 
 ---
@@ -343,13 +377,6 @@ dotnet run --project FileExplorerr/FileExplorerr.csproj
 
 O abrir `FileExplorerr.slnx` en **Visual Studio 2022 v17.8+** y compilar con `Ctrl+Shift+B`.
 
-Para habilitar la exportación Office/PDF, instalar las dependencias Python:
-```bash
-pip install openpyxl python-docx python-pptx reportlab
-```
-
-El archivo `export_office.py` debe estar en el mismo directorio que el ejecutable (se copia automáticamente en el build gracias a la regla `CopyToOutputDirectory` en el `.csproj`).
-
 ---
 
 ## Tecnologías
@@ -368,6 +395,8 @@ El archivo `export_office.py` debe estar en el mismo directorio que el ejecutabl
 | Microsoft.Data.SqlClient | Cliente SQL Server async |
 | System.Text.Json | Parsing de JSON y respuestas de APIs |
 | System.Drawing | Edición de imágenes, lectura de EXIF, iconos programáticos |
+| ClosedXML | Generación de hojas de cálculo Excel (.xlsx) |
+| DocumentFormat.OpenXml | Generación de documentos Word (.docx) y presentaciones PowerPoint (.pptx) |
+| QuestPDF | Generación de documentos PDF con paginación automática |
 | Leaflet.js + OpenStreetMap | Mapas GPS en `WebBrowser` embebido |
-| Python 3 + openpyxl/python-docx/python-pptx/reportlab | Generación de archivos Office y PDF |
 | async/await | Carga de directorios, exportación, búsqueda de carátulas y letras sin bloquear la UI |
