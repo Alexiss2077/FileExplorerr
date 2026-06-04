@@ -26,19 +26,23 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
 
     <!--
-      PHASE 1-2: Native Office export (replaces Python / export_office.py)
-
-      ClosedXML 0.102.2 was built against DocumentFormat.OpenXml 2.x.
-      Pinning to 2.20.0 prevents the TypeLoadException caused by the
-      IdPartPair struct/class mismatch introduced in OpenXml 3.x.
-
-      When upgrading ClosedXML in the future, check its release notes
-      to find the matching DocumentFormat.OpenXml version before bumping.
+      Office export — native C# (Phases 2-5, replaces export_office.py)
+      ClosedXML 0.102.2 requires DocumentFormat.OpenXml 2.x (not 3.x).
     -->
     <PackageReference Include="ClosedXML" Version="0.102.2" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="2.20.0" />
 
-    <!-- Script Python para exportacion Word/PowerPoint/PDF (eliminado en Fase 5) -->
+    <!--
+      Phase 5: PDF export — QuestPDF Community MIT license.
+      Free for individuals and organizations under $1M annual revenue.
+      License configured in Program.cs: QuestPDF.Settings.License = LicenseType.Community
+    -->
+    <PackageReference Include="QuestPDF" Version="2024.10.5" />
+
+    <!--
+      export_office.py is no longer needed — all formats are now handled
+      by native C# exporters.  Remove this entry in Phase 5 cleanup.
+    -->
     <None Update="export_office.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

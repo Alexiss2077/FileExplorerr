@@ -101,7 +101,7 @@ namespace FileExplorerr.Export
             Register(new ExcelExporter());
             Register(new WordExporter());
             Register(new PowerPointExporter());
-            // Phase 5: Register(new PdfExporter());
+            Register(new PdfExporter());
         }
     }
 }

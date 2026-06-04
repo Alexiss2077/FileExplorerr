@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
 using FileExplorerr.Export;
+using QuestPDF.Infrastructure;
 
 namespace FileExplorerr
 {
@@ -12,20 +13,20 @@ namespace FileExplorerr
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // ── Register native C# exporters (Phases 2+) ─────────────────
-            // Each phase adds one line here; no other file changes required.
-            //
-            //   Phase 2 (current): Excel  → ExcelExporter
-            //   Phase 3 (TODO):    Word   → WordExporter
-            //   Phase 4 (TODO):    PPTX   → PowerPointExporter
-            //   Phase 5 (TODO):    PDF    → PdfExporter  + delete export_office.py
+            // ── QuestPDF license (Community MIT — free under $1M revenue) ─
+            QuestPDF.Settings.License = LicenseType.Community;
+
+            // ── Register all native C# exporters ─────────────────────────
+            // Phase 2: Excel  (.xlsx) — ClosedXML
+            // Phase 3: Word   (.docx) — DocumentFormat.OpenXml
+            // Phase 4: PPTX   (.pptx) — DocumentFormat.OpenXml
+            // Phase 5: PDF    (.pdf)  — QuestPDF
             OfficeExporterFactory.RegisterNativeExporters();
 
-            // ── Catch unhandled exceptions on the UI thread ───────────────
+            // ── Global exception handlers ─────────────────────────────────
             Application.ThreadException += (_, args) =>
                 ShowFatalError(args.Exception);
 
-            // ── Catch unhandled exceptions on background threads ──────────
             AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             {
                 if (args.ExceptionObject is Exception ex)

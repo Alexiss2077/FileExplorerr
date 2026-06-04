@@ -140,13 +140,26 @@ namespace FileExplorerr.Export
             var master = BuildSlideMaster();
             masterPart.SlideMaster = master;
 
-            // ThemePart — required by PowerPoint; without it the file
-            // triggers "repair" on open.
-            var themePart = masterPart.AddNewPart<ThemePart>();
+            // ThemePart must be added to presentationPart (not masterPart) so
+            // the SDK places it at /ppt/theme/theme1.xml.
+            // Adding it to masterPart causes the path /ppt/slideMasters/theme/theme1.xml
+            // which PowerPoint cannot resolve → triggers "repair on open".
+            var themePart = presentationPart.AddNewPart<ThemePart>();
             themePart.Theme = BuildTheme();
+            themePart.Theme.Save();
+
+            // Create the relationship from the slideMaster to the theme.
+            masterPart.AddPart(themePart);
 
             var layoutPart = masterPart.AddNewPart<SlideLayoutPart>();
             layoutPart.SlideLayout = BuildSlideLayout();
+
+            // SlideLayout must have a back-reference to its SlideMaster.
+            // Without this relationship PowerPoint cannot resolve the
+            // master → layout hierarchy and triggers "repair on open".
+            layoutPart.AddPart(masterPart);
+            layoutPart.SlideLayout.Save();
+
             master.SlideLayoutIdList = new P.SlideLayoutIdList(
                 new P.SlideLayoutId
                 {
