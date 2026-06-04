@@ -25,7 +25,20 @@
     <PackageReference Include="MySqlConnector" Version="2.3.7" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
 
-    <!-- Script Python para exportación Office/PDF -->
+    <!--
+      PHASE 1-2: Native Office export (replaces Python / export_office.py)
+
+      ClosedXML 0.102.2 was built against DocumentFormat.OpenXml 2.x.
+      Pinning to 2.20.0 prevents the TypeLoadException caused by the
+      IdPartPair struct/class mismatch introduced in OpenXml 3.x.
+
+      When upgrading ClosedXML in the future, check its release notes
+      to find the matching DocumentFormat.OpenXml version before bumping.
+    -->
+    <PackageReference Include="ClosedXML" Version="0.102.2" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="2.20.0" />
+
+    <!-- Script Python para exportacion Word/PowerPoint/PDF (eliminado en Fase 5) -->
     <None Update="export_office.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

@@ -1,5 +1,6 @@
 using System;
 using System.Windows.Forms;
+using FileExplorerr.Export;
 
 namespace FileExplorerr
 {
@@ -11,12 +12,20 @@ namespace FileExplorerr
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // Catch unhandled exceptions on the UI thread so the app can show
-            // a diagnostic message instead of crashing silently.
+            // ── Register native C# exporters (Phases 2+) ─────────────────
+            // Each phase adds one line here; no other file changes required.
+            //
+            //   Phase 2 (current): Excel  → ExcelExporter
+            //   Phase 3 (TODO):    Word   → WordExporter
+            //   Phase 4 (TODO):    PPTX   → PowerPointExporter
+            //   Phase 5 (TODO):    PDF    → PdfExporter  + delete export_office.py
+            OfficeExporterFactory.RegisterNativeExporters();
+
+            // ── Catch unhandled exceptions on the UI thread ───────────────
             Application.ThreadException += (_, args) =>
                 ShowFatalError(args.Exception);
 
-            // Catch unhandled exceptions on background threads.
+            // ── Catch unhandled exceptions on background threads ──────────
             AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             {
                 if (args.ExceptionObject is Exception ex)
