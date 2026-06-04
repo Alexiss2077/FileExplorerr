@@ -131,21 +131,34 @@ namespace FileExplorerr
                     progress.SetStatus("¡Listo!", 100);
                     await Task.Delay(400, CancellationToken.None);
 
+                    // Capture all values BEFORE entering Invoke to avoid
+                    // closure/shadowing issues on the UI thread.
+                    string finalPath = result.OutputPath;
+                    string finalExt = Path.GetExtension(finalPath).ToUpperInvariant();
+                    bool truncated = result.WasTruncated;
+                    int rowsWritten = result.RowsWritten;
+
+                    // Re-read size from disk — BytesWritten may be 0 if the
+                    // file was still being flushed when ExportResult.Ok() ran.
+                    long sizeKb = 0;
+                    try { sizeKb = new FileInfo(finalPath).Length / 1024; } catch { }
+
+                    string finalMsg = truncated
+                        ? $"Exportado ({sizeKb:N0} KB) — {rowsWritten:N0} filas:\n{finalPath}\n\n" +
+                          $"⚠ El dataset fue truncado a las primeras {rowsWritten:N0} filas.\n" +
+                          $"Para el dataset completo exporta con Excel (.xlsx).\n\n¿Abrir {finalExt}?"
+                        : $"Exportado ({sizeKb:N0} KB):\n{finalPath}\n\n¿Abrir?";
+
                     progress.Invoke(() =>
                     {
                         progress.Close();
-                        long sizeKb = result.BytesWritten / 1024;
 
-                        string msg = result.WasTruncated
-                            ? $"Exportado ({sizeKb:N0} KB) — ⚠ Se truncaron filas al máximo permitido.\n{result.OutputPath}\n\n¿Abrir?"
-                            : $"Exportado ({sizeKb:N0} KB):\n{result.OutputPath}\n\n¿Abrir?";
-
-                        if (MessageBox.Show(msg, "Exportación completa",
+                        if (MessageBox.Show(finalMsg, "Exportación completa",
                                 MessageBoxButtons.YesNo,
                                 MessageBoxIcon.Information) == DialogResult.Yes)
                         {
                             Process.Start(new ProcessStartInfo
-                            { FileName = result.OutputPath, UseShellExecute = true });
+                            { FileName = finalPath, UseShellExecute = true });
                         }
                     });
                 }
@@ -404,14 +417,14 @@ namespace FileExplorerr
                 if (err.Contains("ModuleNotFoundError") || err.Contains("No module named"))
                 {
                     string missing = string.Empty;
-                    if (err.Contains("docx")) missing = "python-docx";
+
                     if (err.Contains("pptx")) missing = "python-pptx";
                     if (err.Contains("reportlab")) missing = "reportlab";
 
                     throw new InvalidOperationException(
                         $"Falta la librería Python: {missing}\n\n" +
                         "Ejecuta en la terminal:\n" +
-                        "  pip install python-docx python-pptx reportlab");
+                        "  pip install python-pptx reportlab");
                 }
 
                 throw new InvalidOperationException(
@@ -451,7 +464,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  FIND PYTHON  (unchanged — still needed for docx/pptx/pdf)
+        //  FIND PYTHON  (still needed for pptx/pdf — docx migrated in Phase 3)
         // ════════════════════════════════════════════════════════════════════
         private static string FindPython()
         {
@@ -491,9 +504,9 @@ namespace FileExplorerr
 
             throw new InvalidOperationException(
                 "No se encontró Python 3.\n\n" +
-                "Python sigue siendo necesario para exportar Word, PowerPoint y PDF.\n" +
+                "Python sigue siendo necesario para exportar PowerPoint y PDF.\n" +
                 "Descárgalo en https://python.org y marca 'Add Python to PATH'.\n" +
-                "Luego ejecuta:\n  pip install python-docx python-pptx reportlab");
+                "Luego ejecuta:\n  pip install python-pptx reportlab");
         }
 
         // ════════════════════════════════════════════════════════════════════

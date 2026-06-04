@@ -12,9 +12,9 @@ namespace FileExplorerr.Export
     //  Usage:
     //      // In application startup (or lazily on first use):
     //      OfficeExporterFactory.Register(new ExcelExporter());
-    //      OfficeExporterFactory.Register(new WordExporter());     // Phase 3
+    //      OfficeExporterFactory.Register(new WordExporter());
     //      OfficeExporterFactory.Register(new PowerPointExporter()); // Phase 4
-    //      OfficeExporterFactory.Register(new PdfExporter());      // Phase 5
+    //      OfficeExporterFactory.Register(new PdfExporter());        // Phase 5
     //
     //      // In call-sites:
     //      var exporter = OfficeExporterFactory.Resolve(".xlsx");
@@ -72,7 +72,7 @@ namespace FileExplorerr.Export
         {
             return TryResolve(extension)
                 ?? throw new NotSupportedException(
-                    $"No hay un exportador registrado para la extensión '{extension}'. " +
+                    $"No hay un exportador registrado para la extension '{extension}'. " +
                     $"Extensiones disponibles: {string.Join(", ", SupportedExtensions)}");
         }
 
@@ -87,19 +87,19 @@ namespace FileExplorerr.Export
         // ── Startup helper ────────────────────────────────────────────────
 
         /// <summary>
-        /// Registers all native C# exporters that have been implemented so far.
-        /// Call once during application startup (e.g. Program.Main or Form1 ctor).
+        /// Registers all native C# exporters implemented so far.
+        /// Called once from Program.Main() before Application.Run().
         ///
         /// Phases:
-        ///   Phase 2 — ExcelExporter (.xlsx)
-        ///   Phase 3 — WordExporter  (.docx)   [TODO]
-        ///   Phase 4 — PowerPointExporter      [TODO]
-        ///   Phase 5 — PdfExporter             [TODO]
+        ///   Phase 2 (done) — ExcelExporter (.xlsx)
+        ///   Phase 3 (done) — WordExporter  (.docx)
+        ///   Phase 4 (TODO) — PowerPointExporter (.pptx)
+        ///   Phase 5 (TODO) — PdfExporter (.pdf)  + delete export_office.py
         /// </summary>
         public static void RegisterNativeExporters()
         {
             Register(new ExcelExporter());
-            // Phase 3: Register(new WordExporter());
+            Register(new WordExporter());
             // Phase 4: Register(new PowerPointExporter());
             // Phase 5: Register(new PdfExporter());
         }
