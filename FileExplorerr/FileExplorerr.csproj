@@ -26,25 +26,13 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
 
     <!--
-      Office export — native C# (Phases 2-5, replaces export_office.py)
+      Office / PDF export — native C# (Phases 2-5)
       ClosedXML 0.102.2 requires DocumentFormat.OpenXml 2.x (not 3.x).
+      QuestPDF Community MIT license — free under $1M annual revenue.
+      License set in Program.cs: QuestPDF.Settings.License = LicenseType.Community
     -->
     <PackageReference Include="ClosedXML" Version="0.102.2" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="2.20.0" />
-
-    <!--
-      Phase 5: PDF export — QuestPDF Community MIT license.
-      Free for individuals and organizations under $1M annual revenue.
-      License configured in Program.cs: QuestPDF.Settings.License = LicenseType.Community
-    -->
     <PackageReference Include="QuestPDF" Version="2024.12.0" />
-
-    <!--
-      export_office.py is no longer needed — all formats are now handled
-      by native C# exporters.  Remove this entry in Phase 5 cleanup.
-    -->
-    <None Update="export_office.py">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 </Project>
