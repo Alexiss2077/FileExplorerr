@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Data;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -12,26 +13,28 @@ namespace FileExplorerr.Export
     //  PDF EXPORTER  (Phase 5)
     //  Generates .pdf files from a DataTable using QuestPDF.
     //
-    //  NuGet: QuestPDF (latest stable) — Community MIT license, free for
-    //  individuals and organizations under $1M annual revenue.
+    //  QuestPDF.GeneratePdf() is synchronous and single-threaded — it builds
+    //  the entire layout in one pass before writing.  For large/wide datasets
+    //  this can take several seconds.  A background animation timer keeps the
+    //  progress bar moving so the user knows the app is working.
     //
-    //  Layout:
-    //    • Cover page  — title, row/column count, optional timestamp
-    //    • Data pages  — table with paginated rows, header repeats on each page
-    //
-    //  Features:
-    //    ✔ Automatic pagination — QuestPDF handles page breaks natively
-    //    ✔ Header row repeated on every page
-    //    ✔ Arctic Night palette (dark header, alternating rows)
-    //    ✔ Landscape auto-switch when columns > 6
-    //    ✔ No row limit — PDF handles any dataset size correctly
-    //    ✔ Cooperative cancellation checked before generation starts
-    //    ✔ Progress 0 → 100
-    //    ✔ Partial file deleted on failure / cancellation
+    //  No row or column limit — QuestPDF paginates automatically.
+    //  Landscape auto-switch when columns > 6.
     // ════════════════════════════════════════════════════════════════════════
     public sealed class PdfExporter : IOfficeExporter
     {
         private const int LandscapeColLimit = 6;
+
+        // Cell ceiling: rows × cols above this will take too long.
+        // 500 000 cells ≈ 5 000 rows × 100 cols or 10 000 rows × 50 cols.
+        // For larger datasets Excel is the right tool.
+        private const int MaxCells = 500_000;
+
+        // Font / padding tuned for wide datasets (≥ 20 cols)
+        private const float FontSizeHeader = 7f;
+        private const float FontSizeData = 6.5f;
+        private const float PaddingHeader = 3f;
+        private const float PaddingData = 2f;
 
         public string SupportedExtension => ".pdf";
 
@@ -46,13 +49,51 @@ namespace FileExplorerr.Export
             if (options.CancellationToken.IsCancellationRequested)
                 return ExportResult.Cancelled();
 
+            // ── Fail fast: 2.5 M cells would take 15+ minutes ────────────
+            int totalCells = data.Rows.Count * data.Columns.Count;
+            if (totalCells > MaxCells)
+            {
+                int maxRows = MaxCells / Math.Max(data.Columns.Count, 1);
+                return ExportResult.Fail(
+                    $"El dataset tiene {data.Rows.Count:N0} filas × {data.Columns.Count} columnas" +
+                    $" = {totalCells:N0} celdas.\n\n" +
+                    $"PDF puede procesar hasta {MaxCells:N0} celdas ({maxRows:N0} filas con {data.Columns.Count} columnas).\n\n" +
+                    "Para datasets grandes usa Excel (.xlsx) que no tiene este límite.");
+            }
+
             TryDeletePartial(options.OutputPath);
 
             try
             {
-                var result = await Task.Run(
-                    () => BuildPdf(data, options, progress),
+                // Start a background animation timer so the progress bar
+                // keeps moving while QuestPDF works synchronously.
+                using var animCts = CancellationTokenSource
+                    .CreateLinkedTokenSource(options.CancellationToken);
+
+                int animPct = 10;
+                var animTask = Task.Run(async () =>
+                {
+                    while (!animCts.Token.IsCancellationRequested)
+                    {
+                        await Task.Delay(600, animCts.Token).ConfigureAwait(false);
+                        animPct = Math.Min(animPct + 1, 88);
+                        progress?.Report(animPct);
+                    }
+                }, animCts.Token);
+
+                progress?.Report(5);
+
+                // Run the synchronous QuestPDF generation on the thread-pool.
+                ExportResult result = await Task.Run(
+                    () => BuildPdf(data, options),
                     options.CancellationToken);
+
+                // Stop the animation and jump to 100%.
+                animCts.Cancel();
+                try { await animTask; } catch (OperationCanceledException) { }
+
+                if (result.Success)
+                    progress?.Report(100);
 
                 return result;
             }
@@ -69,21 +110,17 @@ namespace FileExplorerr.Export
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  PDF BUILDER  (thread-pool)
+        //  PDF BUILDER  (thread-pool, synchronous QuestPDF call)
         // ════════════════════════════════════════════════════════════════════
 
         private static ExportResult BuildPdf(
             DataTable data,
-            ExportOptions options,
-            IProgress<int>? progress)
+            ExportOptions options)
         {
-            progress?.Report(5);
-
             int colCount = data.Columns.Count;
             int rowCount = data.Rows.Count;
             bool landscape = colCount > LandscapeColLimit;
 
-            // Parse Arctic Night colours for QuestPDF
             var headerBg = ParseColor(options.HeaderBackground);
             var headerFg = ParseColor(options.HeaderForeground);
             var rowEvenBg = ParseColor(options.RowEvenBackground);
@@ -94,69 +131,64 @@ namespace FileExplorerr.Export
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            progress?.Report(10);
-
-            // ── Build document ────────────────────────────────────────────
             Document.Create(container =>
             {
                 container.Page(page =>
                 {
-                    // Page size and margins
                     page.Size(landscape ? PageSizes.A4.Landscape() : PageSizes.A4);
-                    page.Margin(1.5f, Unit.Centimetre);
-                    page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
+                    page.Margin(1f, Unit.Centimetre);
+                    page.DefaultTextStyle(t =>
+                        t.FontFamily("Arial").FontSize(FontSizeData));
 
-                    // ── Header (repeats on every page) ────────────────────
+                    // ── Header (every page) ───────────────────────────────
                     page.Header().Column(col =>
                     {
                         col.Item()
-                           .PaddingBottom(4)
+                           .PaddingBottom(3)
                            .Row(row =>
                            {
-                               row.RelativeItem()
-                                  .Text(text =>
-                                  {
-                                      text.Span(SanitiseText(options.Title))
-                                          .Bold()
-                                          .FontSize(13)
-                                          .FontColor(accentClr);
+                               row.RelativeItem().Text(text =>
+                               {
+                                   text.Span(SanitiseText(options.Title))
+                                       .Bold().FontSize(11).FontColor(accentClr);
 
-                                      string meta = $"  ·  {rowCount:N0} filas  ·  {colCount} columnas";
-                                      if (options.IncludeTimestamp)
-                                          meta += $"  ·  {DateTime.Now:dd/MM/yyyy HH:mm}";
-                                      text.Span(meta)
-                                          .FontSize(8)
-                                          .FontColor(Colors.Grey.Medium);
-                                  });
+                                   string meta =
+                                       $"  ·  {rowCount:N0} filas  ·  {colCount} col.";
+                                   if (options.IncludeTimestamp)
+                                       meta += $"  ·  {DateTime.Now:dd/MM/yyyy HH:mm}";
+
+                                   text.Span(meta)
+                                       .FontSize(7)
+                                       .FontColor(Colors.Grey.Medium);
+                               });
                            });
 
                         col.Item()
-                           .BorderBottom(1)
+                           .BorderBottom(0.5f)
                            .BorderColor(Colors.Grey.Lighten2)
-                           .PaddingBottom(4);
+                           .PaddingBottom(3);
                     });
 
-                    // ── Content: data table ───────────────────────────────
-                    page.Content().PaddingTop(8).Table(table =>
+                    // ── Table ─────────────────────────────────────────────
+                    page.Content().PaddingTop(6).Table(table =>
                     {
-                        // Column definitions
                         table.ColumnsDefinition(cols =>
                         {
                             for (int c = 0; c < colCount; c++)
                                 cols.RelativeColumn();
                         });
 
-                        // Header row — repeats on page break
+                        // Header row — repeats on every page break
                         table.Header(header =>
                         {
                             for (int c = 0; c < colCount; c++)
                             {
                                 header.Cell()
                                       .Background(headerBg)
-                                      .Padding(4)
+                                      .Padding(PaddingHeader)
                                       .Text(SanitiseText(data.Columns[c].ColumnName))
                                       .Bold()
-                                      .FontSize(8)
+                                      .FontSize(FontSizeHeader)
                                       .FontColor(headerFg);
                             }
                         });
@@ -164,7 +196,7 @@ namespace FileExplorerr.Export
                         // Data rows
                         for (int r = 0; r < rowCount; r++)
                         {
-                            var bg = r % 2 == 0 ? rowEvenBg : rowOddBg;
+                            string bg = r % 2 == 0 ? rowEvenBg : rowOddBg;
 
                             for (int c = 0; c < colCount; c++)
                             {
@@ -173,17 +205,13 @@ namespace FileExplorerr.Export
 
                                 table.Cell()
                                      .Background(bg)
-                                     .BorderBottom(0.5f)
+                                     .BorderBottom(0.3f)
                                      .BorderColor(Colors.Grey.Lighten3)
-                                     .Padding(3)
+                                     .Padding(PaddingData)
                                      .Text(text)
-                                     .FontSize(8)
+                                     .FontSize(FontSizeData)
                                      .FontColor(Colors.Black);
                             }
-
-                            // Report progress every 1 000 rows (10% → 88%)
-                            if (r > 0 && r % 1_000 == 0)
-                                progress?.Report(10 + (int)(78.0 * r / rowCount));
                         }
                     });
 
@@ -192,16 +220,18 @@ namespace FileExplorerr.Export
                         .AlignRight()
                         .Text(text =>
                         {
-                            text.Span("Página ").FontSize(7).FontColor(Colors.Grey.Medium);
-                            text.CurrentPageNumber().FontSize(7).FontColor(Colors.Grey.Medium);
-                            text.Span(" de ").FontSize(7).FontColor(Colors.Grey.Medium);
-                            text.TotalPages().FontSize(7).FontColor(Colors.Grey.Medium);
+                            text.Span("Página ")
+                                .FontSize(6).FontColor(Colors.Grey.Medium);
+                            text.CurrentPageNumber()
+                                .FontSize(6).FontColor(Colors.Grey.Medium);
+                            text.Span(" de ")
+                                .FontSize(6).FontColor(Colors.Grey.Medium);
+                            text.TotalPages()
+                                .FontSize(6).FontColor(Colors.Grey.Medium);
                         });
                 });
             })
             .GeneratePdf(options.OutputPath);
-
-            progress?.Report(100);
 
             return ExportResult.Ok(options.OutputPath, rowCount);
         }
@@ -210,10 +240,6 @@ namespace FileExplorerr.Export
         //  HELPERS
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Converts a 6-char RRGGBB hex string to a QuestPDF color string.
-        /// QuestPDF accepts "#RRGGBB" format.
-        /// </summary>
         private static string ParseColor(string hex) => $"#{hex.TrimStart('#')}";
 
         private static string SanitiseText(string text)
