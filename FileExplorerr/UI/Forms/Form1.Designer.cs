@@ -45,6 +45,11 @@
 
         // ── Menú contextual ───────────────────────────────────────────────────
         private System.Windows.Forms.ContextMenuStrip contextMenu = null!;
+        private ToolStripMenuItem miCompress = null!;
+        private ToolStripMenuItem miExtractHere = null!;
+        private ToolStripMenuItem miExtractTo = null!;
+        private ToolStripSeparator sep5 = null!;
+
 
         protected override void Dispose(bool disposing)
         {

@@ -2,7 +2,7 @@ using System;
 using System.Windows.Forms;
 using FileExplorerr.Export;
 using QuestPDF.Infrastructure;
-
+using FileExplorerr.Compression;
 namespace FileExplorerr
 {
     internal static class Program
@@ -22,6 +22,7 @@ namespace FileExplorerr
             // Phase 4: PPTX   (.pptx) — DocumentFormat.OpenXml
             // Phase 5: PDF    (.pdf)  — QuestPDF
             OfficeExporterFactory.RegisterNativeExporters();
+            ArchiverFactory.RegisterBuiltInArchivers();
 
             // ── Global exception handlers ─────────────────────────────────
             Application.ThreadException += (_, args) =>

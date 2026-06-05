@@ -42,6 +42,13 @@ namespace FileExplorerr
             ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf"
         };
 
+        public static readonly HashSet<string> Archive =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".zip",
+                   // Future: ".7z", ".rar", ".tar", ".gz", ".tgz"
+        };
+
         /// <summary>Returns the broad category for a given extension.</summary>
         public static FileCategory Categorise(string extension)
         {
@@ -50,11 +57,11 @@ namespace FileExplorerr
             if (Video.Contains(extension)) return FileCategory.Video;
             if (Text.Contains(extension)) return FileCategory.Text;
             if (Document.Contains(extension)) return FileCategory.Document;
+            if (Archive.Contains(extension)) return FileCategory.Archive;
             return FileCategory.Other;
         }
     }
-
-    internal enum FileCategory { Image, Audio, Video, Text, Document, Other }
+    internal enum FileCategory { Image, Audio, Video, Text, Document, Archive, Other }
 
     // ════════════════════════════════════════════════════════════════════════
     //  FORMAT HELPERS — eliminate the five identical FormatSize implementations

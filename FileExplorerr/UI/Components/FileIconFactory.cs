@@ -26,6 +26,7 @@ namespace FileExplorerr
         public const string KeyAudio = "audio";
         public const string KeyVideo = "video";
         public const string KeyText = "text";
+        public const string KeyArchive = "archive";
 
         // ════════════════════════════════════════════════════════════════════
         //  ICON CREATION
@@ -136,8 +137,28 @@ namespace FileExplorerr
                 FileCategory.Audio => KeyAudio,
                 FileCategory.Video => KeyVideo,
                 FileCategory.Text => KeyText,
+                FileCategory.Archive => KeyArchive,
                 _ => KeyFile
             };
+        }
+
+        public static System.Drawing.Icon MakeArchiveIcon()
+
+        {
+             using var bmp = new Bitmap(32, 32);
+             using var g = Graphics.FromImage(bmp);
+             g.SmoothingMode = SmoothingMode.AntiAlias;
+             g.Clear(Color.Transparent);
+             // Box body
+             using var body = new SolidBrush(Color.FromArgb(90, 96, 128));
+             g.FillRectangle(body, 6, 14, 20, 14);
+             // Box lid
+             using var lid = new SolidBrush(Color.FromArgb(124, 111, 247));
+             g.FillRectangle(lid, 4, 10, 24, 6);
+             // Zipper stripe
+             using var zip = new SolidBrush(Color.FromArgb(240, 240, 255));
+             g.FillRectangle(zip, 14, 10, 4, 18);
+              return System.Drawing.Icon.FromHandle(bmp.GetHicon());
         }
 
         // ════════════════════════════════════════════════════════════════════

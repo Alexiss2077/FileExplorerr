@@ -83,6 +83,7 @@ namespace FileExplorerr
             imageList.Images.Add("audio", FileIconFactory.MakeAudioIcon());
             imageList.Images.Add("video", FileIconFactory.MakeVideoIcon());
             imageList.Images.Add("text", FileIconFactory.MakeTextIcon());
+            imageList.Images.Add("archive", FileIconFactory.MakeArchiveIcon());
 
             BuildTopNav();
             BuildExplorerPage();
@@ -762,7 +763,10 @@ namespace FileExplorerr
             var miProps = new ToolStripMenuItem("Propiedades") { ForeColor = Color.FromArgb(167, 139, 250) };
             var sep4 = new ToolStripSeparator();
             var miRefresh = new ToolStripMenuItem("Actualizar  (F5)") { ForeColor = Theme.Accent2 };
-
+            sep5 = new ToolStripSeparator();
+            miCompress = new ToolStripMenuItem("📦 Comprimir selección...") { ForeColor = Theme.Accent2 };
+            miExtractHere = new ToolStripMenuItem("📂 Extraer aquí") { ForeColor = Theme.Teal };
+            miExtractTo = new ToolStripMenuItem("📁 Extraer en...") { ForeColor = Theme.Teal };
             miOpen.Click += (s, e) =>
             {
                 if (listView.SelectedItems.Count > 0)
@@ -786,8 +790,37 @@ namespace FileExplorerr
                     new FilePropertiesForm(listView.SelectedItems[0].Tag!.ToString()!).Show(this);
             };
 
+
+
+            miCompress.Click += (s, e) =>
+            {
+                var selected = listView.SelectedItems
+                .Cast<ListViewItem>()
+                .Select(i => i.Tag!.ToString()!)
+                .ToArray();
+                CompressionService.Compress(selected, this, () => LoadDirectory(currentPath));
+            };
+
+            miExtractHere.Click += (s, e) =>
+            {
+                if (listView.SelectedItems.Count == 0) return;
+                string path = listView.SelectedItems[0].Tag!.ToString()!;
+                CompressionService.Extract(path, this, extractHere: true,
+                   onRefresh: () => LoadDirectory(currentPath));
+            };
+
+
+            miExtractTo.Click += (s, e) =>
+            {
+                 if (listView.SelectedItems.Count == 0) return;
+                 string path = listView.SelectedItems[0].Tag!.ToString()!;
+                 CompressionService.Extract(path, this, extractHere: false,
+                    onRefresh: () => LoadDirectory(currentPath));
+            };
+
+
             contextMenu.Items.AddRange(new ToolStripItem[]
-                { miOpen, sep1, miNewFolder, sep2, miRename, miDelete, sep3, miProps, sep4, miRefresh });
+                { miOpen, sep1, miNewFolder, sep2, miRename, miDelete, sep3, miProps, sep4, miRefresh, sep5, miCompress, miExtractHere, miExtractTo });
         }
 
         private void ListView_MouseClick(object sender, MouseEventArgs e)
@@ -802,6 +835,16 @@ namespace FileExplorerr
             contextMenu.Items[6].Visible = sel;
             contextMenu.Items[7].Visible = sel;
             contextMenu.Items[8].Visible = sel;
+
+            bool hasSelection = listView.SelectedItems.Count > 0;
+            bool isArchive    = hasSelection &&
+                                FileExtensions.Archive.Contains(
+                                    Path.GetExtension(
+                                       listView.SelectedItems[0].Tag?.ToString() ?? ""));
+            
+            miCompress.Visible    = hasSelection;      // always when something selected
+            miExtractHere.Visible = isArchive;         // only for .zip etc.
+            miExtractTo.Visible   = isArchive;
         }
 
         // ════════════════════════════════════════════════════════════════════
