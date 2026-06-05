@@ -43,11 +43,16 @@ namespace FileExplorerr
         };
 
         public static readonly HashSet<string> Archive =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".zip",
-                   // Future: ".7z", ".rar", ".tar", ".gz", ".tgz"
-        };
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+               ".zip",
+               ".7z",
+               ".rar",
+               ".tar",
+               ".gz",
+               ".tgz",
+            };
+
 
         /// <summary>Returns the broad category for a given extension.</summary>
         public static FileCategory Categorise(string extension)

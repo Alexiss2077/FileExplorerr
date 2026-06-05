@@ -1,51 +1,43 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Threading.Tasks;
+using SharpCompress.Common;
+using SharpCompress.Readers;
+using SharpCompress.Writers;
+using SharpCompress.Archives.SevenZip;
 
 namespace FileExplorerr.Compression
 {
     // ════════════════════════════════════════════════════════════════════════
-    //  ZIP ARCHIVER
-    //  Implements IArchiver for .zip files using System.IO.Compression from
-    //  the .NET 8 BCL — no external NuGet packages required.
+    //  SHARPCOMPRESS ARCHIVER
+    //  Implementa IArchiver para .7z, .tar, .tar.gz, .tgz, .tar.bz2
+    //  usando SharpCompress 0.40.0+ (licencia MIT, CVE-2026-44788 corregido).
     //
-    //  Key behaviours:
-    //    Compression:
-    //      - Accepts a mix of files and directories.
-    //      - Directories are traversed recursively; empty directories are
-    //        stored as zero-byte entries with a trailing slash.
-    //      - Entry paths inside the archive use forward slashes and are
-    //        always relative — no absolute paths leak into the ZIP.
-    //      - Progress is reported by bytes written vs. total source bytes.
-    //      - The partial output file is deleted on failure or cancellation.
+    //  NOTA IMPORTANTE sobre 7z:
+    //    SevenZipArchive.Create() fue eliminado/cambiado en 0.38+.
+    //    Usamos WriterFactory.Open() con ArchiveType.SevenZip que es la
+    //    API estable y recomendada en todas las versiones modernas.
     //
-    //    Extraction:
-    //      - SECURITY: every entry path is validated against the destination
-    //        folder BEFORE any byte is written to disk (Zip Slip prevention).
-    //      - FlattenSingleRootFolder: when true and the ZIP contains a single
-    //        root folder, that folder is stripped so files land directly in
-    //        DestinationFolder — identical to "Extract Here" in WinRAR/7-Zip.
-    //      - Entries that conflict with existing files are skipped or
-    //        overwritten according to ArchiveOptions.OverwriteExisting.
-    //      - Encoding note: System.IO.Compression uses UTF-8 (.NET 8 default).
-    //        Legacy ZIPs with CP437/Latin-1 names may display garbled chars.
+    //  Compresión:  .7z · .tar · .tar.gz · .tgz · .tar.bz2
+    //  Extracción:  todos los anteriores
+    //  RAR:         manejado en RarArchiver.cs
     //
-    //  Supported extensions: .zip
+    //  NuGet requerido:
+    //      <PackageReference Include="SharpCompress" Version="0.40.0" />
     // ════════════════════════════════════════════════════════════════════════
-    internal sealed class ZipArchiver : IArchiver
+    internal sealed class SharpCompressArchiver : IArchiver
     {
         // ── IArchiver identity ────────────────────────────────────────────
 
-        public string DisplayName => "ZIP";
+        public string DisplayName => "7z / TAR";
 
         public IReadOnlyList<string> SupportedExtensions { get; } =
-            new[] { ".zip" };
+            new[] { ".7z", ".tar", ".tar.gz", ".tgz", ".tar.bz2" };
 
         // ════════════════════════════════════════════════════════════════════
-        //  COMPRESSION
+        //  COMPRESIÓN
         // ════════════════════════════════════════════════════════════════════
 
         public async Task<ArchiveResult> CompressAsync(
@@ -56,6 +48,44 @@ namespace FileExplorerr.Compression
             if (options is null) return ArchiveResult.Fail("ArchiveOptions es nulo.");
             if (options.SourcePaths.Count == 0)
                 return ArchiveResult.Fail("No hay archivos ni carpetas que comprimir.");
+
+            string outputLower = options.OutputPath.ToLowerInvariant();
+            bool isTarGz = outputLower.EndsWith(".tar.gz") || outputLower.EndsWith(".tgz");
+            bool isTarBz2 = outputLower.EndsWith(".tar.bz2");
+            bool isTar = outputLower.EndsWith(".tar") && !isTarGz && !isTarBz2;
+            bool is7z = outputLower.EndsWith(".7z");
+
+            // Determinar ArchiveType y CompressionType
+            ArchiveType archiveType;
+            CompressionType compressionType;
+
+            if (is7z)
+            {
+                archiveType = ArchiveType.SevenZip;
+                compressionType = CompressionType.LZMA;
+            }
+            else if (isTarGz)
+            {
+                archiveType = ArchiveType.Tar;
+                compressionType = CompressionType.GZip;
+            }
+            else if (isTarBz2)
+            {
+                archiveType = ArchiveType.Tar;
+                compressionType = CompressionType.BZip2;
+            }
+            else if (isTar)
+            {
+                archiveType = ArchiveType.Tar;
+                compressionType = CompressionType.None;
+            }
+            else
+            {
+                return ArchiveResult.Fail(
+                    $"Formato no soportado para compresión: " +
+                    $"{Path.GetExtension(options.OutputPath)}\n\n" +
+                    "Formatos disponibles: .7z, .tar, .tar.gz, .tgz, .tar.bz2");
+            }
 
             string? outputDir = Path.GetDirectoryName(options.OutputPath);
             if (!string.IsNullOrEmpty(outputDir))
@@ -84,52 +114,27 @@ namespace FileExplorerr.Compression
 
                 await Task.Run(() =>
                 {
-                    using var archive = ZipFile.Open(options.OutputPath, ZipArchiveMode.Create);
+                    using var outStream = File.Create(options.OutputPath);
+                    using var writer = WriterFactory.OpenWriter(
+                        outStream,
+                        archiveType,
+                        new WriterOptions(compressionType)
+                        {
+                            LeaveStreamOpen = false
+                        });
 
-                    foreach (var entry in entries)
+                    foreach (var entry in entries.Where(e => !e.IsDirectory))
                     {
                         options.CancellationToken.ThrowIfCancellationRequested();
                         currentEntryName?.Report(entry.EntryName);
 
-                        if (entry.IsDirectory)
-                        {
-                            string dirEntry = entry.EntryName.TrimEnd('/') + "/";
-                            archive.CreateEntry(dirEntry, options.Level);
-                            continue;
-                        }
+                        writer.Write(entry.EntryName, entry.SourcePath);
 
-                        var zipEntry = archive.CreateEntry(entry.EntryName, options.Level);
-
-                        try
-                        {
-                            zipEntry.LastWriteTime = new FileInfo(entry.SourcePath).LastWriteTime;
-                        }
+                        try { writtenBytes += new FileInfo(entry.SourcePath).Length; }
                         catch { /* non-fatal */ }
 
-                        using var srcStream = new FileStream(
-                            entry.SourcePath,
-                            FileMode.Open,
-                            FileAccess.Read,
-                            FileShare.ReadWrite,
-                            bufferSize: 65_536,
-                            useAsync: false);
-
-                        using var dstStream = zipEntry.Open();
-
-                        var buffer = new byte[65_536];
-                        int bytesRead;
-                        while ((bytesRead = srcStream.Read(buffer, 0, buffer.Length)) > 0)
-                        {
-                            options.CancellationToken.ThrowIfCancellationRequested();
-                            dstStream.Write(buffer, 0, bytesRead);
-
-                            writtenBytes += bytesRead;
-                            if (totalBytes > 0)
-                            {
-                                int pct = 5 + (int)(90.0 * writtenBytes / totalBytes);
-                                progress?.Report(Math.Min(pct, 95));
-                            }
-                        }
+                        if (totalBytes > 0)
+                            progress?.Report(5 + (int)(90.0 * writtenBytes / totalBytes));
 
                         filesAdded++;
                     }
@@ -147,16 +152,22 @@ namespace FileExplorerr.Compression
             catch (Exception ex)
             {
                 TryDeleteFile(options.OutputPath);
-                System.Diagnostics.Debug.WriteLine($"[ZipArchiver.CompressAsync] {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(
+                    $"[SharpCompressArchiver.CompressAsync] {ex.Message}");
                 return ArchiveResult.Fail(ex, BuildFriendlyCompressError(ex));
             }
         }
 
+
+
+
+
         // ════════════════════════════════════════════════════════════════════
-        //  EXTRACTION
+        //  EXTRACCIÓN
         // ════════════════════════════════════════════════════════════════════
 
         public async Task<ArchiveResult> ExtractAsync(
+
             ArchiveOptions options,
             IProgress<int>? progress,
             IProgress<string>? currentEntryName = null)
@@ -164,6 +175,12 @@ namespace FileExplorerr.Compression
             if (options is null) return ArchiveResult.Fail("ArchiveOptions es nulo.");
             if (!File.Exists(options.ArchivePath))
                 return ArchiveResult.Fail($"El archivo no existe:\n{options.ArchivePath}");
+
+            
+            string lowerPath = options.ArchivePath.ToLowerInvariant();
+            if (lowerPath.EndsWith(".7z"))
+                return await Extract7zAsync(options, progress, currentEntryName);
+
 
             var skipped = new List<string>();
 
@@ -176,40 +193,51 @@ namespace FileExplorerr.Compression
 
                 await Task.Run(() =>
                 {
-                    using var archive = ZipFile.OpenRead(options.ArchivePath);
-
-                    // ── Detectar carpeta raíz única (FlattenSingleRootFolder) ──
+                    // ── Detectar prefijo raíz único (FlattenSingleRootFolder) ──
                     string rootPrefix = string.Empty;
 
                     if (options.FlattenSingleRootFolder)
                     {
-                        var roots = archive.Entries
-                            .Select(e => e.FullName.Split('/')[0])
-                            .Where(r => !string.IsNullOrEmpty(r))
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .ToList();
+                        using var peekStream = File.OpenRead(options.ArchivePath);
+                        using var peekReader = ReaderFactory.OpenReader(peekStream);
 
-                        // Solo aplanamos cuando hay exactamente una carpeta raíz
-                        // y al menos una entrada tiene contenido bajo ella.
+                        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        while (peekReader.MoveToNextEntry())
+                        {
+                            if (peekReader.Entry.IsDirectory) continue;
+                            string firstSegment = (peekReader.Entry.Key ?? string.Empty)
+                                .Replace('\\', '/')
+                                .Split('/')[0];
+                            if (!string.IsNullOrEmpty(firstSegment))
+                                roots.Add(firstSegment);
+                        }
+
                         if (roots.Count == 1)
-                            rootPrefix = roots[0] + "/";
+                            rootPrefix = roots.First() + "/";
                     }
 
-                    int total = archive.Entries.Count;
+
+
+                    // ── Extracción real ────────────────────────────────────
+                    using var stream = File.OpenRead(options.ArchivePath);
+                    using var reader = ReaderFactory.OpenReader(stream);
+
                     int processed = 0;
 
-                    foreach (var entry in archive.Entries)
+                    while (reader.MoveToNextEntry())
                     {
                         options.CancellationToken.ThrowIfCancellationRequested();
 
                         processed++;
-                        int pct = 5 + (int)(90.0 * processed / Math.Max(total, 1));
-                        progress?.Report(Math.Min(pct, 95));
-                        currentEntryName?.Report(entry.FullName);
+                        progress?.Report(Math.Min(5 + processed * 2, 95));
 
-                        // ── Calcular ruta relativa (con flatten si aplica) ──────
-                        string entryRelative = entry.FullName;
+                        string entryKey = (reader.Entry.Key ?? string.Empty)
+                            .Replace('\\', '/');
 
+                        currentEntryName?.Report(entryKey);
+
+                        // ── Aplanar carpeta raíz si aplica ─────────────────
+                        string entryRelative = entryKey;
                         if (!string.IsNullOrEmpty(rootPrefix) &&
                             entryRelative.StartsWith(rootPrefix,
                                 StringComparison.OrdinalIgnoreCase))
@@ -217,11 +245,9 @@ namespace FileExplorerr.Compression
                             entryRelative = entryRelative.Substring(rootPrefix.Length);
                         }
 
-                        // Si después de quitar el prefijo no queda nada es la
-                        // carpeta raíz misma → no crear nada, continuar.
                         if (string.IsNullOrEmpty(entryRelative)) continue;
 
-                        // ── Security: Zip Slip prevention ─────────────────────
+                        // ── Security: path traversal prevention ────────────
                         string entryDestPath = Path.GetFullPath(
                             Path.Combine(destination, entryRelative));
 
@@ -235,65 +261,54 @@ namespace FileExplorerr.Compression
 
                         if (!isInsideDest)
                         {
-                            skipped.Add($"[SEGURIDAD] {entry.FullName}");
+                            skipped.Add($"[SEGURIDAD] {entryKey}");
                             System.Diagnostics.Debug.WriteLine(
-                                $"[ZipArchiver] Zip Slip bloqueado: {entry.FullName}");
+                                $"[SharpCompressArchiver] Path traversal bloqueado: {entryKey}");
                             continue;
                         }
 
-                        // ── Entrada de directorio ──────────────────────────────
-                        bool isDirectoryEntry =
-                            string.IsNullOrEmpty(entry.Name) ||
-                            entry.FullName.EndsWith('/') ||
-                            entry.FullName.EndsWith('\\');
-
-                        if (isDirectoryEntry)
+                        // ── Entrada de directorio ──────────────────────────
+                        if (reader.Entry.IsDirectory)
                         {
                             Directory.CreateDirectory(entryDestPath);
                             continue;
                         }
 
-                        // ── Asegurar que exista el directorio padre ─────────────
+                        // ── Directorio padre ───────────────────────────────
                         string? parentDir = Path.GetDirectoryName(entryDestPath);
                         if (!string.IsNullOrEmpty(parentDir))
                             Directory.CreateDirectory(parentDir);
 
-                        // ── Manejo de conflictos ───────────────────────────────
+                        // ── Conflicto de nombre ────────────────────────────
                         if (File.Exists(entryDestPath))
                         {
                             if (!options.OverwriteExisting)
                             {
-                                skipped.Add(entry.FullName);
+                                skipped.Add(entryKey);
                                 continue;
                             }
                             File.SetAttributes(entryDestPath, FileAttributes.Normal);
                             File.Delete(entryDestPath);
                         }
 
-                        // ── Extraer por streaming ──────────────────────────────
-                        using var srcStream = entry.Open();
+                        // ── Extraer entrada ────────────────────────────────
                         using var dstStream = new FileStream(
                             entryDestPath,
                             FileMode.Create,
                             FileAccess.Write,
                             FileShare.None,
-                            bufferSize: 65_536,
+                            65_536,
                             useAsync: false);
 
-                        var buffer = new byte[65_536];
-                        int bytesRead;
-                        while ((bytesRead = srcStream.Read(buffer, 0, buffer.Length)) > 0)
-                        {
-                            options.CancellationToken.ThrowIfCancellationRequested();
-                            dstStream.Write(buffer, 0, bytesRead);
-                        }
+                        reader.WriteEntryTo(dstStream);
 
-                        // Restaurar timestamp original
+                        // Restaurar timestamp
                         try
                         {
-                            File.SetLastWriteTime(
-                                entryDestPath,
-                                entry.LastWriteTime.LocalDateTime);
+                            if (reader.Entry.LastModifiedTime.HasValue)
+                                File.SetLastWriteTime(
+                                    entryDestPath,
+                                    reader.Entry.LastModifiedTime.Value);
                         }
                         catch { /* non-fatal */ }
 
@@ -303,26 +318,23 @@ namespace FileExplorerr.Compression
                 }, options.CancellationToken);
 
                 progress?.Report(100);
-                return ArchiveResult.ExtractOk(options.DestinationFolder, filesExtracted, skipped);
+                return ArchiveResult.ExtractOk(
+                    options.DestinationFolder, filesExtracted, skipped);
             }
             catch (OperationCanceledException)
             {
                 return ArchiveResult.Cancelled();
             }
-            catch (InvalidDataException ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[ZipArchiver.ExtractAsync] {ex.Message}");
-                return ArchiveResult.Fail(ex, BuildFriendlyExtractError(ex));
-            }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ZipArchiver.ExtractAsync] {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(
+                    $"[SharpCompressArchiver.ExtractAsync] {ex.Message}");
                 return ArchiveResult.Fail(ex, BuildFriendlyExtractError(ex));
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ENUMERACIÓN DE ENTRADAS (helper de compresión)
+        //  ENUMERACIÓN DE ENTRADAS
         // ════════════════════════════════════════════════════════════════════
 
         private static List<ArchiveEntry> EnumerateEntries(
@@ -346,7 +358,6 @@ namespace FileExplorerr.Compression
                     string prefix = includeBaseDirectory ? dirName + "/" : string.Empty;
                     EnumerateDirectory(sourcePath, prefix, entries);
                 }
-                // Silently skip paths that no longer exist (race condition).
             }
 
             return entries;
@@ -380,10 +391,7 @@ namespace FileExplorerr.Compression
                     EnumerateDirectory(sub, entryPrefix + di.Name + "/", entries);
                 }
             }
-            catch (UnauthorizedAccessException)
-            {
-                // Skip inaccesibles; continue with siblings.
-            }
+            catch (UnauthorizedAccessException) { /* skip inaccessible */ }
         }
 
         private readonly record struct ArchiveEntry(
@@ -398,18 +406,14 @@ namespace FileExplorerr.Compression
         private static string BuildFriendlyCompressError(Exception ex) =>
             ex switch
             {
+                NotSupportedException =>
+                    ex.Message,
                 UnauthorizedAccessException =>
                     "No tienes permisos para leer uno o más archivos de origen.\n\n" +
                     $"Detalle: {ex.Message}",
-
-                PathTooLongException =>
-                    "Una ruta de archivo es demasiado larga para el sistema de archivos.\n\n" +
-                    "Intenta comprimir desde una ubicación con ruta más corta.",
-
                 IOException =>
-                    "Error de disco al crear el archivo ZIP.\n\n" +
+                    "Error de disco al crear el archivo.\n\n" +
                     $"Detalle: {ex.Message}",
-
                 _ =>
                     $"Error inesperado al comprimir:\n\n{ex.Message}"
             };
@@ -417,30 +421,15 @@ namespace FileExplorerr.Compression
         private static string BuildFriendlyExtractError(Exception ex) =>
             ex switch
             {
-                InvalidDataException =>
-                    "El archivo ZIP está dañado, incompleto o protegido con contraseña.\n\n" +
-                    "Nota: esta versión no soporta archivos ZIP cifrados con contraseña.\n\n" +
-                    $"Detalle: {ex.Message}",
-
                 UnauthorizedAccessException =>
                     "No tienes permisos para escribir en la carpeta de destino.\n\n" +
                     $"Detalle: {ex.Message}",
-
-                PathTooLongException =>
-                    "Una entrada dentro del ZIP genera una ruta demasiado larga.\n\n" +
-                    "Prueba extraer en una carpeta raíz con ruta más corta (p.ej. C:\\Temp).",
-
                 IOException =>
                     "Error de disco al extraer los archivos.\n\n" +
                     $"Detalle: {ex.Message}",
-
                 _ =>
                     $"Error inesperado al extraer:\n\n{ex.Message}"
             };
-
-        // ════════════════════════════════════════════════════════════════════
-        //  HELPERS
-        // ════════════════════════════════════════════════════════════════════
 
         private static void TryDeleteFile(string path)
         {
@@ -450,6 +439,113 @@ namespace FileExplorerr.Compression
                     File.Delete(path);
             }
             catch { /* non-fatal */ }
+        }
+
+        private static async Task<ArchiveResult> Extract7zAsync(
+    ArchiveOptions options,
+    IProgress<int>? progress,
+    IProgress<string>? currentEntryName)
+        {
+            var skipped = new List<string>();
+
+            try
+            {
+                string destination = Path.GetFullPath(options.DestinationFolder);
+                Directory.CreateDirectory(destination);
+                int filesExtracted = 0;
+
+                await Task.Run(() =>
+                {
+                    using var archive = SharpCompress.Archives.SevenZip.SevenZipArchive.OpenArchive(
+                        options.ArchivePath);
+
+                    // Detectar rootPrefix para FlattenSingleRootFolder
+                    string rootPrefix = string.Empty;
+                    if (options.FlattenSingleRootFolder)
+                    {
+                        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var e in archive.Entries.Where(e => !e.IsDirectory))
+                        {
+                            string first = (e.Key ?? string.Empty)
+                                .Replace('\\', '/').Split('/')[0];
+                            if (!string.IsNullOrEmpty(first)) roots.Add(first);
+                        }
+                        if (roots.Count == 1) rootPrefix = roots.First() + "/";
+                    }
+
+                    var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
+                    int total = entries.Count;
+                    int processed = 0;
+
+                    foreach (var entry in entries)
+                    {
+                        options.CancellationToken.ThrowIfCancellationRequested();
+
+                        string entryKey = (entry.Key ?? string.Empty).Replace('\\', '/');
+                        currentEntryName?.Report(entryKey);
+
+                        string entryRelative = entryKey;
+                        if (!string.IsNullOrEmpty(rootPrefix) &&
+                            entryRelative.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+                            entryRelative = entryRelative.Substring(rootPrefix.Length);
+
+                        if (string.IsNullOrEmpty(entryRelative)) continue;
+
+                        string entryDestPath = Path.GetFullPath(
+                            Path.Combine(destination, entryRelative));
+
+                        bool isInside =
+                            entryDestPath.StartsWith(
+                                destination + Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase)
+                            || entryDestPath.Equals(destination,
+                                StringComparison.OrdinalIgnoreCase);
+
+                        if (!isInside)
+                        {
+                            skipped.Add($"[SEGURIDAD] {entryKey}");
+                            continue;
+                        }
+
+                        string? parentDir = Path.GetDirectoryName(entryDestPath);
+                        if (!string.IsNullOrEmpty(parentDir))
+                            Directory.CreateDirectory(parentDir);
+
+                        if (File.Exists(entryDestPath))
+                        {
+                            if (!options.OverwriteExisting) { skipped.Add(entryKey); continue; }
+                            File.SetAttributes(entryDestPath, FileAttributes.Normal);
+                            File.Delete(entryDestPath);
+                        }
+
+                        using var dst = new FileStream(entryDestPath, FileMode.Create,
+                            FileAccess.Write, FileShare.None, 65_536, useAsync: false);
+                        entry.OpenEntryStream().CopyTo(dst);
+
+                        try
+                        {
+                            if (entry.LastModifiedTime.HasValue)
+                                File.SetLastWriteTime(entryDestPath, entry.LastModifiedTime.Value);
+                        }
+                        catch { /* non-fatal */ }
+
+                        filesExtracted++;
+                        processed++;
+                        if (total > 0)
+                            progress?.Report(5 + (int)(90.0 * processed / total));
+                    }
+
+                }, options.CancellationToken);
+
+                progress?.Report(100);
+                return ArchiveResult.ExtractOk(options.DestinationFolder, filesExtracted, skipped);
+            }
+            catch (OperationCanceledException) { return ArchiveResult.Cancelled(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SharpCompressArchiver.Extract7zAsync] {ex.Message}");
+                return ArchiveResult.Fail(ex, BuildFriendlyExtractError(ex));
+            }
         }
     }
 }

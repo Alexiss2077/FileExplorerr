@@ -134,6 +134,8 @@ namespace FileExplorerr.Compression
         public static void RegisterBuiltInArchivers()
         {
             Register(new ZipArchiver());
+            Register(new SharpCompressArchiver());   // .7z, .tar, .tar.gz, .tgz, .tar.bz2
+            Register(new RarArchiver());             // .rar  (solo extracción)
         }
     }
 }

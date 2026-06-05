@@ -72,7 +72,11 @@ namespace FileExplorerr
             using var dlg = new SaveFileDialog
             {
                 Title = "Comprimir como ZIP",
-                Filter = "Archivo ZIP (*.zip)|*.zip",
+                Filter = "ZIP (*.zip)|*.zip|" +
+                "7-Zip (*.7z)|*.7z|" +
+                "TAR GZ (*.tar.gz)|*.tar.gz|" +
+                "TAR (*.tar)|*.tar|" +
+                "Todos|*.*",
                 FileName = $"{SafeFileName(suggestedName)}.zip",
                 InitialDirectory = GetCommonFolder(paths)
             };
@@ -83,6 +87,25 @@ namespace FileExplorerr
             // para que Form1 pueda llamarla desde un event handler normal,
             // igual que ExportadorOffice.ExportarConDialogo().
             _ = CompressInternalAsync(paths, dlg.FileName, owner as Form, onRefresh);
+        }
+
+
+
+
+        /// <summary>
+        /// Devuelve la extensión del archivo reconociendo extensiones dobles
+        /// como .tar.gz, .tar.bz2, .tar.xz.
+        /// Path.GetExtension() solo devuelve la última parte (.gz en vez de .tar.gz).
+        /// </summary>
+        private static string GetArchiveExtension(string path)
+        {
+            string lower = path.ToLowerInvariant();
+            foreach (string doubleExt in new[] { ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst" })
+            {
+                if (lower.EndsWith(doubleExt))
+                    return doubleExt;
+            }
+            return Path.GetExtension(lower);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -165,7 +188,7 @@ namespace FileExplorerr
             Form? ownerForm,
             Action? onRefresh)
         {
-            string ext = Path.GetExtension(outputPath).ToLowerInvariant();
+            string ext = GetArchiveExtension(outputPath);   // Compress
             IArchiver? archiver = ArchiverFactory.TryResolve(ext);
 
             if (archiver is null)
@@ -291,7 +314,7 @@ namespace FileExplorerr
             Form? ownerForm,
             Action? onRefresh)
         {
-            string ext = Path.GetExtension(archivePath).ToLowerInvariant();
+            string ext = GetArchiveExtension(archivePath);  // Extract
             IArchiver? archiver = ArchiverFactory.TryResolve(ext);
 
             if (archiver is null)
