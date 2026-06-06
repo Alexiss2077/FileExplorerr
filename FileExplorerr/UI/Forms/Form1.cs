@@ -15,6 +15,10 @@ namespace FileExplorerr
 {
     public partial class Form1 : Form
     {
+        // ── Estado del usuario ───────────────────────────────────────────────
+        private UserProfile? _currentUser;
+        private AccountButton _accountButton = null!;
+
         // ── Estado del explorador ────────────────────────────────────────────
         private string currentPath = "";
         private readonly Stack<string> navigationHistory = new();
@@ -60,11 +64,19 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         //  CONSTRUCTOR
         // ════════════════════════════════════════════════════════════════════
-        public Form1()
+        public Form1() : this(null) { }
+
+        public Form1(UserProfile? user)
         {
+            _currentUser = user;
             InitializeComponent();
             BuildUI();
             HandleCreated += (s, e) => ApplyDarkTitleBar();
+
+            // Actualizar el botón de cuenta
+            if (_accountButton != null)
+                _accountButton.SetProfile(_currentUser);
+
             NavigateToPath(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         }
 
@@ -181,15 +193,30 @@ namespace FileExplorerr
             sqlQuickBtn.FlatAppearance.BorderColor = Color.FromArgb(96, 165, 250, 80);
             sqlQuickBtn.Click += (s, e) => new SqlViewerForm().Show();
 
+            // Botón de Cuenta
+            _accountButton = new AccountButton
+            {
+                Size = new Size(190, 34),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            _accountButton.SignOutRequested += OnSignOutRequested;
+            _accountButton.SwitchAccountRequested += OnSwitchAccountRequested;
+
+            // Si ya hay un usuario cargado, aplicarlo:
+            if (_currentUser != null)
+                _accountButton.SetProfile(_currentUser);
+
             topNavBar.Controls.Add(appLogoLabel);
             topNavBar.Controls.Add(sep);
             topNavBar.Controls.Add(tabFlow);
-
-            // Posicionar sqlQuickBtn a la derecha tras resize
             topNavBar.Controls.Add(sqlQuickBtn);
+            topNavBar.Controls.Add(_accountButton);
+
+            // Posicionar sqlQuickBtn y _accountButton a la derecha tras resize
             topNavBar.Resize += (s, e) =>
             {
-                sqlQuickBtn.Location = new Point(topNavBar.Width - sqlQuickBtn.Width - 12, 11);
+                _accountButton.Location = new Point(topNavBar.Width - 210, 10);
+                sqlQuickBtn.Location = new Point(_accountButton.Left - sqlQuickBtn.Width - 12, 11);
             };
         }
 
@@ -254,6 +281,43 @@ namespace FileExplorerr
                     .Contains(Path.GetExtension(x)));
             }
             catch { return null; }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  MANEJO DE EVENTOS DE CUENTA
+        // ════════════════════════════════════════════════════════════════════
+        private void OnSignOutRequested(object? sender, EventArgs e)
+        {
+            var result = MessageBox.Show(
+                "¿Cerrar sesión de FileExplorerr?\n\nDeberás iniciar sesión la próxima vez.",
+                "Cerrar sesión",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (result != DialogResult.Yes) return;
+
+            SessionManager.Clear();
+
+            // Mostrar login de nuevo
+            var loginForm = new LoginForm();
+            Hide();
+
+            if (loginForm.ShowDialog() == DialogResult.OK && loginForm.LoggedInUser != null)
+            {
+                _currentUser = loginForm.LoggedInUser;
+                _accountButton.SetProfile(_currentUser);
+                Show();
+            }
+            else
+            {
+                Application.Exit();
+            }
+        }
+
+        private void OnSwitchAccountRequested(object? sender, EventArgs e)
+        {
+            SessionManager.Clear();
+            OnSignOutRequested(sender, e);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -812,10 +876,10 @@ namespace FileExplorerr
 
             miExtractTo.Click += (s, e) =>
             {
-                 if (listView.SelectedItems.Count == 0) return;
-                 string path = listView.SelectedItems[0].Tag!.ToString()!;
-                 CompressionService.Extract(path, this, extractHere: false,
-                    onRefresh: () => LoadDirectory(currentPath));
+                if (listView.SelectedItems.Count == 0) return;
+                string path = listView.SelectedItems[0].Tag!.ToString()!;
+                CompressionService.Extract(path, this, extractHere: false,
+                   onRefresh: () => LoadDirectory(currentPath));
             };
 
 
@@ -837,14 +901,14 @@ namespace FileExplorerr
             contextMenu.Items[8].Visible = sel;
 
             bool hasSelection = listView.SelectedItems.Count > 0;
-            bool isArchive    = hasSelection &&
+            bool isArchive = hasSelection &&
                                 FileExtensions.Archive.Contains(
                                     Path.GetExtension(
                                        listView.SelectedItems[0].Tag?.ToString() ?? ""));
-            
-            miCompress.Visible    = hasSelection;      // always when something selected
+
+            miCompress.Visible = hasSelection;      // always when something selected
             miExtractHere.Visible = isArchive;         // only for .zip etc.
-            miExtractTo.Visible   = isArchive;
+            miExtractTo.Visible = isArchive;
         }
 
         // ════════════════════════════════════════════════════════════════════

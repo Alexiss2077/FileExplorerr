@@ -3,6 +3,7 @@ using System.Windows.Forms;
 using FileExplorerr.Export;
 using QuestPDF.Infrastructure;
 using FileExplorerr.Compression;
+
 namespace FileExplorerr
 {
     internal static class Program
@@ -34,7 +35,23 @@ namespace FileExplorerr
                     ShowFatalError(ex);
             };
 
-            Application.Run(new Form1());
+            // 1. Intentar restaurar sesión previa
+            var restoredUser = SessionManager.TryRestore();
+            if (restoredUser != null)
+            {
+                // Hay sesión guardada: abrir directamente el explorador
+                Application.Run(new Form1(restoredUser));
+            }
+            else
+            {
+                // No hay sesión: mostrar pantalla de login
+                using var loginForm = new LoginForm();
+                if (loginForm.ShowDialog() == DialogResult.OK && loginForm.LoggedInUser != null)
+                {
+                    Application.Run(new Form1(loginForm.LoggedInUser));
+                }
+                // Si el usuario cerró el login sin autenticarse, la app termina
+            }
         }
 
         private static void ShowFatalError(Exception ex)
