@@ -960,6 +960,5 @@ Las dependencias tienen sus propias licencias:
 
 <div align="center">
 
-**FileExplorerr** — Hecho con ❤️ en C# para Windows
 
 </div>
