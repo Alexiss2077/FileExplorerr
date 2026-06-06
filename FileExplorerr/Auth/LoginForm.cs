@@ -12,55 +12,29 @@ using System.Windows.Forms;
 
 namespace FileExplorerr
 {
-    // ════════════════════════════════════════════════════════════════════════
-    //  LOGIN FORM
-    //  Pantalla de inicio de sesión con OAuth para Gmail (Google) y GitHub.
-    //  Tema Arctic Night — coherente con el resto de la aplicación.
-    //
-    //  Flujo OAuth:
-    //    1. El usuario pulsa "Continuar con Google" o "Continuar con GitHub"
-    //    2. Se abre un WebBrowser integrado con la URL de autorización
-    //    3. El servidor local (loopback) captura el callback con el code
-    //    4. Se intercambia el code por un access_token
-    //    5. Se obtiene el perfil del usuario y se cierra el formulario
-    //
-    //  Configuración:
-    //    Registra tus apps en:
-    //      Google → https://console.cloud.google.com/apis/credentials
-    //      GitHub → https://github.com/settings/developers
-    //    y pon los Client IDs/Secrets en AppConfig.cs (o usa variables de entorno).
-    //    Redirect URI para ambos: http://localhost:5200/callback
-    // ════════════════════════════════════════════════════════════════════════
     public sealed class LoginForm : Form
     {
-        // ── Resultado público ─────────────────────────────────────────────
-        /// <summary>Perfil del usuario tras login exitoso. null si canceló.</summary>
         public UserProfile? LoggedInUser { get; private set; }
 
-        // ── OAuth Config ──────────────────────────────────────────────────
         private static string GoogleClientId => OAuthConfig.GoogleClientId;
         private static string GoogleClientSecret => OAuthConfig.GoogleClientSecret;
         private static string GitHubClientId => OAuthConfig.GitHubClientId;
         private static string GitHubClientSecret => OAuthConfig.GitHubClientSecret;
         private const string RedirectUri = "http://localhost:5200/callback";
 
-        // ── HTTP ──────────────────────────────────────────────────────────
         private static readonly HttpClient Http = new HttpClient();
 
-        // ── Estado ───────────────────────────────────────────────────────
         private HttpListener? _listener;
         private string _oauthState = string.Empty;
         private OAuthProvider _pendingProvider;
         private enum OAuthProvider { None, Google, GitHub }
 
-        // ── Controles ────────────────────────────────────────────────────
         private Panel _leftPanel = null!;
         private Panel _rightPanel = null!;
         private Panel _loadingOverlay = null!;
         private Label _loadingLabel = null!;
         private Label _errorLabel = null!;
 
-        // ── Paleta Arctic Night extendida ─────────────────────────────────
         private static readonly Color BgDeep = Color.FromArgb(10, 12, 18);
         private static readonly Color BgPanel = Color.FromArgb(16, 18, 26);
         private static readonly Color BgCard = Color.FromArgb(22, 26, 38);
@@ -77,30 +51,23 @@ namespace FileExplorerr
         private static readonly Color GhBlack = Color.FromArgb(36, 41, 47);
         private static readonly Color Coral = Color.FromArgb(248, 113, 113);
 
-        // ── Fuentes ───────────────────────────────────────────────────────
         private static readonly Font FontDisplay = new Font("Segoe UI", 22F, FontStyle.Bold);
         private static readonly Font FontTitle = new Font("Segoe UI", 11F, FontStyle.Bold);
         private static readonly Font FontBody = new Font("Segoe UI", 9.5F);
         private static readonly Font FontSmall = new Font("Segoe UI", 8.5F);
         private static readonly Font FontMono = new Font("Cascadia Code", 8F);
 
-        // ════════════════════════════════════════════════════════════════
-        //  CONSTRUCTOR
-        // ════════════════════════════════════════════════════════════════
         public LoginForm()
         {
             Http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "FileExplorerr/1.0");
             BuildUI();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  UI CONSTRUCTION
-        // ════════════════════════════════════════════════════════════════
         private void BuildUI()
         {
             Text = "FileExplorerr — Iniciar sesión";
-            Size = new Size(900, 580);
-            MinimumSize = new Size(800, 520);
+            Size = new Size(900, 660);
+            MinimumSize = new Size(800, 620);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = false;
@@ -108,7 +75,6 @@ namespace FileExplorerr
             ForeColor = TextPri;
             Font = FontBody;
 
-            // ── Panel izquierdo: branding ──────────────────────────────
             _leftPanel = new Panel
             {
                 Width = 340,
@@ -118,7 +84,6 @@ namespace FileExplorerr
             _leftPanel.Paint += LeftPanel_Paint;
             BuildLeftPanel();
 
-            // ── Panel derecho: formulario ──────────────────────────────
             _rightPanel = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -127,7 +92,6 @@ namespace FileExplorerr
             };
             BuildRightPanel();
 
-            // ── Loading overlay ────────────────────────────────────────
             _loadingOverlay = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -144,7 +108,7 @@ namespace FileExplorerr
             };
             _loadingOverlay.Controls.Add(_loadingLabel);
             _loadingOverlay.Resize += (s, e) => CenterLoading();
-            _loadingOverlay.Click += (s, e) => { /* bloquear clicks */ };
+            _loadingOverlay.Click += (s, e) => { };
 
             Controls.Add(_rightPanel);
             Controls.Add(_leftPanel);
@@ -152,10 +116,8 @@ namespace FileExplorerr
             _loadingOverlay.BringToFront();
         }
 
-        // ── Panel izquierdo ────────────────────────────────────────────
         private void BuildLeftPanel()
         {
-            // Logo + nombre
             var logoArea = new Panel
             {
                 Left = 0,
@@ -167,7 +129,6 @@ namespace FileExplorerr
             logoArea.Paint += LogoArea_Paint;
             _leftPanel.Controls.Add(logoArea);
 
-            // Features list
             int y = 230;
             var features = new[]
             {
@@ -215,12 +176,11 @@ namespace FileExplorerr
                 y += 34;
             }
 
-            // Footer
             _leftPanel.Controls.Add(new Label
             {
-                Text = "v1.0  ·  Hecho con ♥ en C# / .NET 8",
+                Text = "v1.0  / .NET 8",
                 Left = 28,
-                Top = 500,
+                Top = 560,
                 Width = 284,
                 Height = 18,
                 Font = FontSmall,
@@ -229,26 +189,27 @@ namespace FileExplorerr
             });
         }
 
+
         private void LeftPanel_Paint(object? sender, PaintEventArgs e)
         {
+            // Evitar crash de GDI+ cuando se minimiza la ventana (Height o Width en 0)
+            if (_leftPanel.Width <= 0 || _leftPanel.Height <= 0) return;
+
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            // Fondo con gradiente sutil
             using var br = new LinearGradientBrush(
                 new Point(0, 0), new Point(0, _leftPanel.Height),
                 Color.FromArgb(20, 22, 34), Color.FromArgb(14, 16, 24));
             g.FillRectangle(br, 0, 0, _leftPanel.Width, _leftPanel.Height);
 
-            // Línea de borde derecho
             using var pen = new Pen(Border, 1);
             g.DrawLine(pen, _leftPanel.Width - 1, 0, _leftPanel.Width - 1, _leftPanel.Height);
 
-            // Decoración: círculo difuso de acento
-            using var radBr = new PathGradientBrush(
-                new PointF[] {
-                    new(0, 0), new(340, 0), new(340, 200), new(0, 200)
-                })
+            using var radBr = new PathGradientBrush(new PointF[]
+            {
+                new(0, 0), new(340, 0), new(340, 200), new(0, 200)
+            })
             {
                 CenterPoint = new PointF(170, 100),
                 CenterColor = Color.FromArgb(18, Accent),
@@ -263,12 +224,10 @@ namespace FileExplorerr
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
 
-            // Ícono de carpeta estilizado
             using var accentBrush = new SolidBrush(Accent);
             using var tealBrush = new SolidBrush(Teal);
             float cx = 170, cy = 64;
 
-            // Sombra glow
             using var glowBr = new PathGradientBrush(new PointF[]
             {
                 new(cx - 36, cy - 24), new(cx + 36, cy - 24),
@@ -281,28 +240,21 @@ namespace FileExplorerr
             };
             g.FillEllipse(glowBr, cx - 52, cy - 40, 104, 80);
 
-            // Carpeta principal
-            var folderBody = new PointF[]
-            {
-                new(cx - 30, cy - 12), new(cx + 30, cy - 12),
-                new(cx + 30, cy + 22), new(cx - 30, cy + 22)
-            };
             g.FillRectangle(accentBrush, cx - 30, cy - 12, 60, 34);
             g.FillPolygon(accentBrush, new PointF[]
             {
                 new(cx - 30, cy - 12), new(cx - 14, cy - 22), new(cx - 4, cy - 12)
             });
 
-            // Líneas internas del folder
             using var whitePen = new Pen(Color.FromArgb(40, 255, 255, 255), 1.5f);
             g.DrawLine(whitePen, cx - 20, cy - 2, cx + 20, cy - 2);
             g.DrawLine(whitePen, cx - 20, cy + 7, cx + 20, cy + 7);
             g.DrawLine(whitePen, cx - 20, cy + 16, cx + 10, cy + 16);
 
-            // Nombre app
             using var titleFont = new Font("Segoe UI", 18F, FontStyle.Bold);
             using var sf = new StringFormat { Alignment = StringAlignment.Center };
-            g.DrawString("FileExplorerr", titleFont, accentBrush, new RectangleF(20, cy + 38, 300, 36), sf);
+            g.DrawString("FileExplorerr", titleFont, accentBrush,
+                new RectangleF(20, cy + 38, 300, 36), sf);
 
             using var subFont = new Font("Segoe UI", 8.5F);
             using var subBr = new SolidBrush(TextSec);
@@ -310,15 +262,29 @@ namespace FileExplorerr
                 new RectangleF(20, cy + 74, 300, 20), sf);
         }
 
-        // ── Panel derecho ──────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════
+        //  BUILD RIGHT PANEL  — layout con posiciones fijas bien calculadas
+        //
+        //  Top  40  → Título "Bienvenido de vuelta"       (36px)
+        //  Top  84  → Subtítulo                           (20px)
+        //  Top 120  → Botón Google                        (52px)
+        //  Top 190  → Divisor "o"                         (22px)
+        //  Top 220  → Botón GitHub                        (52px)
+        //  Top 290  → Label error (oculto por defecto)    (20px)
+        //  Top 320  → ── separador ──                     (1px)
+        //  Top 340  → "¿Prefiero no iniciar sesión?"      (18px)
+        //  Top 366  → Botón "Continuar como invitado"     (30px)
+        //  Top 414  → ── separador ──                     (1px)
+        //  Top 430  → Nota legal                          (30px)
+        // ════════════════════════════════════════════════════════════════
         private void BuildRightPanel()
         {
-            // Título
+            // ── Título ────────────────────────────────────────────────
             var lblTitle = new Label
             {
                 Text = "Bienvenido de vuelta",
                 Left = 48,
-                Top = 48,
+                Top = 40,
                 Width = 400,
                 Height = 36,
                 Font = FontDisplay,
@@ -326,11 +292,12 @@ namespace FileExplorerr
                 BackColor = Color.Transparent
             };
 
+            // ── Subtítulo ─────────────────────────────────────────────
             var lblSub = new Label
             {
                 Text = "Inicia sesión para sincronizar tu perfil y preferencias.",
                 Left = 48,
-                Top = 90,
+                Top = 84,
                 Width = 420,
                 Height = 20,
                 Font = FontBody,
@@ -338,20 +305,20 @@ namespace FileExplorerr
                 BackColor = Color.Transparent
             };
 
-            // ── Botón Google ───────────────────────────────────────────
+            // ── Botón Google ──────────────────────────────────────────
             var btnGoogle = BuildOAuthButton(
                 "Continuar con Google",
                 DrawGoogleIcon,
                 Color.FromArgb(234, 67, 53),
                 Color.FromArgb(80, 20, 14));
-            btnGoogle.Top = 148;
+            btnGoogle.Top = 120;
             btnGoogle.Click += async (s, e) => await StartOAuth(OAuthProvider.Google);
 
-            // ── Divisor ────────────────────────────────────────────────
+            // ── Divisor "o" ───────────────────────────────────────────
             var divPanel = new Panel
             {
                 Left = 48,
-                Top = 228,
+                Top = 190,
                 Width = 420,
                 Height = 22,
                 BackColor = Color.Transparent
@@ -367,20 +334,20 @@ namespace FileExplorerr
                 g.DrawString("o", FontSmall, br, new RectangleF(170, 0, 82, 22), sf);
             };
 
-            // ── Botón GitHub ───────────────────────────────────────────
+            // ── Botón GitHub ──────────────────────────────────────────
             var btnGitHub = BuildOAuthButton(
                 "Continuar con GitHub",
                 DrawGitHubIcon,
                 Color.FromArgb(200, 210, 230),
                 Color.FromArgb(25, 28, 38));
-            btnGitHub.Top = 266;
+            btnGitHub.Top = 220;
             btnGitHub.Click += async (s, e) => await StartOAuth(OAuthProvider.GitHub);
 
-            // ── Label de error ─────────────────────────────────────────
+            // ── Label de error ────────────────────────────────────────
             _errorLabel = new Label
             {
                 Left = 48,
-                Top = 370,
+                Top = 290,
                 Width = 420,
                 Height = 20,
                 Font = FontSmall,
@@ -390,35 +357,37 @@ namespace FileExplorerr
                 Visible = false
             };
 
-            // ── Separador ──────────────────────────────────────────────
-            var sepLine = new Panel
+            // ── Separador superior ────────────────────────────────────
+            var sepLine1 = new Panel
             {
                 Left = 48,
-                Top = 404,
+                Top = 320,
                 Width = 420,
                 Height = 1,
                 BackColor = Border
             };
 
-            // ── Login sin cuenta ───────────────────────────────────────
+            // ── "¿Prefiero no iniciar sesión?" ────────────────────────
             var lblGuest = new Label
             {
                 Text = "¿Prefiero no iniciar sesión?",
                 Left = 48,
-                Top = 420,
-                AutoSize = true,
+                Top = 340,
+                Width = 420,
+                Height = 18,
                 Font = FontSmall,
                 ForeColor = TextMuted,
                 BackColor = Color.Transparent
             };
 
+            // ── Botón invitado ────────────────────────────────────────
             var btnGuest = new Button
             {
                 Text = "Continuar como invitado  →",
                 Left = 48,
-                Top = 444,
-                Width = 200,
-                Height = 30,
+                Top = 366,
+                Width = 220,
+                Height = 32,
                 BackColor = Color.Transparent,
                 ForeColor = TextSec,
                 FlatStyle = FlatStyle.Flat,
@@ -434,20 +403,28 @@ namespace FileExplorerr
                 DialogResult = DialogResult.OK;
                 Close();
             };
-            btnGuest.Paint += (s, e) =>
+
+            // Cambiamos el ForeColor con los eventos para evitar 
+            // el error de texto duplicado/encimado del evento Paint
+            btnGuest.MouseEnter += (s, e) => btnGuest.ForeColor = Accent;
+            btnGuest.MouseLeave += (s, e) => btnGuest.ForeColor = TextSec;
+
+            // ── Separador inferior ────────────────────────────────────
+            var sepLine2 = new Panel
             {
-                var lbl = (Button)s!;
-                using var br = new SolidBrush(lbl.ClientRectangle.Contains(lbl.PointToClient(MousePosition))
-                    ? Accent : TextSec);
-                e.Graphics.DrawString(lbl.Text, lbl.Font, br, 0, 6);
+                Left = 48,
+                Top = 414,
+                Width = 420,
+                Height = 1,
+                BackColor = Border
             };
 
-            // ── Nota legal ─────────────────────────────────────────────
+            // ── Nota legal ────────────────────────────────────────────
             var lblLegal = new Label
             {
                 Text = "Al continuar, aceptas los Términos de uso y la Política de privacidad.",
                 Left = 48,
-                Top = 490,
+                Top = 430,
                 Width = 430,
                 Height = 30,
                 Font = new Font("Segoe UI", 7.5F),
@@ -459,7 +436,9 @@ namespace FileExplorerr
             {
                 lblTitle, lblSub,
                 btnGoogle, divPanel, btnGitHub,
-                _errorLabel, sepLine, lblGuest, btnGuest, lblLegal
+                _errorLabel,
+                sepLine1, lblGuest, btnGuest,
+                sepLine2, lblLegal
             });
         }
 
@@ -483,10 +462,12 @@ namespace FileExplorerr
             btn.FlatAppearance.BorderColor = Border;
             btn.FlatAppearance.BorderSize = 1;
             btn.FlatAppearance.MouseOverBackColor =
-                Color.FromArgb(Math.Min(bg.R + 18, 255), Math.Min(bg.G + 18, 255), Math.Min(bg.B + 18, 255));
+                Color.FromArgb(
+                    Math.Min(bg.R + 18, 255),
+                    Math.Min(bg.G + 18, 255),
+                    Math.Min(bg.B + 18, 255));
             btn.FlatAppearance.MouseDownBackColor = bg;
             btn.TextAlign = ContentAlignment.MiddleCenter;
-            btn.Padding = new Padding(0, 0, 0, 0);
 
             btn.Paint += (s, e) =>
             {
@@ -494,18 +475,14 @@ namespace FileExplorerr
                 var g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                // Fondo redondeado
                 using var path = RoundedRect(b.ClientRectangle, 8);
                 using var br = new SolidBrush(b.BackColor);
                 g.FillPath(br, path);
                 using var pen = new Pen(Border, 1);
                 g.DrawPath(pen, path);
 
-                // Ícono
-                var iconRect = new Rectangle(20, 14, 24, 24);
-                iconDrawer(g, iconRect);
+                iconDrawer(g, new Rectangle(20, 14, 24, 24));
 
-                // Texto
                 using var textBr = new SolidBrush(fg);
                 using var sf = new StringFormat
                 {
@@ -522,7 +499,6 @@ namespace FileExplorerr
         private static void DrawGoogleIcon(Graphics g, Rectangle r)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            // G de Google simplificada
             using var pen1 = new Pen(Color.FromArgb(234, 67, 53), 2.5f);
             using var pen2 = new Pen(Color.FromArgb(52, 168, 83), 2.5f);
             using var pen3 = new Pen(Color.FromArgb(251, 188, 5), 2.5f);
@@ -530,7 +506,6 @@ namespace FileExplorerr
             float cx = r.X + r.Width / 2f;
             float cy = r.Y + r.Height / 2f;
             float rad = r.Width / 2f - 1;
-
             g.DrawArc(pen1, cx - rad, cy - rad, rad * 2, rad * 2, -10, 90);
             g.DrawArc(pen3, cx - rad, cy - rad, rad * 2, rad * 2, 80, 90);
             g.DrawArc(pen2, cx - rad, cy - rad, rad * 2, rad * 2, 170, 90);
@@ -542,20 +517,14 @@ namespace FileExplorerr
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using var br = new SolidBrush(Color.FromArgb(200, 210, 230));
-            // Círculo base
             g.FillEllipse(br, r);
-            // Octocat simplificado: sobreescribir con fondo
-            using var bgBr = new SolidBrush(Color.FromArgb(25, 28, 38));
-            // Orejas
             var earL = new RectangleF(r.X + 2, r.Y + 2, 7, 7);
             var earR = new RectangleF(r.Right - 9, r.Y + 2, 7, 7);
             g.FillEllipse(br, earL);
             g.FillEllipse(br, earR);
             g.FillEllipse(br, r.X + 3, r.Y + 4, r.Width - 6, r.Height - 6);
-
             using var innerBr = new SolidBrush(Color.FromArgb(25, 28, 38));
             g.FillEllipse(innerBr, r.X + 7, r.Y + 7, r.Width - 14, r.Height - 10);
-            // Tentáculos
             using var tentBr = new SolidBrush(Color.FromArgb(200, 210, 230));
             g.FillRectangle(tentBr, r.X + 7, r.Bottom - 8, 3, 5);
             g.FillRectangle(tentBr, r.X + 11, r.Bottom - 6, 2, 3);
@@ -572,12 +541,10 @@ namespace FileExplorerr
             _oauthState = Guid.NewGuid().ToString("N");
             ShowError(string.Empty);
 
-            // Construir URL
             string url = provider == OAuthProvider.Google
                 ? BuildGoogleAuthUrl()
                 : BuildGitHubAuthUrl();
 
-            // Iniciar listener local
             try
             {
                 _listener?.Close();
@@ -591,7 +558,6 @@ namespace FileExplorerr
                 return;
             }
 
-            // Abrir navegador del sistema
             try
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -607,9 +573,9 @@ namespace FileExplorerr
                 return;
             }
 
-            ShowLoading($"Esperando autorización de {(provider == OAuthProvider.Google ? "Google" : "GitHub")}...");
+            ShowLoading($"Esperando autorización de " +
+                (provider == OAuthProvider.Google ? "Google" : "GitHub") + "...");
 
-            // Esperar callback en hilo de fondo
             try
             {
                 var code = await Task.Run(async () =>
@@ -618,9 +584,7 @@ namespace FileExplorerr
                     var query = ctx.Request.Url?.Query ?? "";
                     var @params = ParseQueryString(query);
 
-                    // Responder al browser
-                    string html = BuildCallbackHtml(
-                        @params.ContainsKey("error") ? "error" : "ok");
+                    string html = BuildCallbackHtml(@params.ContainsKey("error") ? "error" : "ok");
                     byte[] bytes = Encoding.UTF8.GetBytes(html);
                     ctx.Response.ContentType = "text/html; charset=utf-8";
                     ctx.Response.ContentLength64 = bytes.Length;
@@ -640,21 +604,17 @@ namespace FileExplorerr
                 if (string.IsNullOrEmpty(code))
                     throw new Exception("No se recibió el código de autorización");
 
-                // Intercambiar code por token
                 ShowLoading("Obteniendo token...");
                 var token = provider == OAuthProvider.Google
                     ? await ExchangeGoogleCode(code)
                     : await ExchangeGitHubCode(code);
 
-                // Obtener perfil
                 ShowLoading("Obteniendo perfil...");
                 var profile = provider == OAuthProvider.Google
                     ? await GetGoogleProfile(token)
                     : await GetGitHubProfile(token);
 
-                // Guardar sesión
                 SessionManager.Save(profile);
-
                 LoggedInUser = profile;
                 HideLoading();
                 DialogResult = DialogResult.OK;
@@ -672,7 +632,6 @@ namespace FileExplorerr
             }
         }
 
-        // ── URLs OAuth ────────────────────────────────────────────────
         private string BuildGoogleAuthUrl() =>
             "https://accounts.google.com/o/oauth2/v2/auth?" +
             $"client_id={Uri.EscapeDataString(GoogleClientId)}" +
@@ -689,7 +648,6 @@ namespace FileExplorerr
             "&scope=user:email%20read:user" +
             $"&state={_oauthState}";
 
-        // ── Intercambio de código ─────────────────────────────────────
         private async Task<string> ExchangeGoogleCode(string code)
         {
             var body = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -728,7 +686,6 @@ namespace FileExplorerr
             return doc.RootElement.GetProperty("access_token").GetString() ?? "";
         }
 
-        // ── Perfiles ──────────────────────────────────────────────────
         private async Task<UserProfile> GetGoogleProfile(string token)
         {
             var req = new HttpRequestMessage(HttpMethod.Get,
@@ -753,8 +710,7 @@ namespace FileExplorerr
 
         private async Task<UserProfile> GetGitHubProfile(string token)
         {
-            var req = new HttpRequestMessage(HttpMethod.Get,
-                "https://api.github.com/user");
+            var req = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user");
             req.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             var resp = await Http.SendAsync(req);
@@ -766,7 +722,6 @@ namespace FileExplorerr
             if (!root.TryGetProperty("email", out var emailProp) ||
                 emailProp.ValueKind == JsonValueKind.Null)
             {
-                // Buscar email verificado
                 try
                 {
                     var req2 = new HttpRequestMessage(HttpMethod.Get,
@@ -806,7 +761,6 @@ namespace FileExplorerr
             };
         }
 
-        // ── HTML de callback ──────────────────────────────────────────
         private static string BuildCallbackHtml(string status) => status == "ok"
             ? @"<!DOCTYPE html><html><head><meta charset='utf-8'>
 <style>body{background:#0a0c12;color:#f0f2ff;font-family:'Segoe UI',sans-serif;
@@ -827,9 +781,6 @@ display:flex;flex-direction:column;align-items:center;justify-content:center;hei
 <div class='sub'>Puedes cerrar esta ventana.</div>
 <script>setTimeout(()=>window.close(),2500);</script></body></html>";
 
-        // ════════════════════════════════════════════════════════════════
-        //  HELPERS UI
-        // ════════════════════════════════════════════════════════════════
         private void ShowLoading(string msg)
         {
             if (InvokeRequired) { Invoke(() => ShowLoading(msg)); return; }
@@ -863,8 +814,7 @@ display:flex;flex-direction:column;align-items:center;justify-content:center;hei
         private static Dictionary<string, string> ParseQueryString(string query)
         {
             var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var raw = query.TrimStart('?');
-            foreach (var part in raw.Split('&'))
+            foreach (var part in query.TrimStart('?').Split('&'))
             {
                 var idx = part.IndexOf('=');
                 if (idx < 0) continue;
