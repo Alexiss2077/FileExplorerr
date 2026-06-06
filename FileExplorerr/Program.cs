@@ -14,6 +14,27 @@ namespace FileExplorerr
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            // Auto-crear appsettings.json si no existe
+            string configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            string examplePath = Path.Combine(AppContext.BaseDirectory, "appsettings.example.json");
+
+            if (!File.Exists(configPath) && File.Exists(examplePath))
+            {
+                File.Copy(examplePath, configPath);
+            }
+
+            if (!File.Exists(configPath))
+            {
+                MessageBox.Show(
+                    "No se encontró el archivo appsettings.json.\n\n" +
+                    "Crea el archivo en la carpeta del ejecutable con tus credenciales OAuth.\n\n" +
+                    "Puedes usar appsettings.example.json como plantilla.",
+                    "Configuración faltante",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
             // ── QuestPDF license (Community MIT — free under $1M revenue) ─
             QuestPDF.Settings.License = LicenseType.Community;
 
