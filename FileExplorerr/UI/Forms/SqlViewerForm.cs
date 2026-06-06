@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
+using FileExplorerr.Charts;
 
 namespace FileExplorerr
 {
@@ -38,6 +39,7 @@ namespace FileExplorerr
         private string connectionString = "";
         private DataTable? resultadoActual;
         private IDbConnector? _connector;
+        private Form? _chartWindow;
 
         // ════════════════════════════════════════════════════════════════════
         //  CONSTRUCTOR
@@ -121,6 +123,10 @@ namespace FileExplorerr
             btnExportarPdf = MakeExportBtn("🗒 PDF", Color.FromArgb(70, 10, 10), Color.FromArgb(220, 70, 70));
             btnImportar = MakeActionBtn("↑ Importar archivo→BD", Color.FromArgb(10, 32, 58), Color.FromArgb(125, 211, 252));
 
+            var btnVerGrafica = MakeExportBtn("📊 Gráfica", Color.FromArgb(20, 50, 80), Color.FromArgb(96, 165, 250));
+            btnVerGrafica.Dock = DockStyle.Left;
+            btnVerGrafica.Click += (s, e) => MostrarVentanaGrafica();
+
             lblHint = new Label { Text = "Ctrl+Enter o F5 para ejecutar", Dock = DockStyle.Right, AutoSize = true, ForeColor = Theme.TextMuted, Font = new Font("Segoe UI", 7.5F), TextAlign = ContentAlignment.MiddleRight, Padding = new Padding(0, 8, 4, 0) };
 
             var sqlFlow = new FlowLayoutPanel { Dock = DockStyle.Left, AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = Color.Transparent };
@@ -136,7 +142,7 @@ namespace FileExplorerr
             btnExportarPptx.Click += (s, e) => ExportadorOffice.ExportarConDialogo(resultadoActual!, ObtenerTituloQuery(), ".pptx", this);
             btnExportarPdf.Click += (s, e) => ExportadorOffice.ExportarConDialogo(resultadoActual!, ObtenerTituloQuery(), ".pdf", this);
 
-            sqlFlow.Controls.AddRange(new Control[] { btnEjecutarBtn, btnLimpiar, btnExportarCsv, btnExportarJson, btnExportarTxt, btnExportarXml, btnExportarXlsx, btnExportarDocx, btnExportarPptx, btnExportarPdf, btnImportar });
+            sqlFlow.Controls.AddRange(new Control[] { btnEjecutarBtn, btnLimpiar, btnExportarCsv, btnExportarJson, btnExportarTxt, btnExportarXml, btnExportarXlsx, btnExportarDocx, btnExportarPptx, btnExportarPdf, btnImportar, btnVerGrafica });
 
             sqlBar.Controls.Add(sqlFlow);
             sqlBar.Controls.Add(lblHint);
@@ -541,6 +547,156 @@ namespace FileExplorerr
             var btn = new Button { Text = text, Height = 32, AutoSize = true, Padding = new Padding(8, 0, 8, 0), BackColor = bg, ForeColor = fg, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), Cursor = Cursors.Hand };
             btn.FlatAppearance.BorderColor = fg; btn.FlatAppearance.BorderSize = 1;
             return btn;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  GRÁFICAS (Flotante)
+        // ════════════════════════════════════════════════════════════════════
+        private void MostrarVentanaGrafica()
+        {
+            if (resultadoActual is null || resultadoActual.Rows.Count == 0)
+            {
+                MessageBox.Show("Ejecuta una consulta primero.", "Sin resultados",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Reutilizar la ventana si ya está abierta
+            if (_chartWindow is not null && !_chartWindow.IsDisposed)
+            {
+                _chartWindow.BringToFront();
+                RefrescarVentanaGrafica(_chartWindow, resultadoActual);
+                return;
+            }
+
+            var win = new Form
+            {
+                Text = "Gráfica — resultado SQL",
+                Size = new Size(780, 540),
+                MinimumSize = new Size(500, 380),
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(Left + Width + 10, Top),
+                BackColor = Color.FromArgb(13, 13, 18),
+                ForeColor = Color.FromArgb(225, 225, 235),
+                Font = new Font("Segoe UI", 9f)
+            };
+
+            RefrescarVentanaGrafica(win, resultadoActual);
+
+            // Cuando se ejecuta una nueva consulta, actualizar la gráfica automáticamente
+            // (event handler local — se desuscribe cuando la ventana se cierra)
+            win.FormClosed += (_, _) => _chartWindow = null;
+            _chartWindow = win;
+            win.Show(this);
+        }
+
+        private static void RefrescarVentanaGrafica(Form win, DataTable dt)
+        {
+            win.Controls.Clear();
+
+            var root = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(13, 13, 18) };
+
+            // ── Barra de controles ─────────────────────────────────────────
+            var toolbar = new Panel
+            {
+                Height = 44,
+                Dock = DockStyle.Top,
+                BackColor = Color.FromArgb(20, 20, 28),
+                Padding = new Padding(10, 7, 10, 7)
+            };
+
+            var cats = ChartDataBuilder.GetCategoricalColumns(dt);
+            var nums = ChartDataBuilder.GetNumericColumns(dt);
+            nums.Insert(0, "— (ninguna)");
+
+            int x = 10;
+            ComboBox AddCombo(int w, object[] items, int sel = 0)
+            {
+                var c = new ComboBox
+                {
+                    Location = new Point(x, 8),
+                    Width = w,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    BackColor = Color.FromArgb(26, 26, 36),
+                    ForeColor = Color.FromArgb(220, 220, 232),
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 8.5f)
+                };
+                c.Items.AddRange(items);
+                if (c.Items.Count > sel) c.SelectedIndex = sel;
+                toolbar.Controls.Add(c);
+                x += w + 10;
+                return c;
+            }
+
+            void AddLbl(string t)
+            {
+                toolbar.Controls.Add(new Label
+                {
+                    Text = t,
+                    Location = new Point(x, 12),
+                    AutoSize = true,
+                    ForeColor = Color.FromArgb(110, 110, 140),
+                    Font = new Font("Segoe UI", 8.5f),
+                    BackColor = Color.Transparent
+                });
+                x += toolbar.Controls[^1].Width + 6;
+            }
+
+            AddLbl("Tipo:"); var cmbType = AddCombo(100, new object[] { "Columnas", "Barras", "Pastel" });
+            AddLbl("Agrupar por:"); var cmbGroup = AddCombo(160, cats.ToArray<object>());
+            AddLbl("Métrica:"); var cmbMetric = AddCombo(90, new object[] { "Conteo", "Suma", "Promedio" });
+            AddLbl("Valor:"); var cmbValue = AddCombo(160, nums.ToArray<object>());
+
+            var btnR = new Button
+            {
+                Text = "↺",
+                Location = new Point(x, 8),
+                Size = new Size(30, 28),
+                BackColor = Color.FromArgb(36, 27, 82),
+                ForeColor = Color.FromArgb(167, 139, 250),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 11f),
+                Cursor = Cursors.Hand
+            };
+            btnR.FlatAppearance.BorderSize = 0;
+            toolbar.Controls.Add(btnR);
+
+            var chart = new DataChartPanel { Dock = DockStyle.Fill };
+
+            void Refresh()
+            {
+                string group = cmbGroup.Text;
+                if (string.IsNullOrEmpty(group)) return;
+                string? value = cmbValue.Text is "— (ninguna)" or "" ? null : cmbValue.Text;
+                var metric = cmbMetric.SelectedIndex switch
+                {
+                    1 => ChartDataBuilder.ChartMetric.Sum,
+                    2 => ChartDataBuilder.ChartMetric.Average,
+                    _ => ChartDataBuilder.ChartMetric.Count
+                };
+                var type = cmbType.SelectedIndex switch
+                {
+                    1 => ChartType.Bars,
+                    2 => ChartType.Pie,
+                    _ => ChartType.Columns
+                };
+                var data = ChartDataBuilder.Build(dt, group, value, metric);
+                string title = ChartDataBuilder.BuildTitle(group, value, metric);
+                chart.SetData(data, type, title);
+            }
+
+            cmbType.SelectedIndexChanged += (_, _) => Refresh();
+            cmbGroup.SelectedIndexChanged += (_, _) => Refresh();
+            cmbMetric.SelectedIndexChanged += (_, _) => Refresh();
+            cmbValue.SelectedIndexChanged += (_, _) => Refresh();
+            btnR.Click += (_, _) => Refresh();
+
+            root.Controls.Add(chart);
+            root.Controls.Add(toolbar);
+            win.Controls.Add(root);
+
+            Refresh();   // dibuja de inmediato con los valores iniciales
         }
     }
 }

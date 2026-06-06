@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using FileExplorerr.Charts;
 
 namespace FileExplorerr
 {
@@ -22,6 +23,13 @@ namespace FileExplorerr
         private Panel loadingPanel = null!;
         private Label loadingLabel = null!;
         private Button btnShareEmail = null!;
+
+        // Nuevos controles para gráficas
+        private DataChartPanel? _chartPanel;
+        private ComboBox? _cmbChartGroup;
+        private ComboBox? _cmbChartValue;
+        private ComboBox? _cmbChartType;
+        private ComboBox? _cmbChartMetric;
 
         // ── Estado ───────────────────────────────────────────────────────────
         private readonly string filePath;
@@ -308,11 +316,165 @@ namespace FileExplorerr
             bottomPanel.Controls.Add(rowTop);
 
             Controls.Add(loadingPanel);
-            Controls.Add(grid);
+
+            // Pestañas (Datos y Gráfica)
+            var tabs = new TabControl
+            {
+                Dock = DockStyle.Fill,
+                Font = Theme.FontBody
+            };
+            var tabData = new TabPage("Datos") { BackColor = Theme.BgBase, UseVisualStyleBackColor = false };
+            var tabChart = new TabPage("Gráfica") { BackColor = Theme.BgBase, UseVisualStyleBackColor = false };
+
+            grid.Dock = DockStyle.Fill;
+            tabData.Controls.Add(grid);
+
+            tabChart.Controls.Add(BuildChartTab());
+
+            tabs.TabPages.AddRange(new[] { tabData, tabChart });
+            Controls.Add(tabs);
+
             Controls.Add(filterPanel);
             Controls.Add(topPanel);
             Controls.Add(bottomPanel);
             loadingPanel.BringToFront();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  CHART CONSTRUCTION & REFRESH
+        // ════════════════════════════════════════════════════════════════════
+        private Panel BuildChartTab()
+        {
+            var root = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BgBase };
+
+            // ── Barra de controles ────────────────────────────────────────────
+            var toolbar = new Panel
+            {
+                Height = 44,
+                Dock = DockStyle.Top,
+                BackColor = Theme.BgSurface,
+                Padding = new Padding(10, 7, 10, 7)
+            };
+
+            int x = 10;
+
+            void AddLabel(string text)
+            {
+                toolbar.Controls.Add(new Label
+                {
+                    Text = text,
+                    Location = new Point(x, 12),
+                    AutoSize = true,
+                    ForeColor = Theme.TextMuted,
+                    Font = Theme.FontSmall,
+                    BackColor = Color.Transparent
+                });
+                x += toolbar.Controls[^1].Width + 6;
+            }
+
+            ComboBox AddCombo(int width, string[] items)
+            {
+                var cmb = new ComboBox
+                {
+                    Location = new Point(x, 8),
+                    Width = width,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    BackColor = Theme.BgElevated,
+                    ForeColor = Theme.TextPrimary,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = Theme.FontSmall
+                };
+                cmb.Items.AddRange(items);
+                toolbar.Controls.Add(cmb);
+                x += width + 10;
+                return cmb;
+            }
+
+            AddLabel("Tipo:");
+            _cmbChartType = AddCombo(100, new[] { "Columnas", "Barras", "Pastel" });
+            _cmbChartType.SelectedIndex = 0;
+
+            AddLabel("Agrupar por:");
+            _cmbChartGroup = AddCombo(160, Array.Empty<string>());
+
+            AddLabel("Métrica:");
+            _cmbChartMetric = AddCombo(90, new[] { "Conteo", "Suma", "Promedio" });
+            _cmbChartMetric.SelectedIndex = 0;
+
+            AddLabel("Valor:");
+            _cmbChartValue = AddCombo(160, Array.Empty<string>());
+
+            var btnRefresh = new Button
+            {
+                Text = "↺",
+                Location = new Point(x, 8),
+                Size = new Size(30, 28),
+                BackColor = Theme.AccentBg,
+                ForeColor = Theme.Accent2,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 11f),
+                Cursor = Cursors.Hand
+            };
+            btnRefresh.FlatAppearance.BorderSize = 0;
+            btnRefresh.Click += (_, _) => RefreshChart();
+            toolbar.Controls.Add(btnRefresh);
+
+            // Actualizar cuando cambia cualquier combo
+            _cmbChartType.SelectedIndexChanged += (_, _) => RefreshChart();
+            _cmbChartGroup.SelectedIndexChanged += (_, _) => RefreshChart();
+            _cmbChartMetric.SelectedIndexChanged += (_, _) => RefreshChart();
+            _cmbChartValue.SelectedIndexChanged += (_, _) => RefreshChart();
+
+            // ── Panel de la gráfica ───────────────────────────────────────────
+            _chartPanel = new DataChartPanel { Dock = DockStyle.Fill };
+
+            root.Controls.Add(_chartPanel);
+            root.Controls.Add(toolbar);
+            return root;
+        }
+
+        private void RefreshChart()
+        {
+            if (_chartPanel is null || _cmbChartGroup is null ||
+                _cmbChartMetric is null || _cmbChartType is null)
+                return;
+
+            // Actualizar opciones de columnas cuando se tienen datos nuevos
+            if (_cmbChartGroup.Items.Count == 0 && displayTable.Columns.Count > 0)
+            {
+                var cats = ChartDataBuilder.GetCategoricalColumns(displayTable);
+                var nums = ChartDataBuilder.GetNumericColumns(displayTable);
+                nums.Insert(0, "— (ninguna)");
+
+                _cmbChartGroup.Items.Clear();
+                _cmbChartGroup.Items.AddRange(cats.ToArray<object>());
+                if (_cmbChartGroup.Items.Count > 0) _cmbChartGroup.SelectedIndex = 0;
+
+                _cmbChartValue!.Items.Clear();
+                _cmbChartValue.Items.AddRange(nums.ToArray<object>());
+                _cmbChartValue.SelectedIndex = 0;
+            }
+
+            string group = _cmbChartGroup.Text;
+            if (string.IsNullOrEmpty(group)) return;
+
+            string? value = _cmbChartValue?.Text is "— (ninguna)" or "" ? null : _cmbChartValue?.Text;
+            var metric = _cmbChartMetric.SelectedIndex switch
+            {
+                1 => ChartDataBuilder.ChartMetric.Sum,
+                2 => ChartDataBuilder.ChartMetric.Average,
+                _ => ChartDataBuilder.ChartMetric.Count
+            };
+            var chartType = _cmbChartType.SelectedIndex switch
+            {
+                1 => ChartType.Bars,
+                2 => ChartType.Pie,
+                _ => ChartType.Columns
+            };
+
+            var data = ChartDataBuilder.Build(displayTable, group, value, metric);
+            string title = ChartDataBuilder.BuildTitle(group, value, metric);
+            _chartPanel.SetData(data, chartType, title);
         }
 
         // ── Helper: export button factory ─────────────────────────────────────
@@ -468,7 +630,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  DISPLAY — unchanged from original
+        //  DISPLAY — unchanged from original (modified for Charts)
         // ════════════════════════════════════════════════════════════════════
         private void ApplyDisplayTable(DataTable source)
         {
@@ -514,6 +676,15 @@ namespace FileExplorerr
                 col.SortMode = DataGridViewColumnSortMode.Programmatic;
                 col.Width = Math.Min(280, Math.Max(70, col.Width));
             }
+
+            // Resetear columnas del combo de gráfica para que se recarguen
+            // con las columnas del nuevo dataset
+            if (_cmbChartGroup is not null)
+            {
+                _cmbChartGroup.Items.Clear();
+                _cmbChartValue?.Items.Clear();
+            }
+            RefreshChart();
         }
 
         // Phase 5B: all list references replaced with _report.<Property>
