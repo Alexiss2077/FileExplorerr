@@ -323,6 +323,10 @@ namespace FileExplorerr
                         col.Width = Math.Min(260, Math.Max(60, col.Width));
                     lblStatus.Text = $"  {dt.Rows.Count} fila(s)  ·  {sw.ElapsedMilliseconds} ms";
                     SetExportButtonsEnabled(dt.Rows.Count > 0);
+
+                    // Actualizar gráfica si la ventana está abierta
+                    if (_chartWindow is not null && !_chartWindow.IsDisposed)
+                        RefrescarVentanaGrafica(_chartWindow, dt);
                 }
                 else
                 {
@@ -502,10 +506,6 @@ namespace FileExplorerr
             return dt;
         }
 
-        private static string SanitizarColumna(string nombre) =>
-            string.IsNullOrWhiteSpace(nombre) ? "col" :
-            new string(nombre.Select(c => char.IsLetterOrDigit(c) || c == '_' ? c : '_').ToArray()).TrimStart('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
-
         // ════════════════════════════════════════════════════════════════════
         //  HELPERS UI
         // ════════════════════════════════════════════════════════════════════
@@ -550,7 +550,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  GRÁFICAS (Flotante)
+        //  GRÁFICAS (Flotante) — CORREGIDO
         // ════════════════════════════════════════════════════════════════════
         private void MostrarVentanaGrafica()
         {
@@ -572,21 +572,19 @@ namespace FileExplorerr
             var win = new Form
             {
                 Text = "Gráfica — resultado SQL",
-                Size = new Size(780, 540),
+                Size = new Size(800, 560),
                 MinimumSize = new Size(500, 380),
-                StartPosition = FormStartPosition.Manual,
-                Location = new Point(Left + Width + 10, Top),
+                StartPosition = FormStartPosition.CenterScreen,  // FIX: centrar en pantalla
                 BackColor = Color.FromArgb(13, 13, 18),
                 ForeColor = Color.FromArgb(225, 225, 235),
                 Font = new Font("Segoe UI", 9f)
             };
 
-            RefrescarVentanaGrafica(win, resultadoActual);
-
-            // Cuando se ejecuta una nueva consulta, actualizar la gráfica automáticamente
-            // (event handler local — se desuscribe cuando la ventana se cierra)
             win.FormClosed += (_, _) => _chartWindow = null;
             _chartWindow = win;
+
+            RefrescarVentanaGrafica(win, resultadoActual);
+
             win.Show(this);
         }
 
@@ -605,12 +603,21 @@ namespace FileExplorerr
                 Padding = new Padding(10, 7, 10, 7)
             };
 
+            var allCols = ChartDataBuilder.GetColumnNames(dt);
             var cats = ChartDataBuilder.GetCategoricalColumns(dt);
             var nums = ChartDataBuilder.GetNumericColumns(dt);
-            nums.Insert(0, "— (ninguna)");
+
+            // Si no hay columnas categóricas, usar todas las columnas como grupo
+            if (cats.Count == 0)
+                cats = allCols;
+
+            // Asegurar que la lista de valores numéricos tenga la opción "ninguna"
+            var numsWithNone = new List<string> { "— (ninguna)" };
+            numsWithNone.AddRange(nums);
 
             int x = 10;
-            ComboBox AddCombo(int w, object[] items, int sel = 0)
+
+            ComboBox AddCombo(int w, List<string> items, int sel = 0)
             {
                 var c = new ComboBox
                 {
@@ -622,8 +629,9 @@ namespace FileExplorerr
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("Segoe UI", 8.5f)
                 };
-                c.Items.AddRange(items);
-                if (c.Items.Count > sel) c.SelectedIndex = sel;
+                foreach (var item in items) c.Items.Add(item);
+                if (c.Items.Count > 0)
+                    c.SelectedIndex = Math.Min(sel, c.Items.Count - 1);
                 toolbar.Controls.Add(c);
                 x += w + 10;
                 return c;
@@ -631,22 +639,27 @@ namespace FileExplorerr
 
             void AddLbl(string t)
             {
-                toolbar.Controls.Add(new Label
+                var lbl = new Label
                 {
                     Text = t,
-                    Location = new Point(x, 12),
                     AutoSize = true,
                     ForeColor = Color.FromArgb(110, 110, 140),
                     Font = new Font("Segoe UI", 8.5f),
                     BackColor = Color.Transparent
-                });
-                x += toolbar.Controls[^1].Width + 6;
+                };
+                // Medir antes de añadir al toolbar para posicionar correctamente
+                lbl.Location = new Point(x, 12);
+                toolbar.Controls.Add(lbl);
+                // Forzar medición de tamaño
+                using var g = toolbar.CreateGraphics();
+                var sz = g.MeasureString(t, lbl.Font);
+                x += (int)sz.Width + 6;
             }
 
-            AddLbl("Tipo:"); var cmbType = AddCombo(100, new object[] { "Columnas", "Barras", "Pastel" });
-            AddLbl("Agrupar por:"); var cmbGroup = AddCombo(160, cats.ToArray<object>());
-            AddLbl("Métrica:"); var cmbMetric = AddCombo(90, new object[] { "Conteo", "Suma", "Promedio" });
-            AddLbl("Valor:"); var cmbValue = AddCombo(160, nums.ToArray<object>());
+            AddLbl("Tipo:"); var cmbType = AddCombo(100, new List<string> { "Columnas", "Barras", "Pastel" });
+            AddLbl("Agrupar por:"); var cmbGroup = AddCombo(160, cats);
+            AddLbl("Métrica:"); var cmbMetric = AddCombo(90, new List<string> { "Conteo", "Suma", "Promedio" });
+            AddLbl("Valor:"); var cmbValue = AddCombo(160, numsWithNone);
 
             var btnR = new Button
             {
@@ -668,7 +681,11 @@ namespace FileExplorerr
             {
                 string group = cmbGroup.Text;
                 if (string.IsNullOrEmpty(group)) return;
-                string? value = cmbValue.Text is "— (ninguna)" or "" ? null : cmbValue.Text;
+
+                string? value = (cmbValue.Text == "— (ninguna)" || string.IsNullOrEmpty(cmbValue.Text))
+                    ? null
+                    : cmbValue.Text;
+
                 var metric = cmbMetric.SelectedIndex switch
                 {
                     1 => ChartDataBuilder.ChartMetric.Sum,
@@ -681,6 +698,7 @@ namespace FileExplorerr
                     2 => ChartType.Pie,
                     _ => ChartType.Columns
                 };
+
                 var data = ChartDataBuilder.Build(dt, group, value, metric);
                 string title = ChartDataBuilder.BuildTitle(group, value, metric);
                 chart.SetData(data, type, title);
@@ -696,7 +714,8 @@ namespace FileExplorerr
             root.Controls.Add(toolbar);
             win.Controls.Add(root);
 
-            Refresh();   // dibuja de inmediato con los valores iniciales
+            // Dibujar inmediatamente con los valores iniciales
+            Refresh();
         }
     }
 }
