@@ -1,4 +1,5 @@
 
+
 <div align="center">
 
 # 📁 FileExplorerr
@@ -63,6 +64,7 @@ FileExplorerr es una aplicación de escritorio Windows construida con C# 12 y .N
 ### 🗂 Explorador de Archivos
 - Navegación con historial completo (atrás / adelante / subir nivel)
 - Barra de dirección editable con navegación por teclado (`Enter`)
+- **Autocompletado inteligente en la barra de dirección**: al escribir una ruta, aparece un menú flotante con las subcarpetas que coinciden con el texto ingresado. El menú se posiciona automáticamente debajo de la barra, respeta el tema oscuro Arctic Night y se cierra al presionar `Escape`. Navega entre sugerencias con `↓`, acepta con `Enter` o haciendo clic. Al navegar a una carpeta mediante código (historial, botones, favoritos), el menú no se activa para no interrumpir la navegación.
 - Actualización con `F5` o botón dedicado
 - **Drag & Drop** entre carpetas con resaltado visual del destino
 - **Papelera integrada** en la barra de estado para eliminar arrastrando
@@ -449,6 +451,18 @@ Normalización: elimina diacríticos, stopwords musicales (feat., remix, officia
 
 ## 🎨 Funcionalidades en Detalle
 
+### Autocompletado de la Barra de Dirección
+
+El autocompletado es un `ListBox` flotante propio (no el nativo de Windows) para mantener el tema Arctic Night de forma consistente. Su comportamiento es:
+
+- **Activación**: se dispara con el evento `TextChanged` solo cuando la ruta escrita contiene al menos una barra invertida `\`, indicando que el usuario está tecleando una ruta de sistema.
+- **Filtrado en tiempo real**: obtiene el directorio padre de lo escrito con `Path.GetDirectoryName()` y lista las subcarpetas cuyo nombre empiece con el fragmento parcial ingresado, usando comparación sin distinción de mayúsculas/minúsculas.
+- **Posicionamiento**: el menú se ancla directamente debajo de la barra de dirección usando coordenadas de pantalla, con un ancho equivalente al de la barra más el ícono de carpeta.
+- **Navegación con teclado**: `↓` desde la barra mueve el foco al `ListBox`; `Enter` dentro del menú acepta la sugerencia y devuelve el foco a la barra; `Escape` cierra el menú sin navegar.
+- **Clic con ratón**: seleccionar un ítem en el menú lo copia en la barra y cierra el desplegable.
+- **Protección contra bucles**: cuando la aplicación cambia el texto de la barra de forma programática (historial, botones de navegación, favoritos de la barra lateral), desuscribe `TextChanged` antes de asignar el valor y lo vuelve a suscribir justo después, evitando que el menú aparezca durante navegaciones automáticas.
+- **Cierre automático**: el menú desaparece si no hay coincidencias, si la ruta está vacía o si no contiene una barra invertida.
+
 ### Panel GPS (Imágenes y Video)
 
 **Lectura de GPS:**
@@ -561,7 +575,7 @@ Todos los exportadores y archivers retornan un objeto de resultado en lugar de l
 
 ```csharp
 ExportResult result = await exporter.ExportAsync(data, options, progress);
-if (result.Success)        { /* abrir archivo */ }
+if (result.Success)           { /* abrir archivo */ }
 else if (result.WasTruncated) { /* mostrar advertencia */ }
 else                          { MessageBox.Show(result.ErrorMessage); }
 ```
@@ -759,6 +773,7 @@ Para Gmail, necesitas una [Contraseña de Aplicación](https://support.google.co
 ```
 📁 Carpeta de usuario
 ├── Usa la barra de dirección para navegar directamente
+├── Escribe una ruta parcial para ver sugerencias de autocompletado
 ├── Haz doble clic en carpetas para entrar
 ├── Botones ← → ↑ para historial y subir nivel
 ├── F5 para actualizar
@@ -817,7 +832,10 @@ Actualizar (F5)
 | Atajo | Acción |
 |---|---|
 | `F5` | Actualizar directorio |
-| `Enter` en barra de dirección | Navegar a la ruta |
+| `Enter` en barra de dirección | Navegar a la ruta escrita |
+| `↓` en barra de dirección | Abrir menú de autocompletado y mover foco a sugerencias |
+| `Enter` en menú de autocompletado | Aceptar sugerencia seleccionada |
+| `Escape` en menú de autocompletado | Cerrar menú y volver a la barra |
 | `Enter` en búsqueda del panel | Buscar en árbol lateral |
 
 ### Visor de Imágenes
@@ -899,8 +917,6 @@ Actualizar (F5)
 - Todos los exportadores eliminan el archivo parcial si fallan o se cancelan
 
 ---
-
-
 
 ## 🤝 Contribución
 
