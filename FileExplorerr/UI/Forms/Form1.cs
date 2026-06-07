@@ -142,10 +142,10 @@ namespace FileExplorerr
             appLogoLabel = new Label
             {
                 Text = "  FileExplorerr",
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
                 ForeColor = Theme.Accent2,
                 AutoSize = true,
-                Location = new Point(12, 14),
+                Location = new Point(12, 10),
                 BackColor = Color.Transparent
             };
 
@@ -751,9 +751,10 @@ namespace FileExplorerr
             using var line = new Pen(Color.FromArgb(255, 255, 255, 12));
             e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             var rect = new Rectangle(e.Bounds.Left + 12, e.Bounds.Top, e.Bounds.Width - 14, e.Bounds.Height);
-            using var br = new SolidBrush(Theme.TextMuted);
+            using var br = new SolidBrush(Theme.TextSecondary);              // más claro
+            using var font = new Font("Segoe UI", 10F, FontStyle.Bold);     // más grande
             using var sf = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
-            e.Graphics.DrawString(e.Header!.Text, Theme.FontSmallBold, br, rect, sf);
+            e.Graphics.DrawString(e.Header!.Text, font, br, rect, sf);
         }
 
         // ── Panel derecho (árbol de carpeta) ──────────────────────────────────
