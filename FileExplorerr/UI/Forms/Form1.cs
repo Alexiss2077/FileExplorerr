@@ -26,6 +26,9 @@ namespace FileExplorerr
         private ListViewItem? dragHighlightedItem;
         private int sortColumn = -1;
 
+        // Autocompletado personalizado (Modo Oscuro)
+        private ListBox suggestionBox = null!;
+
         // Íconos de la papelera (vacía / llena) — se cargan desde shell32
         private Bitmap? _recycleIconEmpty;
         private Bitmap? _recycleIconFull;
@@ -151,14 +154,12 @@ namespace FileExplorerr
             {
                 SwitchPage("music");
                 string? file = GetFirstAudioFile();
-                // Si hay audio en la carpeta actual lo carga; si no, abre vacío igual
                 new MusicPlayerForm(file ?? "").Show();
             };
             navVideo.Click += (s, e) =>
             {
                 SwitchPage("video");
                 string? file = GetFirstVideoFile();
-                // Si hay video en la carpeta actual lo carga; si no, abre vacío igual
                 new VideoPlayerForm(file).Show();
             };
             navSql.Click += (s, e) => { SwitchPage("sql"); new SqlViewerForm().Show(); };
@@ -202,7 +203,6 @@ namespace FileExplorerr
             _accountButton.SignOutRequested += OnSignOutRequested;
             _accountButton.SwitchAccountRequested += OnSwitchAccountRequested;
 
-            // Si ya hay un usuario cargado, aplicarlo:
             if (_currentUser != null)
                 _accountButton.SetProfile(_currentUser);
 
@@ -212,7 +212,6 @@ namespace FileExplorerr
             topNavBar.Controls.Add(sqlQuickBtn);
             topNavBar.Controls.Add(_accountButton);
 
-            // Posicionar sqlQuickBtn y _accountButton a la derecha tras resize
             topNavBar.Resize += (s, e) =>
             {
                 _accountButton.Location = new Point(topNavBar.Width - 210, 10);
@@ -245,8 +244,6 @@ namespace FileExplorerr
         private void SwitchPage(string page)
         {
             _activePage = page;
-
-            // Resetear todas las pestañas
             foreach (var (btn, pg) in new[] {
                 (navExplorer,"explorer"), (navMusic,"music"),
                 (navVideo,"video"),       (navSql,"sql") })
@@ -263,23 +260,13 @@ namespace FileExplorerr
 
         private string? GetFirstAudioFile()
         {
-            try
-            {
-                return Directory.GetFiles(currentPath)
-                    .FirstOrDefault(x => FileExtensions.Audio
-                        .Contains(Path.GetExtension(x)));
-            }
+            try { return Directory.GetFiles(currentPath).FirstOrDefault(x => FileExtensions.Audio.Contains(Path.GetExtension(x))); }
             catch { return null; }
         }
 
         private string? GetFirstVideoFile()
         {
-            try
-            {
-                return Directory.GetFiles(currentPath)
-                    .FirstOrDefault(x => FileExtensions.Video
-                    .Contains(Path.GetExtension(x)));
-            }
+            try { return Directory.GetFiles(currentPath).FirstOrDefault(x => FileExtensions.Video.Contains(Path.GetExtension(x))); }
             catch { return null; }
         }
 
@@ -288,17 +275,10 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private void OnSignOutRequested(object? sender, EventArgs e)
         {
-            var result = MessageBox.Show(
-                "¿Cerrar sesión de FileExplorerr?\n\nDeberás iniciar sesión la próxima vez.",
-                "Cerrar sesión",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
+            var result = MessageBox.Show("¿Cerrar sesión de FileExplorerr?\n\nDeberás iniciar sesión la próxima vez.", "Cerrar sesión", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (result != DialogResult.Yes) return;
 
             SessionManager.Clear();
-
-            // Mostrar login de nuevo
             var loginForm = new LoginForm();
             Hide();
 
@@ -308,10 +288,7 @@ namespace FileExplorerr
                 _accountButton.SetProfile(_currentUser);
                 Show();
             }
-            else
-            {
-                Application.Exit();
-            }
+            else { Application.Exit(); }
         }
 
         private void OnSwitchAccountRequested(object? sender, EventArgs e)
@@ -328,14 +305,8 @@ namespace FileExplorerr
             explorerPage = new Panel { BackColor = Theme.BgBase };
 
             // ── Toolbar del explorador ────────────────────────────────────────
-            var toolbar = new Panel
-            {
-                Height = 54,
-                Dock = DockStyle.Top,
-                BackColor = Theme.BgSurface
-            };
+            var toolbar = new Panel { Height = 54, Dock = DockStyle.Top, BackColor = Theme.BgSurface };
 
-            // Botones de navegación — posicionamiento absoluto vía Resize
             backButton = MakeNavBtn("←", "Atrás");
             forwardButton = MakeNavBtn("→", "Adelante");
             upButton = MakeNavBtn("↑", "Subir nivel");
@@ -346,31 +317,21 @@ namespace FileExplorerr
             upButton.Click += (s, e) => GoUp();
             refreshButton.Click += (s, e) => RefreshView();
 
-            // Barra de dirección — se posiciona correctamente en LayoutToolbar()
-            var addrPanel = new Panel
-            {
-                Height = 34,
-                BackColor = Theme.BgElevated,
-                Location = new Point(-500, 0)   // fuera de pantalla hasta el primer layout
-            };
-            var addrIcon = new Label
-            {
-                Text = "📂",
-                Width = 28,
-                Height = 34,
-                Location = new Point(6, 0),
-                BackColor = Color.Transparent,
-                Font = new Font("Segoe UI", 13F),
-                TextAlign = ContentAlignment.MiddleCenter
-            };
+            var addrPanel = new Panel { Height = 34, BackColor = Theme.BgElevated, Location = new Point(-500, 0) };
+            var addrIcon = new Label { Text = "📂", Width = 28, Height = 34, Location = new Point(6, 0), BackColor = Color.Transparent, Font = new Font("Segoe UI", 13F), TextAlign = ContentAlignment.MiddleCenter };
+
             addressBar = new TextBox
             {
                 BackColor = Theme.BgElevated,
                 ForeColor = Theme.TextPrimary,
                 BorderStyle = BorderStyle.None,
-                Font = Theme.FontBody
+                Font = Theme.FontBody,
+                AutoCompleteMode = AutoCompleteMode.None // Autocompletado nativo desactivado
             };
+
             addressBar.KeyDown += AddressBar_KeyDown;
+            addressBar.TextChanged += AddressBar_TextChanged; // Suscripción para mostrar la lista
+
             addrPanel.Controls.Add(addrIcon);
             addrPanel.Controls.Add(addressBar);
             addrPanel.Resize += (s, e) =>
@@ -387,21 +348,12 @@ namespace FileExplorerr
             newFolderButton.Click += (s, e) => FileOperationService.CreateFolder(currentPath, this, () => LoadDirectory(currentPath));
             exportCsvButton.Click += async (s, e) => await ExportCsvAsync();
 
-            // Añadir todos los controles al toolbar
-            toolbar.Controls.AddRange(new Control[]
-            {
-                backButton, forwardButton, upButton, refreshButton,
-                addrPanel, newFolderButton, exportCsvButton
-            });
+            toolbar.Controls.AddRange(new Control[] { backButton, forwardButton, upButton, refreshButton, addrPanel, newFolderButton, exportCsvButton });
 
-            // Posicionamiento absoluto — se recalcula en cada Resize
             void LayoutToolbar()
             {
-                if (toolbar.Width < 200) return;   // no hacer nada hasta tener ancho real
-                int h = toolbar.Height;
-                int cy = (h - 34) / 2;
-                int x = 10;
-
+                if (toolbar.Width < 200) return;
+                int h = toolbar.Height, cy = (h - 34) / 2, x = 10;
                 backButton.SetBounds(x, cy, 34, 34); x += 38;
                 forwardButton.SetBounds(x, cy, 34, 34); x += 38;
                 upButton.SetBounds(x, cy, 34, 34); x += 38;
@@ -413,17 +365,29 @@ namespace FileExplorerr
                 newFolderButton.SetBounds(rx - newFolderButton.Width, cy, newFolderButton.Width, 34);
                 rx -= newFolderButton.Width + 8;
 
-                if (rx > x)   // solo si hay espacio real para la barra de dirección
-                    addrPanel.SetBounds(x, cy, rx - x, 34);
+                if (rx > x) addrPanel.SetBounds(x, cy, rx - x, 34);
             }
 
             toolbar.Resize += (s, e) => LayoutToolbar();
             this.Resize += (s, e) => LayoutToolbar();
             this.Shown += (s, e) => BeginInvoke((Action)LayoutToolbar);
 
-            // ── Body: sidebar + listview + right panel ────────────────────────
-            var bodyPanel = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BgBase };
+            // ── Creación del Menú Flotante Personalizado ──────────────────────
+            suggestionBox = new ListBox
+            {
+                Visible = false,
+                BackColor = Theme.BgElevated,
+                ForeColor = Theme.TextPrimary,
+                Font = Theme.FontBody,
+                BorderStyle = BorderStyle.FixedSingle,
+                ItemHeight = 26,
+                IntegralHeight = false
+            };
+            suggestionBox.Click += SuggestionBox_Click;
+            suggestionBox.KeyDown += SuggestionBox_KeyDown;
+            this.Controls.Add(suggestionBox); // Agregar a la ventana para que flote sobre todo
 
+            var bodyPanel = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BgBase };
             BuildExplorerSidebar();
             BuildListView();
             BuildRightPanel();
@@ -439,6 +403,133 @@ namespace FileExplorerr
             explorerPage.Controls.Add(bodyPanel);
             explorerPage.Controls.Add(statusBar);
             explorerPage.Controls.Add(toolbar);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  LÓGICA DEL AUTOCOMPLETADO PERSONALIZADO
+        // ════════════════════════════════════════════════════════════════════
+        private void AddressBar_TextChanged(object? sender, EventArgs e)
+        {
+            string input = addressBar.Text;
+
+            // Ocultar si está vacío o no parece una ruta
+            if (string.IsNullOrWhiteSpace(input) || !input.Contains("\\"))
+            {
+                suggestionBox.Visible = false;
+                return;
+            }
+
+            try
+            {
+                string dir = Path.GetDirectoryName(input) ?? "";
+                string partial = Path.GetFileName(input) ?? "";
+
+                if (input.EndsWith("\\"))
+                {
+                    dir = input;
+                    partial = "";
+                }
+
+                if (Directory.Exists(dir))
+                {
+                    var matches = Directory.GetDirectories(dir)
+                        .Where(d => Path.GetFileName(d).StartsWith(partial, StringComparison.OrdinalIgnoreCase))
+                        .ToArray();
+
+                    if (matches.Length > 0)
+                    {
+                        suggestionBox.Items.Clear();
+                        suggestionBox.Items.AddRange(matches);
+
+                        // Posicionar debajo de addressBar de forma absoluta en el formulario
+                        Point pt = addressBar.PointToScreen(new Point(0, addressBar.Height));
+                        suggestionBox.Location = this.PointToClient(pt);
+
+                        suggestionBox.Width = addressBar.Width + 34; // +34 para cubrir el ícono también
+                        suggestionBox.Height = Math.Min(matches.Length * suggestionBox.ItemHeight + 4, 200);
+
+                        suggestionBox.BringToFront();
+                        suggestionBox.Visible = true;
+                    }
+                    else
+                    {
+                        suggestionBox.Visible = false;
+                    }
+                }
+                else
+                {
+                    suggestionBox.Visible = false;
+                }
+            }
+            catch
+            {
+                suggestionBox.Visible = false;
+            }
+        }
+
+        private void SuggestionBox_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                AcceptSuggestion();
+                e.Handled = e.SuppressKeyPress = true;
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                suggestionBox.Visible = false;
+                addressBar.Focus();
+                e.Handled = true;
+            }
+        }
+
+        private void SuggestionBox_Click(object? sender, EventArgs e)
+        {
+            if (suggestionBox.SelectedItem != null)
+            {
+                AcceptSuggestion();
+            }
+        }
+
+        private void AcceptSuggestion()
+        {
+            if (suggestionBox.SelectedItem != null)
+            {
+                addressBar.TextChanged -= AddressBar_TextChanged;
+                addressBar.Text = suggestionBox.SelectedItem.ToString();
+                addressBar.SelectionStart = addressBar.Text.Length;
+                addressBar.TextChanged += AddressBar_TextChanged;
+
+                suggestionBox.Visible = false;
+                addressBar.Focus();
+            }
+        }
+
+        private void AddressBar_KeyDown(object? sender, KeyEventArgs e)
+        {
+            // Bajar a la lista
+            if (suggestionBox.Visible && e.KeyCode == Keys.Down)
+            {
+                suggestionBox.Focus();
+                if (suggestionBox.Items.Count > 0)
+                    suggestionBox.SelectedIndex = 0;
+                e.Handled = true;
+                return;
+            }
+
+            // Ocultar lista
+            if (suggestionBox.Visible && e.KeyCode == Keys.Escape)
+            {
+                suggestionBox.Visible = false;
+                e.Handled = true;
+                return;
+            }
+
+            if (e.KeyCode == Keys.Enter)
+            {
+                suggestionBox.Visible = false;
+                NavigateToPath(addressBar.Text);
+                e.Handled = e.SuppressKeyPress = true;
+            }
         }
 
         // ── Botón de navegación pequeño ──────────────────────────────────────
@@ -543,7 +634,6 @@ namespace FileExplorerr
                     };
                     p.Controls.Add(bdg);
                     p.Resize += (s, e) => bdg.Left = p.Width - bdg.Width - 8;
-                    // posición inicial correcta una vez que el panel tenga tamaño
                     p.HandleCreated += (s, e) => bdg.Left = p.Width - bdg.Width - 8;
                 }
 
@@ -567,7 +657,6 @@ namespace FileExplorerr
                 scroll.Controls.Add(p);
             }
 
-            // Accesos rápidos
             AddHeader("ACCESOS RÁPIDOS");
             AddItem("🏠", "Inicio", () => NavigateToPath(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
             AddItem("🖥️", "Escritorio", () => NavigateToPath(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)));
@@ -577,19 +666,15 @@ namespace FileExplorerr
             AddItem("🎬", "Videos", () => NavigateToPath(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)));
             AddItem("⬇️", "Descargas", () => NavigateToPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")));
 
-            // Herramientas
             AddHeader("HERRAMIENTAS");
             AddItem("🗄️", "SQL / Base de datos", () => new SqlViewerForm().Show());
             AddItem("📊", "Exportar CSV", () => _ = ExportCsvAsync());
 
-            // Dispositivos
             AddHeader("DISPOSITIVOS");
             foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
                 AddItem("💽", $"{drive.Name}  {drive.VolumeLabel}".TrimEnd(), () => NavigateToPath(drive.RootDirectory.FullName));
 
-            scroll.Controls.SetChildIndex(scroll.Controls[0], scroll.Controls.Count - 1); // reset Z-order
-
-            // Relayout para que DockStyle.Top funcione con el scroll inverso
+            scroll.Controls.SetChildIndex(scroll.Controls[0], scroll.Controls.Count - 1);
             explorerSidebar.Controls.Add(scroll);
         }
 
@@ -635,7 +720,6 @@ namespace FileExplorerr
             listView.KeyDown += (s, e) => { if (e.KeyCode == Keys.F5) RefreshView(); };
         }
 
-        // ── Cabecera del ListView con estilo personalizado ────────────────────
         private void ListView_DrawColumnHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
         {
             using var bg = new SolidBrush(Theme.BgSurface);
@@ -747,7 +831,6 @@ namespace FileExplorerr
                 BackColor = Color.Transparent
             };
 
-            // Papelera — cargamos ambos íconos (vacía y llena) desde shell32
             recycleIconBox = new PictureBox
             {
                 Size = new Size(36, 36),
@@ -757,18 +840,14 @@ namespace FileExplorerr
                 AllowDrop = true
             };
 
-            // Precargar ícono vacío (31) y lleno (32)
             try
             {
-                string shell32 = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.System), "shell32.dll");
-
+                string shell32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "shell32.dll");
                 IntPtr hEmpty = ExtractIcon(IntPtr.Zero, shell32, 31);
                 IntPtr hFull = ExtractIcon(IntPtr.Zero, shell32, 32);
 
                 if (hEmpty != IntPtr.Zero) _recycleIconEmpty = Icon.FromHandle(hEmpty).ToBitmap();
                 if (hFull != IntPtr.Zero) _recycleIconFull = Icon.FromHandle(hFull).ToBitmap();
-
                 recycleIconBox.Image = _recycleIconEmpty;
             }
             catch { }
@@ -831,6 +910,7 @@ namespace FileExplorerr
             miCompress = new ToolStripMenuItem("📦 Comprimir selección...") { ForeColor = Theme.Accent2 };
             miExtractHere = new ToolStripMenuItem("📂 Extraer aquí") { ForeColor = Theme.Teal };
             miExtractTo = new ToolStripMenuItem("📁 Extraer en...") { ForeColor = Theme.Teal };
+
             miOpen.Click += (s, e) =>
             {
                 if (listView.SelectedItems.Count > 0)
@@ -854,14 +934,9 @@ namespace FileExplorerr
                     new FilePropertiesForm(listView.SelectedItems[0].Tag!.ToString()!).Show(this);
             };
 
-
-
             miCompress.Click += (s, e) =>
             {
-                var selected = listView.SelectedItems
-                .Cast<ListViewItem>()
-                .Select(i => i.Tag!.ToString()!)
-                .ToArray();
+                var selected = listView.SelectedItems.Cast<ListViewItem>().Select(i => i.Tag!.ToString()!).ToArray();
                 CompressionService.Compress(selected, this, () => LoadDirectory(currentPath));
             };
 
@@ -869,22 +944,17 @@ namespace FileExplorerr
             {
                 if (listView.SelectedItems.Count == 0) return;
                 string path = listView.SelectedItems[0].Tag!.ToString()!;
-                CompressionService.Extract(path, this, extractHere: true,
-                   onRefresh: () => LoadDirectory(currentPath));
+                CompressionService.Extract(path, this, extractHere: true, onRefresh: () => LoadDirectory(currentPath));
             };
-
 
             miExtractTo.Click += (s, e) =>
             {
                 if (listView.SelectedItems.Count == 0) return;
                 string path = listView.SelectedItems[0].Tag!.ToString()!;
-                CompressionService.Extract(path, this, extractHere: false,
-                   onRefresh: () => LoadDirectory(currentPath));
+                CompressionService.Extract(path, this, extractHere: false, onRefresh: () => LoadDirectory(currentPath));
             };
 
-
-            contextMenu.Items.AddRange(new ToolStripItem[]
-                { miOpen, sep1, miNewFolder, sep2, miRename, miDelete, sep3, miProps, sep4, miRefresh, sep5, miCompress, miExtractHere, miExtractTo });
+            contextMenu.Items.AddRange(new ToolStripItem[] { miOpen, sep1, miNewFolder, sep2, miRename, miDelete, sep3, miProps, sep4, miRefresh, sep5, miCompress, miExtractHere, miExtractTo });
         }
 
         private void ListView_MouseClick(object sender, MouseEventArgs e)
@@ -901,13 +971,10 @@ namespace FileExplorerr
             contextMenu.Items[8].Visible = sel;
 
             bool hasSelection = listView.SelectedItems.Count > 0;
-            bool isArchive = hasSelection &&
-                                FileExtensions.Archive.Contains(
-                                    Path.GetExtension(
-                                       listView.SelectedItems[0].Tag?.ToString() ?? ""));
+            bool isArchive = hasSelection && FileExtensions.Archive.Contains(Path.GetExtension(listView.SelectedItems[0].Tag?.ToString() ?? ""));
 
-            miCompress.Visible = hasSelection;      // always when something selected
-            miExtractHere.Visible = isArchive;         // only for .zip etc.
+            miCompress.Visible = hasSelection;
+            miExtractHere.Visible = isArchive;
             miExtractTo.Visible = isArchive;
         }
 
@@ -1072,7 +1139,6 @@ namespace FileExplorerr
             }
         }
 
-        // Clic simple: expande/colapsa carpetas en el mismo panel
         private void InfoTree_NodeMouseClick(object? sender, TreeNodeMouseClickEventArgs e)
         {
             if (e.Node?.Tag is not NodeTag nt) return;
@@ -1080,20 +1146,15 @@ namespace FileExplorerr
 
             if (nt.Kind == NodeKind.Folder)
             {
-                // Expandir o colapsar sin navegar el explorador principal
-                if (e.Node.IsExpanded)
-                    e.Node.Collapse();
-                else
-                    e.Node.Expand();
+                if (e.Node.IsExpanded) e.Node.Collapse();
+                else e.Node.Expand();
             }
             else if (nt.Kind == NodeKind.File && File.Exists(nt.Path))
             {
-                // Clic simple en archivo: seleccionarlo visualmente nada más
                 infoTree.SelectedNode = e.Node;
             }
         }
 
-        // Doble clic en ARCHIVO: abrirlo. Doble clic en CARPETA: navegar en el explorador
         private void InfoTree_NodeDoubleClick(object? sender, TreeNodeMouseClickEventArgs e)
         {
             if (e.Node?.Tag is not NodeTag nt) return;
@@ -1101,10 +1162,6 @@ namespace FileExplorerr
 
             if (nt.Kind == NodeKind.File && File.Exists(nt.Path))
                 FileOpener.Open(nt.Path, this, NavigateToPath);
-            // Las carpetas ya se manejan con clic simple (expand/collapse)
-            // Si quieres navegar al explorador con doble clic en carpeta, descomenta:
-            // else if (nt.Kind == NodeKind.Folder && Directory.Exists(nt.Path))
-            //     NavigateToPath(nt.Path);
         }
 
         private enum NodeKind { Header, Category, Folder, File, Dim }
@@ -1236,7 +1293,6 @@ namespace FileExplorerr
             recycleDropPanel.BackColor = Theme.RecycleHot;
             recyclePanelLabel.ForeColor = Theme.Coral;
             recyclePanelLabel.Text = "Soltar para eliminar";
-            // Cambiar al ícono de papelera LLENA (igual que Windows)
             if (_recycleIconFull != null) recycleIconBox.Image = _recycleIconFull;
         }
 
@@ -1248,7 +1304,6 @@ namespace FileExplorerr
             recycleDropPanel.BackColor = Theme.RecycleBg;
             recyclePanelLabel.ForeColor = Theme.TextMuted;
             recyclePanelLabel.Text = "Papelera";
-            // Restaurar ícono de papelera VACÍA
             if (_recycleIconEmpty != null) recycleIconBox.Image = _recycleIconEmpty;
         }
         private void RecycleDragDrop(DragEventArgs e)
@@ -1281,8 +1336,17 @@ namespace FileExplorerr
                     navigationHistory.Push(currentPath);
                     navigationForward.Clear();
                 }
+
                 currentPath = path;
-                addressBar.Text = currentPath;
+
+                // Desuscribir temporalmente para que no salga el menú al cambiar de carpeta programáticamente
+                if (addressBar != null)
+                {
+                    addressBar.TextChanged -= AddressBar_TextChanged;
+                    addressBar.Text = currentPath;
+                    addressBar.TextChanged += AddressBar_TextChanged;
+                }
+
                 UpdateNavButtons();
                 LoadDirectory(currentPath);
             }
@@ -1295,7 +1359,11 @@ namespace FileExplorerr
             if (navigationHistory.Count == 0) return;
             navigationForward.Push(currentPath);
             currentPath = navigationHistory.Pop();
+
+            addressBar.TextChanged -= AddressBar_TextChanged;
             addressBar.Text = currentPath;
+            addressBar.TextChanged += AddressBar_TextChanged;
+
             UpdateNavButtons();
             LoadDirectory(currentPath);
         }
@@ -1305,7 +1373,11 @@ namespace FileExplorerr
             if (navigationForward.Count == 0) return;
             navigationHistory.Push(currentPath);
             currentPath = navigationForward.Pop();
+
+            addressBar.TextChanged -= AddressBar_TextChanged;
             addressBar.Text = currentPath;
+            addressBar.TextChanged += AddressBar_TextChanged;
+
             UpdateNavButtons();
             LoadDirectory(currentPath);
         }
@@ -1320,15 +1392,6 @@ namespace FileExplorerr
         {
             backButton.ForeColor = navigationHistory.Count > 0 ? Theme.TextPrimary : Theme.TextMuted;
             forwardButton.ForeColor = navigationForward.Count > 0 ? Theme.TextPrimary : Theme.TextMuted;
-        }
-
-        private void AddressBar_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                NavigateToPath(addressBar.Text);
-                e.Handled = e.SuppressKeyPress = true;
-            }
         }
 
         // ════════════════════════════════════════════════════════════════════
