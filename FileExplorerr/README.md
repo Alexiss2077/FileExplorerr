@@ -34,7 +34,6 @@ Un reemplazo funcional del Explorador de Windows con tema oscuro **Arctic Night*
 - [Uso](#-uso)
 - [Atajos de Teclado](#-atajos-de-teclado)
 - [Rendimiento](#-rendimiento)
-- [Roadmap](#-roadmap)
 - [Contribución](#-contribución)
 
 ---
