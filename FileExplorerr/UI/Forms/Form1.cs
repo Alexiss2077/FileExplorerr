@@ -702,6 +702,18 @@ namespace FileExplorerr
             listView.Columns.Add("Info", 200);
             listView.Columns.Add("Modificado", 140);
 
+            // Columna fantasma que absorbe el espacio sobrante — sin texto, sin datos
+            var colFill = listView.Columns.Add("", 0);
+
+            listView.Resize += (s, e) =>
+            {
+                int used = 0;
+                for (int i = 0; i < listView.Columns.Count - 1; i++)
+                    used += listView.Columns[i].Width;
+                int remaining = listView.ClientSize.Width - used;
+                listView.Columns[listView.Columns.Count - 1].Width = Math.Max(0, remaining);
+            };
+
             listView.DrawColumnHeader += ListView_DrawColumnHeader;
             listView.DrawItem += (s, e) => e.DrawDefault = true;
             listView.DrawSubItem += (s, e) => e.DrawDefault = true;
