@@ -15,9 +15,13 @@ namespace FileExplorerr
         private AccountPanel? _openPanel;
 
         private static readonly Color BgHover = Color.FromArgb(42, 46, 68);
+        private static readonly Color BgNormal = Color.FromArgb(28, 32, 48);
         private static readonly Color Accent = Color.FromArgb(124, 111, 247);
         private static readonly Color AccentDim = Color.FromArgb(36, 27, 82);
+        private static readonly Color BorderNorm = Color.FromArgb(60, 124, 111, 247);   // acento tenue en reposo
+        private static readonly Color BorderHov = Color.FromArgb(150, 124, 111, 247);  // acento visible al hover
         private static readonly Color Teal = Color.FromArgb(52, 211, 153);
+        private static readonly Color EmailColor = Color.FromArgb(200, 52, 211, 153);   // teal sólido para el correo
         private static readonly Color TextPri = Color.FromArgb(240, 242, 255);
         private static readonly Color TextSec = Color.FromArgb(157, 163, 191);
         private static readonly Color TextMuted = Color.FromArgb(90, 96, 128);
@@ -35,7 +39,9 @@ namespace FileExplorerr
             FlatAppearance.MouseDownBackColor = Color.Transparent;
             BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
-            Size = new Size(190, 38);
+
+            Size = new Size(310, 50);
+
             Text = string.Empty;
             Click += OnClick;
         }
@@ -69,7 +75,6 @@ namespace FileExplorerr
 
             if (_profile == null) return;
 
-            // Posición: debajo del botón, borde derecho alineado con el botón
             var btnBottomRight = PointToScreen(new Point(Width, Height));
             int panelW = 300;
             int panelH = 380;
@@ -77,7 +82,6 @@ namespace FileExplorerr
             int x = btnBottomRight.X - panelW;
             int y = btnBottomRight.Y + 4;
 
-            // Asegurar que quede dentro de la pantalla
             var screen = Screen.FromControl(this).WorkingArea;
             if (x < screen.Left) x = screen.Left + 4;
             if (x + panelW > screen.Right) x = screen.Right - panelW - 4;
@@ -88,7 +92,6 @@ namespace FileExplorerr
             _openPanel.SwitchAccountRequested += (s, ev) => SwitchAccountRequested?.Invoke(this, ev);
             _openPanel.FormClosed += (s, ev) => _openPanel = null;
 
-            // Usar el Form padre como owner para que quede encima
             _openPanel.Show(FindForm());
         }
 
@@ -108,15 +111,23 @@ namespace FileExplorerr
             }
 
             bool hover = ClientRectangle.Contains(PointToClient(MousePosition));
-            if (hover)
-            {
-                using var hBr = new SolidBrush(BgHover);
-                using var hPath = RoundedRect(new Rectangle(1, 1, Width - 2, Height - 2), 6);
-                g.FillPath(hBr, hPath);
-            }
 
-            // ── Avatar ────────────────────────────────────────────────
-            int sz = 28, ax = 8, ay = (Height - 28) / 2;
+            // ── Fondo redondeado con borde ────────────────────────────────────
+            var btnRect = new Rectangle(1, 1, Width - 2, Height - 2);
+            using var btnPath = RoundedRect(btnRect, 8);
+
+            // Fondo: más oscuro en reposo, hover más claro
+            using var bgBrush = new SolidBrush(hover ? BgHover : BgNormal);
+            g.FillPath(bgBrush, btnPath);
+
+            // Borde: acento violeta tenue (se intensifica al hover)
+            using var borderPen = new Pen(hover ? BorderHov : BorderNorm, 1.2f);
+            g.DrawPath(borderPen, btnPath);
+
+            // ── Avatar ───────────────────────────────────────────────────────
+            int sz = 36;
+            int ax = 10;
+            int ay = (Height - sz) / 2;
             var aRect = new Rectangle(ax, ay, sz, sz);
 
             if (_avatar != null && _avatarLoaded)
@@ -136,7 +147,8 @@ namespace FileExplorerr
                 g.FillPath(gradBr, cp);
 
                 using var iBr = new SolidBrush(TextPri);
-                using var iF = new Font("Segoe UI", 9F, FontStyle.Bold);
+                // CAMBIO 3: inicial más grande en el avatar
+                using var iF = new Font("Segoe UI", 12F, FontStyle.Bold);
                 using var sf = new StringFormat
                 {
                     Alignment = StringAlignment.Center,
@@ -146,36 +158,42 @@ namespace FileExplorerr
                     new RectangleF(ax, ay, sz, sz), sf);
             }
 
-            // Borde proveedor
+            // Borde de proveedor
             using var pPen = new Pen(GetProviderColor(_profile.Provider), 2f);
             g.DrawEllipse(pPen, ax + 1, ay + 1, sz - 3, sz - 3);
 
-            // Punto verde
+            // Punto verde de estado
             if (!_profile.IsGuest)
             {
                 using var dBg = new SolidBrush(bg);
                 using var dBr = new SolidBrush(Teal);
-                g.FillEllipse(dBg, ax + sz - 9, ay + sz - 9, 10, 10);
-                g.FillEllipse(dBr, ax + sz - 8, ay + sz - 8, 8, 8);
+                g.FillEllipse(dBg, ax + sz - 10, ay + sz - 10, 11, 11);
+                g.FillEllipse(dBr, ax + sz - 9, ay + sz - 9, 9, 9);
             }
 
-            // ── Texto ─────────────────────────────────────────────────
-            int tx = ax + sz + 8;
-            int tw = Width - tx - 20;
+            // ── Texto ────────────────────────────────────────────────────────
+            int tx = ax + sz + 10;
+            int tw = Width - tx - 18;
+
             if (tw > 20)
             {
                 string l1 = _profile.IsGuest ? "Invitado" : _profile.DisplayName;
                 string l2 = _profile.IsGuest ? "Sin sesión"
                           : !string.IsNullOrEmpty(_profile.Email)
-                              ? _profile.Email : _profile.Provider;
+                              ? _profile.Email
+                              : _profile.Provider;
 
                 using var nBr = new SolidBrush(TextPri);
-                using var sBr = new SolidBrush(TextMuted);
-                using var nF = new Font("Segoe UI", 8.5F, FontStyle.Bold);
-                using var sF = new Font("Segoe UI", 7.5F);
+                using var sBr = new SolidBrush(EmailColor);
+                using var nF = new Font("Segoe UI", 11F, FontStyle.Bold);
+                using var sF = new Font("Segoe UI", 9F);
 
-                g.DrawString(Trunc(g, l1, nF, tw), nF, nBr, tx, 6);
-                g.DrawString(Trunc(g, l2, sF, tw), sF, sBr, tx, 22);
+                // Centrar verticalmente el bloque nombre+correo
+                int blockH = 17 + 4 + 14;
+                int startY = (Height - blockH) / 2;
+
+                g.DrawString(Trunc(g, l1, nF, tw), nF, nBr, tx, startY);
+                g.DrawString(Trunc(g, l2, sF, tw), sF, sBr, tx, startY + 20);
             }
 
             // Chevron
@@ -187,7 +205,7 @@ namespace FileExplorerr
         private void DrawSignInPrompt(Graphics g)
         {
             using var br = new SolidBrush(TextSec);
-            using var f = new Font("Segoe UI", 8.5F);
+            using var f = new Font("Segoe UI", 9F);
             using var sf = new StringFormat
             {
                 Alignment = StringAlignment.Center,

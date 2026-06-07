@@ -214,8 +214,8 @@ namespace FileExplorerr
 
             topNavBar.Resize += (s, e) =>
             {
-                _accountButton.Location = new Point(topNavBar.Width - 210, 10);
-                sqlQuickBtn.Location = new Point(_accountButton.Left - sqlQuickBtn.Width - 12, 11);
+                _accountButton.Location = new Point(topNavBar.Width - 200, 8);
+                sqlQuickBtn.Location = new Point(_accountButton.Left - sqlQuickBtn.Width - 120, 11);
             };
         }
 
