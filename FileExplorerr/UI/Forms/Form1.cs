@@ -44,11 +44,20 @@ namespace FileExplorerr
         private static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
 
         [DllImport("dwmapi.dll")]
+
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
         private const int DWMWA_CAPTION_COLOR = 35;
         private const int DWMWA_TEXT_COLOR = 36;
         private static int ToBgr(Color c) => c.B << 16 | c.G << 8 | c.R;
+
+        [DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string? pszSubIdList);
+
+        private static void ApplyDarkScrollBar(Control control)
+        {
+            SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+        }
 
         private void ApplyDarkTitleBar()
         {
@@ -566,6 +575,7 @@ namespace FileExplorerr
             };
 
             var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            scroll.HandleCreated += (s, e) => ApplyDarkScrollBar(scroll);
 
             void AddHeader(string text)
             {
@@ -696,6 +706,8 @@ namespace FileExplorerr
                 AllowDrop = true,
                 OwnerDraw = true
             };
+            listView.HandleCreated += (s, e) => ApplyDarkScrollBar(listView);
+
             listView.Columns.Add("Nombre", 280);
             listView.Columns.Add("Tipo", 100);
             listView.Columns.Add("Tamaño", 90);
@@ -813,6 +825,8 @@ namespace FileExplorerr
                 ItemHeight = 26,
                 DrawMode = TreeViewDrawMode.OwnerDrawAll
             };
+            infoTree.HandleCreated += (s, e) => ApplyDarkScrollBar(infoTree);
+
             infoTree.BeforeExpand += InfoTree_BeforeExpand;
             infoTree.NodeMouseClick += InfoTree_NodeMouseClick;
             infoTree.NodeMouseDoubleClick += InfoTree_NodeDoubleClick;
