@@ -1,5 +1,3 @@
-
-
 <div align="center">
 
 # 📁 FileExplorerr
@@ -7,54 +5,97 @@
 **Explorador de archivos de escritorio avanzado para Windows**
 
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
-[![Windows Forms](https://img.shields.io/badge/UI-Windows%20Forms-0078D4?style=flat-square)](https://docs.microsoft.com/en-us/dotnet/desktop/winforms/)
+[![Windows Forms](https://img.shields.io/badge/UI-Windows%20Forms-0078D4?style=flat-square&logo=windows)](https://docs.microsoft.com/en-us/dotnet/desktop/winforms/)
 [![C# 12](https://img.shields.io/badge/C%23-12-239120?style=flat-square&logo=csharp)](https://docs.microsoft.com/en-us/dotnet/csharp/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE.md)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-blue?style=flat-square&logo=windows11)](https://www.microsoft.com/windows)
 
 Un reemplazo funcional del Explorador de Windows con tema oscuro **Arctic Night**, visualizadores multimedia integrados, análisis inteligente de datos, cliente SQL multi-motor, exportación nativa a Office y PDF, y autenticación OAuth con Google y GitHub.
 
-[Características](#-características) · [Arquitectura](#-arquitectura) · [Instalación](#-instalación) · [Uso](#-uso) · [Tecnologías](#-tecnologías)
+[⚡ Inicio rápido](#-inicio-rápido) · [✨ Características](#-características) · [🏗️ Arquitectura](#️-arquitectura-del-sistema) · [⚙️ Configuración](#️-configuración) · [🤝 Contribuir](#-contribución)
 
 </div>
 
 ---
 
-## 📋 Tabla de Contenidos
+## 🖼️ Capturas de pantalla
 
-- [Vista General](#-vista-general)
-- [Características](#-características)
-- [Arquitectura del Sistema](#-arquitectura-del-sistema)
-- [Estructura del Proyecto](#-estructura-del-proyecto)
-- [Módulos Principales](#-módulos-principales)
-- [Funcionalidades en Detalle](#-funcionalidades-en-detalle)
-- [Diseño y Patrones](#-diseño-y-patrones)
-- [Tecnologías Utilizadas](#-tecnologías-utilizadas)
-- [Instalación](#-instalación)
-- [Configuración](#-configuración)
-- [Uso](#-uso)
-- [Atajos de Teclado](#-atajos-de-teclado)
-- [Rendimiento](#-rendimiento)
-- [Contribución](#-contribución)
+<!-- 
+  📸 INSTRUCCIONES:
+  1. Crea la carpeta docs/screenshots/ en la raíz del repositorio
+  2. Toma las capturas y guárdalas con los nombres indicados
+  3. Elimina estos comentarios una vez que hayas agregado las imágenes
+-->
+
+### Explorador principal
+![Explorador principal — tema Arctic Night](docs/screenshots/explorer.png)
+
+### Reproductor de música
+![Reproductor de música estilo Spotify](docs/screenshots/music-player.png)
+
+### Visor y analizador de datos
+![Visor de datos con análisis de calidad y gráficas](docs/screenshots/data-viewer.png)
+
+### Editor de imágenes con GPS
+![Editor de imágenes con panel GPS y mapa](docs/screenshots/image-editor.png)
+
+### Cliente SQL
+![Cliente SQL multi-motor con gráfica flotante](docs/screenshots/sql-viewer.png)
+
+---
+
+## ⚡ Inicio rápido
+
+> **Sin configuración previa.** No necesitas cuentas de OAuth ni ningún archivo extra para probarlo.
+
+```bash
+git clone https://github.com/tu-usuario/FileExplorerr.git
+cd FileExplorerr
+dotnet run --project FileExplorerr/FileExplorerr.csproj
+```
+
+Al abrir la app, selecciona **"Continuar como invitado"** — tendrás acceso completo al explorador, multimedia, SQL y exportación. La autenticación con Google/GitHub es opcional y solo agrega sincronización de perfil y avatar.
 
 ---
 
 ## 🌟 Vista General
 
-FileExplorerr es una aplicación de escritorio Windows construida con C# 12 y .NET 8 que reemplaza y extiende al Explorador de Windows nativo. Combina navegación de archivos con un ecosistema completo de herramientas: reproducción multimedia, edición de imágenes con GPS, análisis y visualización de datos estructurados, un cliente SQL multi-motor, y exportación a múltiples formatos de documento.
+FileExplorerr es una aplicación de escritorio Windows construida con **C# 12** y **.NET 8** que reemplaza y extiende al Explorador de Windows nativo. Combina navegación de archivos con un ecosistema completo de herramientas: reproducción multimedia, edición de imágenes con GPS, análisis y visualización de datos estructurados, un cliente SQL multi-motor, y exportación a múltiples formatos de documento.
 
-### ¿Qué lo hace diferente?
+### ¿Por qué FileExplorerr?
 
 | Característica | Explorador de Windows | FileExplorerr |
-|---|---|---|
-| Reproducción de audio/video | ❌ | ✅ Integrada |
+|---|:---:|:---:|
+| Reproducción de audio/video | ❌ | ✅ Motor LibVLC |
 | Edición de imágenes | ❌ | ✅ Con GPS, filtros y herramientas |
-| Análisis de datos CSV/JSON/XML | ❌ | ✅ Con detección de anomalías |
+| Análisis de datos CSV/JSON/XML | ❌ | ✅ Detección automática de anomalías |
 | Cliente SQL | ❌ | ✅ PostgreSQL, MariaDB, SQL Server |
 | Exportación a Office/PDF | ❌ | ✅ .xlsx, .docx, .pptx, .pdf |
-| Compresión/descompresión | ❌ | ✅ ZIP, 7z, TAR, RAR |
+| Compresión / descompresión | ❌ | ✅ ZIP, 7z, TAR, RAR |
 | Autenticación OAuth | ❌ | ✅ Google + GitHub |
 | Tema oscuro | Limitado | ✅ Arctic Night completo |
 | Gráficas de datos | ❌ | ✅ Columnas, barras, pastel |
+
+---
+
+## 📋 Tabla de contenidos
+
+- [⚡ Inicio rápido](#-inicio-rápido)
+- [🌟 Vista general](#-vista-general)
+- [✨ Características](#-características)
+- [🏗️ Arquitectura del sistema](#️-arquitectura-del-sistema)
+- [📂 Estructura del proyecto](#-estructura-del-proyecto)
+- [🔧 Módulos principales](#-módulos-principales)
+- [🎨 Funcionalidades en detalle](#-funcionalidades-en-detalle)
+- [🧩 Diseño y patrones](#-diseño-y-patrones)
+- [🛠️ Tecnologías utilizadas](#️-tecnologías-utilizadas)
+- [📥 Instalación](#-instalación)
+- [⚙️ Configuración](#️-configuración)
+- [🚀 Uso](#-uso)
+- [⌨️ Atajos de teclado](#️-atajos-de-teclado)
+- [⚡ Rendimiento](#-rendimiento-1)
+- [🤝 Contribución](#-contribución)
+- [📄 Licencia](#-licencia)
 
 ---
 
@@ -62,130 +103,90 @@ FileExplorerr es una aplicación de escritorio Windows construida con C# 12 y .N
 
 ### 🗂 Explorador de Archivos
 - Navegación con historial completo (atrás / adelante / subir nivel)
-- Barra de dirección editable con navegación por teclado (`Enter`)
-- **Autocompletado inteligente en la barra de dirección**: al escribir una ruta, aparece un menú flotante con las subcarpetas que coinciden con el texto ingresado. El menú se posiciona automáticamente debajo de la barra, respeta el tema oscuro Arctic Night y se cierra al presionar `Escape`. Navega entre sugerencias con `↓`, acepta con `Enter` o haciendo clic. Al navegar a una carpeta mediante código (historial, botones, favoritos), el menú no se activa para no interrumpir la navegación.
+- Barra de dirección editable con **autocompletado inteligente** estilo Arctic Night: menú flotante con subcarpetas coincidentes, navegación con `↓` / `Enter` / `Escape`, sin interferir con navegaciones programáticas
 - Actualización con `F5` o botón dedicado
 - **Drag & Drop** entre carpetas con resaltado visual del destino
 - **Papelera integrada** en la barra de estado para eliminar arrastrando
-- Panel lateral derecho con árbol de contenido categorizado y **lazy-loading** de subcarpetas
-- Búsqueda recursiva por nombre de archivo o carpeta en el panel lateral
+- Panel lateral derecho con árbol categorizado y **lazy-loading** de subcarpetas
+- Búsqueda recursiva asíncrona con cancelación automática
 - Barra de estado con desglose por tipo: `📁 carpetas · 📄 archivos · 🖼️ imágenes · 🎵 audios`
 - Columna **Info** con resumen de contenido por carpeta
 - Exportación de índice CSV asíncrona con progreso en tiempo real
-- Nueva carpeta con validación de nombre y caracteres inválidos
-- Renombrar y eliminar (a Papelera de Reciclaje) desde el menú contextual
-- Menú contextual con tema oscuro personalizado
+- Nueva carpeta, renombrar y eliminar (a Papelera de Reciclaje) desde el menú contextual con tema oscuro personalizado
 
 ### 🎵 Reproductor de Música
-- Lista de reproducción con carga de toda la carpeta del archivo inicial
-- **Shuffle** con orden pre-generado, **3 modos de repetición** (off / lista / pista única)
-- Seek, volumen, mute con controles estilo Spotify
-- Búsqueda automática de **carátulas de álbum** en iTunes, Last.fm y Spotify
+- Lista de reproducción con carga automática de toda la carpeta del archivo inicial
+- **Shuffle** con orden pre-generado y **3 modos de repetición** (off / lista / pista única) con indicadores visuales distintos
+- Seek, volumen y mute con controles estilo Spotify
+- Búsqueda automática de **carátulas de álbum** vía iTunes, Last.fm y Spotify (Levenshtein + similitud de palabras)
 - Guardado de carátula en el tag ID3 del archivo
-- Búsqueda de **letras de canciones** via lrclib.net
+- Búsqueda de **letras** vía lrclib.net
 - Edición de tags ID3 (título, artista, álbum, año, pista, género)
 - **Grabación de micrófono** con NAudio y guardado en WAV
-- Drag & Drop de archivos a la lista de reproducción
-- Exportación e importación de playlists `.txt`
+- Drag & Drop a la lista de reproducción · Exportación/importación de playlists `.txt`
 
 ### 🎬 Reproductor de Video
-- Motor LibVLC para soporte de todos los formatos comunes
-- **Inicialización asíncrona** para no bloquear el hilo UI
+- Motor **LibVLC** con inicialización asíncrona (no bloquea el hilo UI)
 - Lista de reproducción con Drag & Drop
-- **3 modos de bucle** (off / lista / video único) con indicadores visuales distintos
+- **3 modos de bucle** (off / lista / video único) con indicadores visuales claramente distintos
 - Velocidades de reproducción: 0.25× a 3×
 - Pantalla completa con `F` o botón dedicado
-- Extracción de metadatos (resolución, FPS, codec, audio, duración)
-- Panel GPS integrado con mapa Leaflet/OpenStreetMap
+- Extracción de metadatos (resolución, FPS, codec, audio, duración) vía LibVLC
+- Panel GPS integrado con mapa Leaflet/OpenStreetMap embebido
 - **Grabación de webcam** con OpenCvSharp y guardado en MP4
 
 ### 🖼️ Visor y Editor de Imágenes
 - Soporte para más de 35 extensiones incluyendo RAW (CR2, NEF, ARW, DNG, etc.)
-- Zoom libre (5% – 2000%) con rueda del ratón y pan
+- Zoom libre (5% – 2000%) con rueda del ratón y pan ilimitado
 - Herramientas de dibujo: recorte, pincel, borrador, texto, cuentagotas
-- Selector de fuente con preview en tiempo real para la herramienta de texto
+- Selector de fuente con preview en tiempo real
 - Transformaciones: rotar ±90°, voltear horizontal/vertical
 - Filtros no destructivos: escala de grises, sepia, invertir colores
-- **Deshacer** hasta 20 estados, restaurar original
-- Exportar como PNG, JPEG o BMP
+- **Deshacer** hasta 20 estados · restaurar original
 - **Panel GPS** con extracción de coordenadas EXIF y mapa embebido
-- **Escritura de GPS** en EXIF de archivos JPEG/TIFF de forma atómica
+- **Escritura de GPS** en EXIF de JPEG/TIFF de forma atómica (sin corromper el original en caso de fallo)
 
 ### 📊 Visor y Analizador de Datos
-- Soporte para CSV (RFC 4180 completo), JSON (arrays y objetos), XML, TXT (delimitador automático)
-- **Análisis automático de calidad** de datos:
-  - Detección de filas duplicadas
-  - Normalización de fechas a `yyyy-MM-dd`
-  - Validación y corrección de números de teléfono (10 dígitos)
-  - Validación de emails
-  - Detección de campos vacíos
-  - Filas con columnas desajustadas (CSV)
-- Celdas coloreadas por tipo de problema
-- Filtrado por columna o texto libre en tiempo real
-- Ordenamiento por cualquier columna
-- **Gráficas interactivas**: columnas, barras horizontales, pastel — con selección de columna de agrupación, métrica (conteo, suma, promedio) y columna de valor
+- Soporte para CSV (RFC 4180), JSON (arrays y objetos anidados), XML, TXT (delimitador automático)
+- **Análisis automático de calidad** con detección de: filas duplicadas, fechas a normalizar (→ `yyyy-MM-dd`), teléfonos malformados, emails inválidos, campos vacíos, filas con columnas desajustadas
+- Celdas coloreadas por tipo de problema · filtrado en tiempo real · ordenamiento por columna
+- **Gráficas interactivas**: columnas, barras horizontales, pastel — con selección de agrupación, métrica (conteo, suma, promedio) y columna de valor
 - Guardar copia corregida con todas las sugerencias aplicadas
 - Exportación directa a una base de datos SQL abierta
-- Exportación a CSV, JSON, TXT, XML, Excel, Word, PowerPoint, PDF
-- Envío por email con adjunto
 
 ### 🗄️ Cliente SQL
-- Conexión a **PostgreSQL**, **MariaDB** y **SQL Server** desde la misma interfaz
-- Diálogo de conexión con soporte de Autenticación de Windows (SQL Server)
-- Editor SQL con syntax-friendly y atajos de teclado (`F5`, `Ctrl+Enter`)
-- Lista de tablas con doble clic para previsualizar
-- Resultados en `DataGridView` con numeración de filas
-- **Importación de archivos** CSV, JSON, XML, TXT directamente a una tabla
-- Exportación de resultados a CSV, JSON, TXT, XML, Excel, Word, PowerPoint, PDF
-- **Gráfica flotante** del resultado de la consulta con controles de tipo y métrica
-- Indicador de tiempo de ejecución y filas afectadas
+- Conexión a **PostgreSQL**, **MariaDB** y **SQL Server** con soporte de Autenticación de Windows
+- Editor SQL con `F5` / `Ctrl+Enter` para ejecutar
+- Lista de tablas con doble clic para previsualizar · indicador de tiempo de ejecución
+- **Importación** de CSV, JSON, XML, TXT directamente a una tabla
+- **Gráfica flotante** del resultado con controles de tipo y métrica
+- Exportación de resultados a todos los formatos disponibles
 
 ### 📦 Compresión y Descompresión
-- **ZIP**: compresión y extracción completa (BCL .NET, sin dependencias externas)
+- **ZIP**: BCL .NET, sin dependencias externas
 - **7z, TAR, TAR.GZ, TAR.BZ2**: via SharpCompress
-- **RAR**: solo extracción via SharpCompress (RAR 4.x y 5.x)
-- Modos de extracción: "Extraer aquí" (aplana carpeta raíz única) y "Extraer en..."
-- Protección **Zip Slip** (validación de path traversal en todas las entradas)
+- **RAR**: solo extracción (formato propietario de RarLab)
+- Protección **Zip Slip** validada en cada entrada antes de escribir al disco
+- Modo "Extraer aquí" (aplana carpeta raíz única, idéntico a WinRAR/7-Zip)
 - Ventana de progreso con cancelación, temporizador y nombre del archivo actual
-- Manejo de conflictos de nombre configurable (sobreescribir / omitir)
-- Factory pattern extensible para nuevos formatos
 
 ### 📤 Exportación Nativa a Office y PDF
-- **Excel (.xlsx)**: ClosedXML — sin límite práctico, fila de información, encabezado con filtros y panel congelado, anchos automáticos, colores alternos
-- **Word (.docx)**: DocumentFormat.OpenXml — hasta 8,000 celdas, orientación automática landscape para tablas anchas
-- **PowerPoint (.pptx)**: DocumentFormat.OpenXml — hasta 500 filas, diapositiva de portada + diapositivas de datos paginadas, tema Arctic Night
-- **PDF (.pdf)**: QuestPDF — paginación automática, orientación automática, hasta 500,000 celdas
-- Todos los exportadores: progreso animado, cancelación cooperativa, archivo parcial eliminado en fallo
+- **Excel (.xlsx)**: ClosedXML — sin límite práctico, filtros automáticos, panel congelado, anchos por muestreo
+- **Word (.docx)**: DocumentFormat.OpenXml — hasta 8 000 celdas, landscape automático
+- **PowerPoint (.pptx)**: DocumentFormat.OpenXml — hasta 500 filas, portada + diapositivas paginadas, tema Arctic Night
+- **PDF (.pdf)**: QuestPDF — paginación automática, orientación automática, hasta 500 000 celdas
+- Todos: progreso animado, cancelación cooperativa, archivo parcial eliminado en fallo
 
 ### 🔐 Autenticación OAuth
-- Login con **Google** (OpenID Connect, acceso/email/perfil)
-- Login con **GitHub** (user:email, read:user)
-- Servidor HTTP local en `localhost:5200` para el callback OAuth
+- Login con **Google** (OpenID Connect) y **GitHub** (user:email, read:user)
+- Servidor HTTP local en `localhost:5200` para el callback
 - Sesión persistida en `AppData/FileExplorerr/session.json` (30 días)
-- Avatar descargado y cacheado en `AppData/FileExplorerr/avatars/`
-- Panel de cuenta flotante (estilo VS Code) con información de sesión, proveedor y opciones de cerrar/cambiar sesión
-- Modo invitado disponible sin autenticación
-
-### 📝 Bloc de Notas Avanzado
-- Detección automática de encoding (UTF-8 BOM, UTF-16 LE/BE)
-- Numeración de líneas con `OwnerDraw` sincronizada con el scroll
-- Búsqueda con resaltado y navegación circular
-- Reemplazar uno / todos (async para archivos grandes)
-- Ir a línea (`Ctrl+G`)
-- Zoom de fuente (6pt – 40pt) con `Ctrl++` / `Ctrl+-`
-- Ajuste de línea togglable
-- Protección al cerrar con cambios pendientes
-- Guardado asíncrono sin bloquear UI
-
-### 📧 Envío por Email
-- Envío de archivos por SMTP con adjunto
-- Soporte Gmail con Contraseña de Aplicación
-- Configuración SMTP persistida en AppData (host, puerto, credenciales)
-- Validación de dirección de destino
+- Avatar cacheado 24 h · Panel flotante estilo VS Code con info de sesión
+- **Modo invitado** disponible sin ninguna configuración
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## 🏗️ Arquitectura del sistema
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -219,10 +220,6 @@ FileExplorerr es una aplicación de escritorio Windows construida con C# 12 y .N
 │  FileStats           │  GpsReader · GpsWriter · GpsData       │
 │  CsvIndexer          │  LyricsService                         │
 │  AppHelpers          │                                        │
-│  (FileSize, CsvHelper│                                        │
-│   BrowserHelper,     │                                        │
-│   SmtpConfig,        │                                        │
-│   TimeSpanFormat)    │                                        │
 ├──────────────────────┴───────────────────────────────────────┤
 │                      Database Layer                           │
 │  IDbConnector · PostgreSqlConnector · MariaDbConnector        │
@@ -234,31 +231,27 @@ FileExplorerr es una aplicación de escritorio Windows construida con C# 12 y .N
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Flujo de Datos Principal
+### Flujo de datos principal
 
-```
-Usuario abre archivo
-        │
-        ▼
-FileOpener.Open()
-        │
-   ┌────┴────────────────────────────────────────┐
-   │                                             │
-   ▼                                             ▼
-Directorio                                    Archivo
-NavigateToPath()                         (por extensión)
-LoadDirectory()                               │
-   │                              ┌────────────┼────────────┐
-   ▼                              ▼            ▼            ▼
-ListView                   ImageViewerForm  MusicPlayer  FileViewerForm
-+ TreeView                 GpsReader        LyricsService DataParsers
-+ StatusBar                GpsWriter        CoverSearch   DataQualityAnalyzer
-                                                          DataChartPanel
+```mermaid
+graph TD
+    A["👤 Usuario abre archivo"] --> B["FileOpener.Open()"]
+    B --> C{Tipo de entrada}
+
+    C -->|Directorio| D["NavigateToPath()\nLoadDirectory()"]
+    D --> E["ListView + TreeView\n+ StatusBar"]
+
+    C -->|🖼️ Imagen| F["ImageViewerForm\nGpsReader · GpsWriter"]
+    C -->|🎵 Audio| G["MusicPlayerForm\nLyricsService · CoverSearchService"]
+    C -->|🎬 Video| H["VideoPlayerForm\nLibVLC · GpsReader · OpenCvSharp"]
+    C -->|📊 CSV/JSON/XML| I["FileViewerForm\nDataParsers · DataQualityAnalyzer\nDataChartPanel · DataSerializer"]
+    C -->|📝 TXT/código| J["NotepadForm"]
+    C -->|Otro| K["Aplicación del sistema\n(ShellExecute)"]
 ```
 
 ---
 
-## 📂 Estructura del Proyecto
+## 📂 Estructura del proyecto
 
 ```
 FileExplorerr/
@@ -266,250 +259,204 @@ FileExplorerr/
 ├── FileExplorerr.csproj          # Proyecto WinForms .NET 8 — dependencias NuGet
 ├── FileExplorerr.slnx            # Solución Visual Studio
 ├── Program.cs                    # Punto de entrada STAThread — OAuth, QuestPDF, arranque
-├── appsettings.example.json      # Plantilla de configuración OAuth (no subir appsettings.json)
+├── appsettings.example.json      # Plantilla de credenciales OAuth (nunca subir appsettings.json)
 │
 ├── Auth/                         # Autenticación OAuth y gestión de sesión
-│   ├── AccountButton.cs          # Botón de cuenta en la barra superior con avatar y menú
-│   ├── AccountPanel.cs           # Panel flotante de cuenta (estilo Visual Studio)
-│   ├── LoginForm.cs              # Formulario de login Google/GitHub con flujo OAuth completo
+│   ├── AccountButton.cs          # Botón de cuenta con avatar y menú flotante
+│   ├── AccountPanel.cs           # Panel flotante estilo Visual Studio
+│   ├── LoginForm.cs              # Flujo OAuth completo (Google + GitHub)
 │   ├── OAuthConfig.cs            # Lector de credenciales desde appsettings.json
-│   └── UserProfile.cs            # Modelo de usuario + SessionManager (persistencia de sesión)
+│   └── UserProfile.cs            # Modelo de usuario + SessionManager
 │
 ├── Charts/                       # Visualización de datos
-│   ├── ChartDataBuilder.cs       # Transformador DataTable → datos de gráfica (SRP)
-│   └── DataChartPanel.cs         # Control GDI+ para columnas, barras horizontales y pastel
+│   ├── ChartDataBuilder.cs       # DataTable → datos de gráfica (SRP)
+│   └── DataChartPanel.cs         # Control GDI+ — columnas, barras, pastel
 │
-├── Core/                         # Lógica de dominio transversal
-│   ├── AppHelpers.cs             # FileExtensions · FileSize · TimeSpanFormat · CsvHelper
-│   │                             # BrowserHelper · SmtpConfig
+├── Core/                         # Utilidades transversales
+│   ├── AppHelpers.cs             # FileExtensions · FileSize · CsvHelper · BrowserHelper · SmtpConfig
 │   ├── CsvIndexer.cs             # Generador de índice CSV recursivo y asíncrono
-│   ├── FileClassifier.cs         # Clasificación de archivos por extensión → FileStats
-│   ├── FileStats.cs              # Contadores con métodos de formateo (ToStatusString, ToInfoColumn)
-│   └── QualityReport.cs          # DTO central del análisis de calidad de datos
+│   ├── FileClassifier.cs         # Clasificación por extensión → FileStats
+│   ├── FileStats.cs              # Contadores con métodos de formateo
+│   └── QualityReport.cs          # DTO central del análisis de calidad
 │
-├── Data/                         # Parsers, análisis y serialización de datos estructurados
+├── Data/                         # Parsers, análisis y serialización
 │   ├── DataParsers.cs            # Parsers stateless: CSV · TXT · JSON · XML → DataTable
-│   ├── DataQualityAnalizer.cs    # Análisis: duplicados · fechas · teléfonos · emails · vacíos
+│   ├── DataQualityAnalizer.cs    # Análisis O(n): duplicados · fechas · teléfonos · emails
 │   └── DatSerializer.cs          # Serialización DataTable → CSV · TSV · JSON · XML
 │
-├── DataBase/                     # Abstracción y conectores de bases de datos
-│   ├── IDbConnector.cs           # Interfaz Strategy + enum DbConnectorType
-│   ├── PostgreSqlConnector.cs    # Implementación Npgsql — async, transaccional
-│   ├── MariaDbConnector.cs       # Implementación MySqlConnector — async, transaccional
-│   ├── SqlServerConnector.cs     # Implementación Microsoft.Data.SqlClient — async, transaccional
-│   ├── SqlConnector.cs           # Façade estático de compatibilidad legacy
+├── DataBase/                     # Abstracción de bases de datos
+│   ├── IDbConnector.cs           # Interfaz Strategy
+│   ├── PostgreSqlConnector.cs    # Npgsql — async, transaccional
+│   ├── MariaDbConnector.cs       # MySqlConnector — async, transaccional
+│   ├── SqlServerConnector.cs     # Microsoft.Data.SqlClient — async, transaccional
+│   ├── SqlConnector.cs           # Façade de compatibilidad legacy
 │   └── SqlWriteResult.cs         # DTO de resultado de inserción masiva
 │
 ├── Media/                        # Servicios multimedia y metadatos
-│   ├── CoverSearcher.cs          # Búsqueda multi-fuente: iTunes · Last.fm · Spotify
-│   │                             # Similitud Levenshtein + palabras, caché en memoria
-│   ├── CoverSearchResult.cs      # DTO de resultado de búsqueda de carátulas
-│   ├── CoverSearchService.cs     # Façade de alto nivel — FetchCoverBytesAsync, FetchFromITunesAsync
+│   ├── CoverSearcher.cs          # Multi-fuente: iTunes · Last.fm · Spotify + similitud Levenshtein
+│   ├── CoverSearchResult.cs      # DTO de resultado de búsqueda
+│   ├── CoverSearchService.cs     # Façade de alto nivel
 │   ├── GpsData.cs                # Record inmutable con coordenadas, altitud, cámara, fecha
-│   ├── GpsReader.cs              # Extracción GPS de imágenes (EXIF) y videos (átomos QuickTime)
+│   ├── GpsReader.cs              # EXIF (imágenes) + átomos QuickTime (video)
 │   ├── GpsWriter.cs              # Escritura GPS en EXIF de JPEG/TIFF (atómica)
-│   └── LyricsService.cs          # Búsqueda de letras via lrclib.net — retorna LyricsResult
+│   └── LyricsService.cs          # Letras vía lrclib.net
 │
-├── Services/                     # Servicios de aplicación
+├── Services/
+│   ├── Export/                   # Exportadores nativos Office/PDF
+│   │   ├── IOfficeExporter.cs    # Contrato Strategy — nunca lanza excepciones
+│   │   ├── ExportOptions.cs      # DTO inmutable con builder fluido
+│   │   ├── ExportResult.cs       # DTO: Ok / Fail / Cancelled
+│   │   ├── OfficeExporterFactory.cs
+│   │   ├── ExcelExporter.cs      # ClosedXML
+│   │   ├── WordExporter.cs       # DocumentFormat.OpenXml
+│   │   ├── PowerPointExporter.cs # DocumentFormat.OpenXml
+│   │   └── PdfExporter.cs        # QuestPDF
 │   │
-│   ├── Export/                   # Exportadores nativos de documentos
-│   │   ├── IOfficeExporter.cs    # Contrato Strategy — ExportAsync, nunca lanza excepciones
-│   │   ├── ExportOptions.cs      # DTO inmutable con builder fluido y paleta Arctic Night
-│   │   ├── ExportResult.cs       # DTO: Ok / Fail / Cancelled con metadatos de resultado
-│   │   ├── OfficeExporterFactory.cs # Registro y resolución de exportadores por extensión
-│   │   ├── ExcelExporter.cs      # .xlsx — ClosedXML, filtros, panel congelado, anchos automáticos
-│   │   ├── WordExporter.cs       # .docx — DocumentFormat.OpenXml, orientación automática
-│   │   ├── PowerPointExporter.cs # .pptx — DocumentFormat.OpenXml, portada + datos paginados
-│   │   └── PdfExporter.cs        # .pdf  — QuestPDF, paginación automática, animación de progreso
-│   │
-│   ├── Compression/              # Compresión y descompresión de archivos
-│   │   ├── IArchiver.cs          # Contrato Strategy — CompressAsync · ExtractAsync
-│   │   ├── ArchiveOptions.cs     # DTO inmutable con builder fluido para opciones
+│   ├── Compression/              # Compresión y descompresión
+│   │   ├── IArchiver.cs          # Contrato Strategy
+│   │   ├── ArchiveOptions.cs     # DTO inmutable con builder fluido
 │   │   ├── ArchiveResult.cs      # DTO: CompressOk · ExtractOk · Fail · Cancelled
-│   │   ├── ArchiverFactory.cs    # Registro y resolución de archivers por extensión
-│   │   ├── ZipArchiver.cs        # ZIP — System.IO.Compression, Zip Slip prevention
-│   │   ├── SharpCompressArchiver.cs # 7z · TAR · TAR.GZ · TAR.BZ2 — SharpCompress
-│   │   └── RarArchiver.cs        # RAR — solo extracción via SharpCompress
+│   │   ├── ArchiverFactory.cs
+│   │   ├── ZipArchiver.cs        # BCL .NET — Zip Slip prevention
+│   │   ├── SharpCompressArchiver.cs # 7z · TAR · TAR.GZ · TAR.BZ2
+│   │   └── RarArchiver.cs        # Solo extracción
 │   │
-│   ├── ExportadorOffice.cs       # Façade público — ExportarConDialogo, ExportarExcel, etc.
-│   ├── FileOpener.cs             # Enrutador de apertura de archivos al visor correcto
-│   ├── FileOperationService.cs   # Crear carpeta · renombrar · eliminar · mover (DnD)
-│   ├── FileTypeHelper.cs         # Etiquetas legibles por tipo + columna Info de carpetas
-│   └── CompressionService.cs     # Façade público — Compress() y Extract() con diálogos
+│   ├── ExportadorOffice.cs       # Façade público con diálogos de UI
+│   ├── FileOpener.cs             # Enrutador de apertura al visor correcto
+│   ├── FileOperationService.cs   # Crear · renombrar · eliminar · mover (DnD)
+│   ├── FileTypeHelper.cs         # Etiquetas legibles + columna Info
+│   └── CompressionService.cs     # Façade público con diálogos de UI
 │
 └── UI/
-    ├── Components/               # Componentes reutilizables de UI
-    │   ├── FileIconFactory.cs    # Iconos GDI+ 32×32 programáticos + resolución de ImageList
-    │   ├── MinimalMenuRenderer.cs # Renderer ContextMenu Arctic Night + LvComparer
-    │   └── Theme.cs              # Sistema de diseño "Arctic Night" — colores, fuentes,
-    │                             # factory methods para Button, TextBox, Label, DataGridView
+    ├── Components/
+    │   ├── FileIconFactory.cs    # Iconos GDI+ 32×32 programáticos
+    │   ├── MinimalMenuRenderer.cs # ContextMenu con tema Arctic Night
+    │   └── Theme.cs              # Sistema de diseño completo: colores, fuentes, factory methods
     │
-    ├── Dialogs/                  # Cuadros de diálogo
-    │   ├── CompressionProgressForm.cs # Progreso de compresión/extracción con cancelación
-    │   ├── ConexionDialog.cs     # Conexión a BD (PostgreSQL · MariaDB · SQL Server)
-    │   ├── EmailForm.cs          # Envío de archivo por SMTP con configuración embebida
-    │   ├── ExportProgressForm.cs # Progreso de exportación Office/PDF con cancelación
-    │   ├── ExtractOptionsDialog.cs # Opciones de extracción: "aquí" · subcarpeta · elegir
-    │   ├── GpsEditDialog.cs      # Agregar/editar coordenadas GPS en imágenes
-    │   ├── InputDialog.cs        # Diálogo genérico de entrada de texto
-    │   ├── NombreTablaDialog.cs  # Nombre de tabla para importación a BD
-    │   ├── TagEditDialog.cs      # Edición de tags ID3 con ComboBox de géneros
-    │   └── TextToolDialog.cs     # Selector de fuente/estilo/color con preview en tiempo real
+    ├── Dialogs/
+    │   ├── CompressionProgressForm.cs
+    │   ├── ConexionDialog.cs
+    │   ├── EmailForm.cs
+    │   ├── ExportProgressForm.cs
+    │   ├── ExtractOptionsDialog.cs
+    │   ├── GpsEditDialog.cs
+    │   ├── InputDialog.cs
+    │   ├── NombreTablaDialog.cs
+    │   ├── TagEditDialog.cs
+    │   └── TextToolDialog.cs
     │
-    └── Forms/                    # Formularios principales
+    └── Forms/
         ├── Form1.cs              # Ventana principal — navegación, ListView, TreeView, DnD
-        ├── Form1.Designer.cs     # Diseñador de Form1
-        ├── FilePropertiesForm.cs # Propiedades detalladas con carga asíncrona y toast de copiado
-        ├── FileViewerform.cs     # Visor de datos — análisis, gráficas, filtros, exportación
-        ├── ImagevIewerform.cs    # Visor/editor de imágenes — tools, filtros, GPS, SVG
-        ├── MusicPlayerForm.cs    # Reproductor de música — estilo Spotify, grabación, letras
-        ├── NotepadForm.cs        # Bloc de notas — line numbers, búsqueda async, zoom
-        ├── SqlViewerForm.cs      # Cliente SQL — multi-motor, gráficas flotantes, importación
-        └── VideoPlayerForm.cs    # Reproductor de video — LibVLC async, webcam, GPS
+        ├── FilePropertiesForm.cs
+        ├── FileViewerform.cs     # Visor de datos + gráficas + exportación
+        ├── ImagevIewerform.cs    # Editor de imágenes + GPS
+        ├── MusicPlayerForm.cs    # Reproductor + grabación + letras
+        ├── NotepadForm.cs        # Bloc de notas avanzado
+        ├── SqlViewerForm.cs      # Cliente SQL multi-motor
+        └── VideoPlayerForm.cs    # Reproductor + webcam + GPS
 ```
 
 ---
 
-## 🔧 Módulos Principales
+## 🔧 Módulos principales
 
-### `Core/AppHelpers.cs` — Helpers Centralizados
+### `Core/AppHelpers.cs` — Utilidades centralizadas
 
-Fuente única de verdad para utilidades compartidas. Elimina implementaciones duplicadas que antes existían en múltiples formularios:
+Fuente única de verdad para helpers compartidos entre todos los formularios:
 
 | Clase | Responsabilidad |
 |---|---|
 | `FileExtensions` | Sets de extensiones por categoría (Image, Audio, Video, Text, Document, Archive) |
-| `FileSize` | Formateo de bytes a formato legible (B, KB, MB, GB, TB) |
+| `FileSize` | Formateo de bytes a formato legible (B → TB) |
 | `TimeSpanFormat` | Formateo de duraciones (`1:23:45` o `3:07`) |
 | `CsvHelper` | Split RFC 4180, escape de campos, split de líneas |
-| `BrowserHelper` | Registro de emulación IE-Edge para WebBrowser embebido |
+| `BrowserHelper` | Registro IE-Edge para WebBrowser (mapas GPS) |
 | `SmtpConfig` | Carga y persistencia de configuración SMTP en AppData |
 
-### `Data/DataParsers.cs` — Parsers de Datos
+### `Data/DataQualityAnalyzer.cs` — Análisis de calidad
 
-Parsers estáticos y sin estado. Retornan `DataTable` (o `CsvParseResult` para CSV con metadatos de mismatches):
+Detecta seis tipos de problemas en un único recorrido **O(n)** sobre las filas:
 
-- **CSV**: respeta comillas, escapes de `""`, detecta filas con columnas desajustadas
-- **TXT**: detecta automáticamente el delimitador (tab > pipe > semicolon > comma)
-- **JSON**: maneja root array, root object con array anidado, y root object de escalares
-- **XML**: extrae atributos (`@attr`) y elementos hijo como columnas; fallback a tabla plana
+1. **Duplicados** — hashing de filas completas con `Dictionary<string, int>`
+2. **Fechas** — detecta `dd/mm/yyyy`, `mm/dd/yyyy`, `yyyy.mm.dd` → normaliza a ISO 8601
+3. **Campos vacíos** — null o whitespace
+4. **Teléfonos** — heurística: nombre de columna + ≥ 60% de valores con patrón de teléfono
+5. **Emails** — validación estructural: `@`, dominio con punto, TLD ≥ 2 caracteres
+6. **Mismatches CSV** — columnas desajustadas, detectadas en el parser y propagadas al informe
 
-### `Data/DataQualityAnalyzer.cs` — Análisis de Calidad
+### `Services/Export/` — Exportadores nativos
 
-Detecta seis tipos de problemas en un solo recorrido O(n):
+Todos implementan `IOfficeExporter`. Reglas invariantes: **nunca lanzan excepciones**, reportan progreso 0–100, respetan `CancellationToken` y eliminan el archivo parcial si fallan.
 
-1. **Duplicados**: hashing de filas completas
-2. **Fechas**: detección de `dd/mm/yyyy`, `mm/dd/yyyy`, `yyyy.mm.dd` y normalización a ISO
-3. **Campos vacíos**: null o whitespace
-4. **Teléfonos**: heurística de nombre de columna + 60% de valores que parecen teléfonos
-5. **Emails**: validación estructural con `@`, dominio y TLD
-6. **Mismatches CSV**: pasados directamente desde el parser
-
-### `Services/Export/` — Exportadores Nativos
-
-Todos implementan `IOfficeExporter`. Reglas invariantes:
-- Nunca lanzan excepciones — retornan `ExportResult.Fail()`
-- Reportan progreso 0–100 via `IProgress<int>`
-- Respetan `CancellationToken` y eliminan el archivo parcial si fallan
-
-| Exportador | Límites | Características especiales |
+| Exportador | Límite | Características especiales |
 |---|---|---|
-| `ExcelExporter` | 1,048,575 filas | Filtros automáticos, panel congelado, anchos por muestreo |
-| `WordExporter` | 8,000 celdas, 20 cols | Landscape automático para tablas anchas |
-| `PowerPointExporter` | 500 filas, 20 cols, 18/diap | Portada con metadatos + diapositivas de datos paginadas |
-| `PdfExporter` | 500,000 celdas | Timer de animación para QuestPDF síncrono |
+| `ExcelExporter` | 1 048 575 filas | Filtros automáticos, panel congelado, anchos por muestreo de 300 filas |
+| `WordExporter` | 8 000 celdas, 20 col | Landscape automático para tablas anchas |
+| `PowerPointExporter` | 500 filas, 20 col, 18/diap | Portada con metadatos + diapositivas paginadas con tema Arctic Night |
+| `PdfExporter` | 500 000 celdas | Timer de animación paralelo (QuestPDF es síncrono) |
 
 ### `Services/Compression/` — Archivers
 
-Todos implementan `IArchiver`. Reglas invariantes:
-- Nunca lanzan excepciones — retornan `ArchiveResult.Fail()`
-- Validan path traversal (Zip Slip) en **cada entrada** antes de escribir
-- Soportan `FlattenSingleRootFolder` (comportamiento "Extraer aquí" de WinRAR)
+Todos implementan `IArchiver`. Validan **path traversal (Zip Slip) en cada entrada** antes de escribir. Soportan `FlattenSingleRootFolder` (comportamiento "Extraer aquí" de WinRAR/7-Zip).
 
-### `Media/CoverSearcher.cs` — Búsqueda de Carátulas
-
-Algoritmo de similitud multi-fuente con pesos ponderados:
+### `Media/CoverSearcher.cs` — Algoritmo de similitud
 
 ```
-score = artista × 0.35 + título × 0.50 + palabras × 0.15
+score = artista × 0.35  +  título × 0.50  +  palabras × 0.15
 
 donde:
-  artista, título = Levenshtein normalizado con potencia 0.8
-  palabras        = coincidencia de palabras > 2 caracteres
+  artista, título  =  Levenshtein normalizado con potencia 0.8
+  palabras         =  coincidencia de tokens > 2 caracteres entre fuentes
 ```
 
-Normalización: elimina diacríticos, stopwords musicales (feat., remix, official, etc.), contenido entre paréntesis/corchetes.
-
-### `Auth/UserProfile.cs` + `SessionManager` — Autenticación
-
-- Sesión guardada sin el `access_token` completo por seguridad (solo metadatos)
-- Avatar cacheado 24 horas en `AppData/FileExplorerr/avatars/`
-- Sesión válida 30 días; expirada, se limpia automáticamente
+La normalización elimina diacríticos, stopwords musicales (`feat.`, `remix`, `official`…) y contenido entre paréntesis/corchetes antes de comparar.
 
 ---
 
-## 🎨 Funcionalidades en Detalle
+## 🎨 Funcionalidades en detalle
 
-### Autocompletado de la Barra de Dirección
+### Autocompletado de la barra de dirección
 
-El autocompletado es un `ListBox` flotante propio (no el nativo de Windows) para mantener el tema Arctic Night de forma consistente. Su comportamiento es:
+Implementado como un `ListBox` flotante propio (no el autocompletado nativo de Windows) para mantener el tema Arctic Night. Puntos clave:
 
-- **Activación**: se dispara con el evento `TextChanged` solo cuando la ruta escrita contiene al menos una barra invertida `\`, indicando que el usuario está tecleando una ruta de sistema.
-- **Filtrado en tiempo real**: obtiene el directorio padre de lo escrito con `Path.GetDirectoryName()` y lista las subcarpetas cuyo nombre empiece con el fragmento parcial ingresado, usando comparación sin distinción de mayúsculas/minúsculas.
-- **Posicionamiento**: el menú se ancla directamente debajo de la barra de dirección usando coordenadas de pantalla, con un ancho equivalente al de la barra más el ícono de carpeta.
-- **Navegación con teclado**: `↓` desde la barra mueve el foco al `ListBox`; `Enter` dentro del menú acepta la sugerencia y devuelve el foco a la barra; `Escape` cierra el menú sin navegar.
-- **Clic con ratón**: seleccionar un ítem en el menú lo copia en la barra y cierra el desplegable.
-- **Protección contra bucles**: cuando la aplicación cambia el texto de la barra de forma programática (historial, botones de navegación, favoritos de la barra lateral), desuscribe `TextChanged` antes de asignar el valor y lo vuelve a suscribir justo después, evitando que el menú aparezca durante navegaciones automáticas.
-- **Cierre automático**: el menú desaparece si no hay coincidencias, si la ruta está vacía o si no contiene una barra invertida.
+- Se activa con `TextChanged` solo cuando la ruta contiene al menos una `\`
+- Filtra subcarpetas en tiempo real con `Path.GetDirectoryName()` + comparación case-insensitive
+- Se posiciona debajo de la barra usando coordenadas de pantalla
+- Navegación: `↓` mueve el foco al ListBox, `Enter` acepta, `Escape` cierra sin navegar
+- Protección contra bucles: desuscribe `TextChanged` durante navegaciones programáticas (historial, botones, favoritos) para que el menú no aparezca
 
-### Panel GPS (Imágenes y Video)
+### Panel GPS
 
-**Lectura de GPS:**
-- Imágenes: EXIF via `System.Drawing.PropertyItem` (tags 0x0001–0x001D)
-- Videos MP4/MOV: átomos QuickTime `©xyz`, `loci`, fallback a scan ISO 6709 en los primeros 50 MB
-- Muestra coordenadas DMS formateadas, altitud, cámara y fecha
+**Lectura:**
+- Imágenes: EXIF vía `System.Drawing.PropertyItem` (tags `0x0001`–`0x001D`)
+- Videos MP4/MOV: átomos QuickTime `©xyz` → `loci` → scan ISO 6709 en los primeros 50 MB
 
-**Escritura de GPS** (solo JPEG/TIFF):
-- Crea archivo temporal `.tmp_gps`, escribe EXIF, elimina original, renombra temporal
-- Garantiza atomicidad: si falla, el original no se corrompe
+**Escritura** (solo JPEG/TIFF):
+- Crea `.tmp_gps` → escribe EXIF → elimina original → renombra temporal
+- Si falla en cualquier paso, el original queda intacto
 
-**Mapa interactivo:**
+**Mapa:**
 - HTML embebido con Leaflet.js + OpenStreetMap en `WebBrowser`
-- Emulación IE-Edge via registro de Windows para renderizado moderno
+- Emulación IE-Edge vía registro de Windows para renderizado moderno de Leaflet
 
-### Gráficas de Datos (`DataChartPanel`)
+### Gráficas GDI+ (`DataChartPanel`)
 
-Control GDI+ personalizado que implementa tres tipos de gráfica:
+Control personalizado sin dependencias externas que implementa:
 
-- **Columnas**: barras verticales con gradiente, etiquetas rotadas 45°, grid horizontal
-- **Barras**: barras horizontales con etiquetas truncadas, grid vertical
-- **Pastel**: sectores con porcentaje embebido, leyenda lateral
+- **Columnas**: barras verticales con degradado, etiquetas rotadas 45°, grid horizontal
+- **Barras**: barras horizontales con etiquetas truncadas automáticamente, grid vertical
+- **Pastel**: sectores con porcentaje embebido (> 12°), leyenda lateral
 
-Todos los tipos usan la paleta Arctic Night (10 colores) y adaptan sus márgenes automáticamente al ancho de las etiquetas.
-
-### Árbol del Panel Lateral (`infoTree`)
-
-- **Lazy-loading**: las subcarpetas se pueblan con un nodo `__dummy__` que se expande bajo demanda en `BeforeExpand`
-- **Búsqueda recursiva asíncrona** con cancelación (al iniciar nueva búsqueda se cancela la anterior)
-- **Clic simple en carpeta**: expande/colapsa sin navegar el explorador principal
-- **Doble clic en archivo**: abre el visor correspondiente
-- **OwnerDraw personalizado**: colores por tipo de nodo (carpeta ámbar, archivo blanco, grupo teal, dim gris)
-
-### Drag & Drop Extendido
-
-- **Entre carpetas**: resaltado visual del destino, manejo de conflictos de nombre interactivo
-- **A la papelera**: cambio de ícono a papelera llena (shell32.dll, índice 32) al hover
-- **A la playlist de video**: acepta archivos de video con `DragEnter`/`DragDrop`
-- **A la playlist de música**: acepta archivos de audio
+Todos los tipos usan la paleta Arctic Night (10 colores) y ajustan sus márgenes dinámicamente al ancho de las etiquetas.
 
 ---
 
-## 🧩 Diseño y Patrones
+## 🧩 Diseño y patrones
 
-### Strategy Pattern
+### Strategy
 
 ```csharp
-// Exportación
+// Exportación — resolución por extensión en tiempo de ejecución
 IOfficeExporter exporter = OfficeExporterFactory.Resolve(".xlsx");
 ExportResult result = await exporter.ExportAsync(data, options, progress);
 
@@ -522,36 +469,16 @@ IDbConnector connector = new PostgreSqlConnector(connectionString);
 var (dt, rows) = await connector.ExecuteAsync(sql);
 ```
 
-### Factory Pattern
+### Factory + registro en startup
 
-`OfficeExporterFactory` y `ArchiverFactory` son registros de instancias únicas por extensión. Agregar un nuevo formato requiere una sola línea:
-
-```csharp
-OfficeExporterFactory.Register(new CsvExporter()); // ejemplo futuro
-ArchiverFactory.Register(new SevenZipArchiver());   // ejemplo futuro
-```
-
-### Façade Pattern
-
-`SqlConnector` (façade estático), `ExportadorOffice` y `CompressionService` exponen APIs simples orientadas a formularios, delegando internamente a la implementación concreta:
+Agregar soporte para un nuevo formato requiere **una sola línea** en `Program.cs`:
 
 ```csharp
-// Form1 solo llama:
-CompressionService.Compress(selectedPaths, this, () => LoadDirectory(currentPath));
-
-// Internamente: ArchiverFactory → ZipArchiver → ArchiveOptions → ArchiveResult
+OfficeExporterFactory.Register(new CsvExporter());   // ejemplo futuro
+ArchiverFactory.Register(new SevenZipArchiver());     // ejemplo futuro
 ```
 
-### Single Responsibility
-
-Cada clase tiene una responsabilidad bien definida:
-- `DataParsers`: solo parsea, no analiza calidad
-- `DataQualityAnalyzer`: solo analiza, no parsea
-- `DataSerializer`: solo serializa, no parsea ni analiza
-- `ChartDataBuilder`: solo convierte DataTable en datos de gráfica
-- `DataChartPanel`: solo dibuja, no genera datos
-
-### Fluent Builder (Immutable DTOs)
+### Fluent Builder con DTOs inmutables
 
 ```csharp
 var opts = ExportOptions.For(outputPath, "Mi título")
@@ -568,36 +495,39 @@ var archiveOpts = ArchiveOptions
     .Build();
 ```
 
-### Result Object (No-Throw Pattern)
+### Result Object — patrón no-throw
 
-Todos los exportadores y archivers retornan un objeto de resultado en lugar de lanzar excepciones:
+Los exportadores y archivers **nunca lanzan excepciones**. El caller inspecciona el resultado:
 
 ```csharp
 ExportResult result = await exporter.ExportAsync(data, options, progress);
-if (result.Success)           { /* abrir archivo */ }
-else if (result.WasTruncated) { /* mostrar advertencia */ }
+
+if (result.Success)           { OpenFile(result.OutputPath); }
+else if (result.WasTruncated) { ShowWarning($"Truncado a {result.RowsWritten} filas"); }
+else if (result.WasCancelled) { /* no hacer nada */ }
 else                          { MessageBox.Show(result.ErrorMessage); }
 ```
 
-### Async/Await con Cooperative Cancellation
+### Async con cancelación cooperativa
 
-Las operaciones pesadas (carga de directorios, exportación, análisis de calidad, búsqueda en árbol) se ejecutan en el thread pool y soportan cancelación cooperativa:
+Cada operación pesada cancela la anterior al iniciarse una nueva:
 
 ```csharp
-_loadCts.Cancel();          // cancela la carga anterior
+_loadCts.Cancel();
 _loadCts = new CancellationTokenSource();
 var token = _loadCts.Token;
-// ...
+
+var result = await Task.Run(() => HeavyWork(token), token);
 if (token.IsCancellationRequested) return;
 ```
 
 ---
 
-## 🛠️ Tecnologías Utilizadas
+## 🛠️ Tecnologías utilizadas
 
-### Plataforma y Lenguaje
+### Plataforma y lenguaje
 
-| Tecnología | Versión | Uso |
+| | Versión | Uso |
 |---|---|---|
 | C# | 12 | Lenguaje principal |
 | .NET | 8.0 (Windows) | Runtime y BCL |
@@ -607,56 +537,52 @@ if (token.IsCancellationRequested) return;
 
 | Paquete | Versión | Uso |
 |---|---|---|
-| `LibVLCSharp` | 3.9.7.1 | Motor de reproducción de video |
-| `LibVLCSharp.WinForms` | 3.9.3 | Control `VideoView` |
-| `VideoLAN.LibVLC.Windows` | 3.0.21 | Binarios nativos VLC |
-| `OpenCvSharp4` | 4.13.0+ | Captura y grabación de webcam |
-| `OpenCvSharp4.Extensions` | 4.13.0+ | Conversión `Mat` → `Bitmap` |
-| `OpenCvSharp4.runtime.win` | 4.13.0+ | Binarios nativos OpenCV |
-| `NAudio` | 2.2.1 | Reproducción de audio PCM, grabación de micrófono |
-| `taglib-sharp-netstandard2.0` | 2.1.0 | Lectura/escritura de tags ID3, Vorbis, APE, M4A |
+| `LibVLCSharp` + `VideoLAN.LibVLC.Windows` | 3.9.x / 3.0.21 | Motor de video |
+| `OpenCvSharp4` + `.Extensions` + `.runtime.win` | 4.13.0+ | Captura y grabación de webcam |
+| `NAudio` | 2.2.1 | Audio PCM y grabación de micrófono |
+| `taglib-sharp-netstandard2.0` | 2.1.0 | Tags ID3, Vorbis, APE, M4A |
 
-### Exportación de Documentos
+### Exportación de documentos
 
 | Paquete | Versión | Uso |
 |---|---|---|
-| `ClosedXML` | 0.102.2 | Generación de Excel (.xlsx) |
-| `DocumentFormat.OpenXml` | 2.20.0 | Generación de Word (.docx) y PowerPoint (.pptx) |
-| `QuestPDF` | 2024.12.0 | Generación de PDF — licencia Community MIT |
+| `ClosedXML` | 0.102.2 | Excel (.xlsx) |
+| `DocumentFormat.OpenXml` | 2.20.0 | Word (.docx) y PowerPoint (.pptx) |
+| `QuestPDF` | 2024.12.0 | PDF — licencia Community MIT |
 
 ### Compresión
 
 | Paquete | Versión | Uso |
 |---|---|---|
 | `SharpCompress` | 0.49.1 | 7z, TAR, TAR.GZ, TAR.BZ2, RAR (extracción) |
-| `System.IO.Compression` | BCL | ZIP (sin dependencias externas) |
+| `System.IO.Compression` | BCL | ZIP — sin dependencias externas |
 
-### Bases de Datos
+### Bases de datos
 
 | Paquete | Versión | Uso |
 |---|---|---|
-| `Npgsql` | 9.0.2 | Cliente PostgreSQL async (ADO.NET) |
-| `MySqlConnector` | 2.3.7 | Cliente MariaDB/MySQL async (ADO.NET) |
-| `Microsoft.Data.SqlClient` | 5.2.2 | Cliente SQL Server async (ADO.NET) |
+| `Npgsql` | 9.0.2 | PostgreSQL async (ADO.NET) |
+| `MySqlConnector` | 2.3.7 | MariaDB/MySQL async (ADO.NET) |
+| `Microsoft.Data.SqlClient` | 5.2.2 | SQL Server async (ADO.NET) |
 
-### APIs Externas (Opcionales)
+### APIs externas opcionales
 
-| API | Uso | Autenticación |
-|---|---|---|
-| iTunes Search API | Carátulas de álbumes | Sin clave |
-| lrclib.net | Letras de canciones | Sin clave |
-| Last.fm API | Carátulas alternativas | Sin clave (solo búsqueda) |
-| Spotify API | Carátulas alternativas | Best-effort sin auth |
-| OpenStreetMap / Leaflet.js | Mapas GPS embebidos | Sin clave |
-| Google OAuth 2.0 | Autenticación de usuario | Client ID + Secret |
-| GitHub OAuth | Autenticación de usuario | Client ID + Secret |
+| API | Uso | Clave requerida |
+|---|---|:---:|
+| iTunes Search API | Carátulas de álbumes | No |
+| lrclib.net | Letras de canciones | No |
+| Last.fm API | Carátulas alternativas | No |
+| Spotify API | Carátulas alternativas (best-effort) | No |
+| OpenStreetMap / Leaflet.js | Mapas GPS embebidos | No |
+| Google OAuth 2.0 | Autenticación de usuario | Sí |
+| GitHub OAuth | Autenticación de usuario | Sí |
 
 ### P/Invoke y APIs de Windows
 
 | API | Uso |
 |---|---|
 | `SHFileOperation` | Envío a Papelera de Reciclaje |
-| `DwmSetWindowAttribute` | Título de barra oscuro, color de acento |
+| `DwmSetWindowAttribute` | Barra de título oscura y color de acento |
 | `ExtractIcon` | Ícono de papelera desde shell32.dll |
 
 ---
@@ -665,55 +591,41 @@ if (token.IsCancellationRequested) return;
 
 ### Requisitos
 
-- **Sistema operativo**: Windows 10 / 11 (x64)
-- **Runtime**: [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) o superior
+- **SO**: Windows 10 / 11 (x64)
+- **Runtime**: [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 - **IDE** (para compilar): Visual Studio 2022 v17.8+ o VS Code con C# Dev Kit
-- Conexión a internet opcional (carátulas, letras, mapas GPS)
 
-### Clonar el Repositorio
+### Pasos
 
 ```bash
+# 1. Clonar
 git clone https://github.com/tu-usuario/FileExplorerr.git
 cd FileExplorerr
-```
 
-### Restaurar Dependencias
-
-```bash
+# 2. Restaurar dependencias NuGet
 dotnet restore
-```
 
-### Compilar
+# 3. Compilar
+dotnet build                    # Debug
+dotnet build -c Release         # Release optimizado
 
-```bash
-# Debug
-dotnet build
-
-# Release
-dotnet build -c Release
-```
-
-### Ejecutar
-
-```bash
+# 4. Ejecutar
 dotnet run --project FileExplorerr/FileExplorerr.csproj
 ```
 
-O desde Visual Studio: abrir `FileExplorerr.slnx` y presionar `F5`.
+También puedes abrir `FileExplorerr.slnx` en Visual Studio y presionar `F5`.
 
 ---
 
 ## ⚙️ Configuración
 
-### Configuración OAuth (Opcional)
+### OAuth — Google y GitHub (opcional)
 
-Para habilitar el login con Google y GitHub, copia el archivo de ejemplo y rellena tus credenciales:
+> ⚠️ **Seguridad**: `appsettings.json` está en `.gitignore` y **nunca debe subirse al repositorio**. Los Client Secrets son equivalentes a contraseñas. Si los expones accidentalmente en un commit, **revócalos de inmediato** en [Google Cloud Console](https://console.cloud.google.com) o [GitHub Settings](https://github.com/settings/developers).
 
 ```bash
 cp FileExplorerr/appsettings.example.json FileExplorerr/appsettings.json
 ```
-
-Edita `appsettings.json`:
 
 ```json
 {
@@ -730,124 +642,95 @@ Edita `appsettings.json`:
 }
 ```
 
-> **⚠️ Importante**: `appsettings.json` está en `.gitignore` y nunca debe subirse al repositorio.
+**Para obtener credenciales de Google:**
+1. [Google Cloud Console](https://console.cloud.google.com/) → Nuevo proyecto
+2. Habilita la **Google OAuth 2.0 API**
+3. Crea credenciales tipo "Aplicación de escritorio"
+4. Agrega `http://localhost:5200/callback` como URI de redirección autorizado
 
-#### Obtener credenciales Google
+**Para obtener credenciales de GitHub:**
+1. [GitHub Developer Settings](https://github.com/settings/developers) → Nueva OAuth App
+2. Establece `http://localhost:5200/callback` como Authorization callback URL
 
-1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
-2. Crea un proyecto nuevo o selecciona uno existente
-3. Habilita la **Google OAuth 2.0 API**
-4. Crea credenciales tipo "Aplicación de escritorio"
-5. Agrega `http://localhost:5200/callback` como URI de redirección autorizado
+> Si no configuras OAuth, usa **"Continuar como invitado"** en la pantalla de login para acceso completo sin autenticación.
 
-#### Obtener credenciales GitHub
+### SMTP para envío de emails (opcional)
 
-1. Ve a [GitHub Developer Settings](https://github.com/settings/developers)
-2. Crea una nueva **OAuth App**
-3. Establece `http://localhost:5200/callback` como Authorization callback URL
+Configura desde dentro de la app: abre cualquier archivo → botón **✉ Email** → **⚙ Configurar SMTP**. La configuración se guarda en `AppData\Roaming\FileExplorerr\smtp.cfg`.
 
-### Modo Sin Autenticación
-
-Si no configuras OAuth, puedes usar la aplicación completa con la opción **"Continuar como invitado"** en la pantalla de login.
-
-### Configuración SMTP (Opcional)
-
-Para el envío de archivos por email, configura tus credenciales desde dentro de la aplicación: al abrir `EmailForm`, usa el botón **"⚙ Configurar SMTP"**. La configuración se guarda en `AppData\Roaming\FileExplorerr\smtp.cfg`.
-
-Para Gmail, necesitas una [Contraseña de Aplicación](https://support.google.com/accounts/answer/185833) de 16 caracteres.
+Para Gmail necesitas una [Contraseña de Aplicación](https://support.google.com/accounts/answer/185833) de 16 caracteres (no tu contraseña normal).
 
 ---
 
 ## 🚀 Uso
 
-### Primera Ejecución
+### Apertura de archivos
 
-1. La aplicación muestra la pantalla de login
-2. Elige autenticarte con Google, GitHub, o continuar como invitado
-3. La ventana principal se abre en tu carpeta de usuario
-4. En siguientes ejecuciones, la sesión se restaura automáticamente (válida 30 días)
-
-### Navegación
-
-```
-📁 Carpeta de usuario
-├── Usa la barra de dirección para navegar directamente
-├── Escribe una ruta parcial para ver sugerencias de autocompletado
-├── Haz doble clic en carpetas para entrar
-├── Botones ← → ↑ para historial y subir nivel
-├── F5 para actualizar
-└── Panel lateral derecho para árbol categorizado
-```
-
-### Apertura de Archivos
-
-| Tipo de archivo | Acción | Resultado |
+| Tipo | Acción | Resultado |
 |---|---|---|
-| Imagen (JPG, PNG, RAW...) | Doble clic | Abre `ImageViewerForm` |
-| Audio (MP3, FLAC...) | Doble clic | Abre `MusicPlayerForm` con toda la carpeta |
-| Video (MP4, MKV...) | Doble clic | Abre `VideoPlayerForm` |
-| CSV, JSON, XML | Doble clic | Abre `FileViewerForm` con análisis automático |
-| TXT, LOG | Doble clic | Pregunta: visor de tabla o bloc de notas |
-| Código fuente (CS, PY...) | Doble clic | Abre `NotepadForm` |
-| ZIP, RAR, 7z | Doble clic → menú contextual | Opciones de extracción |
+| Imagen (JPG, PNG, RAW…) | Doble clic | `ImageViewerForm` |
+| Audio (MP3, FLAC…) | Doble clic | `MusicPlayerForm` con toda la carpeta |
+| Video (MP4, MKV…) | Doble clic | `VideoPlayerForm` |
+| CSV, JSON, XML | Doble clic | `FileViewerForm` con análisis automático |
+| TXT, LOG | Doble clic | Diálogo: visor de tabla o bloc de notas |
+| Código fuente (CS, PY…) | Doble clic | `NotepadForm` |
+| ZIP, RAR, 7z | Clic derecho | Opciones de compresión/extracción |
 | Cualquier otro | Doble clic | Aplicación predeterminada del sistema |
 
-### Menú Contextual
-
-Clic derecho sobre cualquier elemento del explorador:
+### Visor de datos — flujo de trabajo
 
 ```
-Abrir                          → abre con el visor correspondiente
+1. Abre un archivo CSV / JSON / XML
+2. El análisis de calidad se ejecuta automáticamente en segundo plano
+3. Un popup resume los problemas detectados
+4. Las celdas afectadas aparecen coloreadas:
+     🔴 Duplicados  🟡 Vacíos  🔵 Fechas  🟣 Teléfonos  🟠 Emails
+5. Filtra, busca o reordena los datos según necesites
+6. Pestaña "Gráfica" → elige agrupación, métrica y tipo de gráfica
+7. Exporta al formato deseado (CSV, Excel, PDF, etc.)
+   — o guarda una "copia corregida" con todas las sugerencias aplicadas
+```
+
+### Menú contextual del explorador
+
+```
+Abrir                        → visor correspondiente
 Nueva carpeta
 Renombrar
-Eliminar                       → envía a Papelera de Reciclaje
-Propiedades                    → panel detallado con metadatos
-Actualizar (F5)
-📦 Comprimir selección...      → crea ZIP, 7z, TAR, etc.
-📂 Extraer aquí                → solo para archivos de compresión
-📁 Extraer en...               → solo para archivos de compresión
-```
-
-### Visor de Datos — Flujo de Trabajo
-
-```
-1. Abre un archivo CSV/JSON/XML
-2. El análisis de calidad se ejecuta automáticamente
-3. Un popup muestra los problemas detectados
-4. Las celdas con problemas aparecen coloreadas:
-   🔴 Duplicados  🟡 Vacíos  🔵 Fechas  🟣 Teléfonos  🟠 Emails
-5. Aplica filtros o busca en los datos
-6. Visualiza en la pestaña "Gráfica" con los controles deseados
-7. Exporta al formato deseado con los botones del panel inferior
-8. O guarda una "copia corregida" con todas las sugerencias aplicadas
+Eliminar                     → envía a Papelera de Reciclaje
+Propiedades                  → panel detallado con metadatos
+Actualizar  (F5)
+─────────────────────────────
+📦 Comprimir selección...    → crea ZIP, 7z, TAR, etc.
+📂 Extraer aquí              → solo archivos de compresión
+📁 Extraer en...             → solo archivos de compresión
 ```
 
 ---
 
-## ⌨️ Atajos de Teclado
+## ⌨️ Atajos de teclado
 
-### Explorador Principal
+### Explorador principal
 
 | Atajo | Acción |
 |---|---|
 | `F5` | Actualizar directorio |
 | `Enter` en barra de dirección | Navegar a la ruta escrita |
-| `↓` en barra de dirección | Abrir menú de autocompletado y mover foco a sugerencias |
-| `Enter` en menú de autocompletado | Aceptar sugerencia seleccionada |
-| `Escape` en menú de autocompletado | Cerrar menú y volver a la barra |
-| `Enter` en búsqueda del panel | Buscar en árbol lateral |
+| `↓` desde la barra | Mover foco al menú de autocompletado |
+| `Enter` en autocompletado | Aceptar sugerencia |
+| `Escape` en autocompletado | Cerrar menú |
 
-### Visor de Imágenes
+### Visor de imágenes
 
 | Atajo | Acción |
 |---|---|
 | `+` / `−` | Zoom in / Zoom out |
-| `Rueda del ratón` | Zoom in / Zoom out |
+| Rueda del ratón | Zoom in / Zoom out |
 | `Ctrl+Z` | Deshacer |
 | `Ctrl+S` | Guardar copia |
 | `Escape` | Deseleccionar herramienta / Cerrar |
 
-### Reproductor de Música
+### Reproductor de música
 
 | Atajo | Acción |
 |---|---|
@@ -855,7 +738,7 @@ Actualizar (F5)
 | `←` / `→` | Retroceder / Avanzar 5 s |
 | `↑` / `↓` | Subir / Bajar volumen 5% |
 
-### Reproductor de Video
+### Reproductor de video
 
 | Atajo | Acción |
 |---|---|
@@ -866,7 +749,7 @@ Actualizar (F5)
 | `F` | Pantalla completa / Ventana |
 | `Escape` | Salir de pantalla completa |
 
-### Bloc de Notas
+### Bloc de notas
 
 | Atajo | Acción |
 |---|---|
@@ -876,7 +759,7 @@ Actualizar (F5)
 | `Ctrl+H` | Reemplazar |
 | `Ctrl+G` | Ir a línea |
 | `F3` | Siguiente coincidencia |
-| `Ctrl++` / `Ctrl+-` | Zoom de fuente |
+| `Ctrl++` / `Ctrl+−` | Zoom de fuente |
 | `Escape` | Cerrar panel de búsqueda |
 
 ### Visor SQL
@@ -890,90 +773,83 @@ Actualizar (F5)
 
 ## ⚡ Rendimiento
 
-### Carga de Directorios
-
-- Las operaciones de disco (`GetDirectories`, `GetFiles`) se ejecutan en el thread pool con `Task.Run`
-- La información de carpetas (`FolderInfoColumn`) se calcula con un semáforo de concurrencia limitada (máx. 8 tareas paralelas)
-- La carga se puede cancelar al navegar a otra carpeta: cada llamada a `LoadDirectory` cancela la anterior con `CancellationTokenSource`
-- La UI se actualiza con `BeginUpdate()`/`EndUpdate()` para evitar flickering
-
-### Análisis de Datos
-
-- Los parsers son stateless y se ejecutan en background con `Task.Run`
-- El analizador de calidad hace un único recorrido O(n) sobre las filas
-- La detección de duplicados usa `Dictionary<string, int>` con hashing directo
-- Las gráficas se redibujan con `DoubleBuffered = true` y `ResizeRedraw = true`
-
-### Búsqueda en Árbol Lateral
-
-- La búsqueda recursiva usa `CancellationTokenSource` enlazado: si el usuario escribe antes de que termine, la búsqueda anterior se cancela
-- El `TreeView` usa `BeginUpdate()`/`EndUpdate()` para poblar sin flickering
-
-### Exportación
-
-- `ExcelExporter` cancela cooperativamente cada 3,000 filas
-- `PdfExporter` usa un timer de animación paralelo porque QuestPDF es síncrono
-- Todos los exportadores eliminan el archivo parcial si fallan o se cancelan
+| Área | Estrategia |
+|---|---|
+| Carga de directorios | `Task.Run` + semáforo de 8 tareas paralelas para info de carpetas · `CancellationTokenSource` por navegación · `BeginUpdate/EndUpdate` en ListView |
+| Análisis de calidad | Parser y analizador stateless en background · detección de duplicados con `Dictionary` (hashing directo) |
+| Búsqueda en árbol | `CancellationTokenSource` enlazado: nueva búsqueda cancela automáticamente la anterior |
+| Exportación Excel | Cancelación cooperativa cada 3 000 filas |
+| Exportación PDF | Timer de animación paralelo (QuestPDF no soporta progreso nativo) |
+| Todos los exportadores | Archivo parcial eliminado en caso de fallo o cancelación |
 
 ---
 
 ## 🤝 Contribución
 
-### Cómo Contribuir
+### Primeros pasos
 
-1. **Fork** del repositorio
-2. Crea una rama para tu funcionalidad:
-   ```bash
-   git checkout -b feature/nueva-funcionalidad
-   ```
-3. Realiza tus cambios siguiendo las convenciones del proyecto
-4. Asegúrate de que el proyecto compile sin errores
-5. Haz **commit** con mensajes descriptivos:
-   ```bash
-   git commit -m "feat(visor): agregar soporte para formato AVIF"
-   ```
-6. Sube tu rama:
-   ```bash
-   git push origin feature/nueva-funcionalidad
-   ```
-7. Abre un **Pull Request** describiendo los cambios
+```bash
+# Fork del repositorio en GitHub, luego:
+git clone https://github.com/TU-USUARIO/FileExplorerr.git
+cd FileExplorerr
 
-### Convenciones del Proyecto
+# Copia las credenciales de ejemplo (requerido para compilar)
+cp FileExplorerr/appsettings.example.json FileExplorerr/appsettings.json
 
-- **Nombres**: PascalCase para clases y métodos, camelCase para variables locales
-- **Async**: todos los métodos que accedan a disco o red deben ser `async Task<>`
-- **Sin excepciones en exportadores/archivers**: usar el patrón Result Object
-- **Single Responsibility**: una clase, una responsabilidad
-- **Sin dependencias circulares** entre capas (UI → Services → Core, no al revés)
-- Los nuevos exportadores deben implementar `IOfficeExporter` y registrarse en `RegisterNativeExporters()`
-- Los nuevos archivers deben implementar `IArchiver` y registrarse en `RegisterBuiltInArchivers()`
+# Verifica que compila y arranca
+dotnet run --project FileExplorerr/FileExplorerr.csproj
+```
 
-### Reportar Bugs
+### Convenciones del proyecto
 
-Abre un issue con:
-- Descripción del problema
-- Pasos para reproducirlo
-- Versión de Windows y .NET
-- Captura de pantalla si aplica
+- **Nombres**: PascalCase para clases y métodos, camelCase para variables locales y campos privados
+- **Async**: todo acceso a disco o red debe ser `async Task<>` con `CancellationToken`
+- **Exportadores/Archivers**: nunca lanzar excepciones — usar el patrón Result Object
+- **Single Responsibility**: una clase, una responsabilidad; sin duplicación de lógica entre formularios
+- **Dependencias**: la dirección es `UI → Services → Core`, nunca al revés
+
+### Cómo extender el proyecto
+
+**Nuevo formato de exportación:**
+1. Crea `MiExporter : IOfficeExporter` en `Services/Export/`
+2. Agrega `OfficeExporterFactory.Register(new MiExporter())` en `Program.cs`
+3. Eso es todo — el factory, los botones de UI y el sistema de progreso lo detectan automáticamente
+
+**Nuevo formato de compresión:**
+1. Crea `MiArchiver : IArchiver` en `Services/Compression/`
+2. Agrega `ArchiverFactory.Register(new MiArchiver())` en `Program.cs`
+
+### Reportar bugs
+
+Abre un issue en [github.com/tu-usuario/FileExplorerr/issues](https://github.com/tu-usuario/FileExplorerr/issues) con:
+- Descripción del problema y pasos para reproducirlo
+- Versión de Windows y .NET (`dotnet --version`)
+- Captura de pantalla o mensaje de error si aplica
 
 ---
 
 ## 📄 Licencia
 
-Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más detalles.
+Este proyecto está bajo la **licencia MIT**. Consulta [LICENSE.md](LICENSE.md) para más detalles.
 
-Las dependencias tienen sus propias licencias:
-- **QuestPDF**: Community MIT (libre para ingresos < $1M USD/año)
-- **LibVLC**: LGPL 2.1
-- **SharpCompress**: MIT
-- **ClosedXML**: MIT
-- **DocumentFormat.OpenXml**: MIT
-- **NAudio**: MIT
-- **Npgsql, MySqlConnector, Microsoft.Data.SqlClient**: Apache 2.0 / MIT
+Las dependencias incluidas tienen sus propias licencias:
+
+| Paquete | Licencia |
+|---|---|
+| QuestPDF | Community MIT (libre para ingresos < $1M USD/año) |
+| LibVLC / LibVLCSharp | LGPL 2.1 |
+| SharpCompress | MIT |
+| ClosedXML | MIT |
+| DocumentFormat.OpenXml | MIT |
+| NAudio | MIT |
+| Npgsql | PostgreSQL License (MIT-compatible) |
+| MySqlConnector | MIT |
+| Microsoft.Data.SqlClient | MIT |
+| OpenCvSharp4 | Apache 2.0 |
+| taglib-sharp | LGPL 2.1 |
 
 ---
 
 <div align="center">
-
 
 </div>
