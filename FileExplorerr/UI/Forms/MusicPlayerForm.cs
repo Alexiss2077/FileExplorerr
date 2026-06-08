@@ -1,12 +1,13 @@
-﻿using System;
+﻿using NAudio.Wave;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using NAudio.Wave;
 using TagFile = TagLib.File;
 
 namespace FileExplorerr
@@ -62,6 +63,17 @@ namespace FileExplorerr
         private static readonly Color TrackHoverBg = Color.FromArgb(30, 34, 50);
         private static readonly Color TrackPlayingBg = Color.FromArgb(28, 40, 56);
         private static readonly Color ControlBarBg = Color.FromArgb(16, 18, 26);
+        [DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string? pszSubIdList);
+
+        // P/Invokes necesarios — agrégalos junto al DllImport que ya tienes
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr hwnd, EnumChildProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        private delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
 
         public MusicPlayerForm(string initialFile)
         {
@@ -180,6 +192,28 @@ namespace FileExplorerr
                 MultiSelect = false
             };
             StyleMusicGrid();
+
+            // ── CAMBIO: Solución para los scrollbars rebeldes del DataGridView ──
+            grid.HandleCreated += (s, e) =>
+            {
+                ApplyDarkScrollBars(grid);
+                // Forzar el tema en los controles internos (barras) que ya existan
+                foreach (Control c in grid.Controls)
+                {
+                    if (c is ScrollBar) ApplyDarkScrollBars(c);
+                }
+            };
+
+            // Estar atentos por si el grid decide crear las barras después
+            grid.ControlAdded += (s, e) =>
+            {
+                if (e.Control is ScrollBar)
+                {
+                    e.Control.HandleCreated += (ss, ee) => ApplyDarkScrollBars(e.Control);
+                    if (e.Control.IsHandleCreated) ApplyDarkScrollBars(e.Control);
+                }
+            };
+            // ─────────────────────────────────────────────────────────────────────
 
             grid.Columns.Add("Num", "#");
             grid.Columns.Add("Title", "Título");
@@ -310,6 +344,7 @@ namespace FileExplorerr
                 ReadOnly = true,
                 ScrollBars = RichTextBoxScrollBars.Vertical
             };
+            lyricsBox.HandleCreated += (s, e) => ApplyDarkScrollBars(lyricsBox);
 
             rightPanel.Controls.Add(lyricsBox);
             rightPanel.Controls.Add(lyricsHdr);
@@ -317,6 +352,22 @@ namespace FileExplorerr
             rightPanel.Controls.Add(actionPanel);
             rightPanel.Controls.Add(lblArtist);
             rightPanel.Controls.Add(coverBox);
+        }
+
+        private void ApplyDarkScrollBars(Control control)
+        {
+            // Primero aplica al control mismo
+            SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+
+            // Luego busca los scrollbars hijos y aplica también a ellos
+            EnumChildWindows(control.Handle, (hwnd, lParam) =>
+            {
+                var className = new System.Text.StringBuilder(256);
+                GetClassName(hwnd, className, 256);
+                if (className.ToString() == "ScrollBar")
+                    SetWindowTheme(hwnd, "DarkMode_Explorer", null);
+                return true;
+            }, IntPtr.Zero);
         }
 
         // ── Barra de controles estilo Spotify ────────────────────────────────
@@ -876,18 +927,22 @@ namespace FileExplorerr
         // ════════════════════════════════════════════════════════════════════
         private async Task LoadCover(string path)
         {
-            coverBox.Image?.Dispose(); coverBox.Image = null;
+            coverBox.Image?.Dispose();
+            coverBox.Image = null;
+
             try
             {
                 var tag = TagFile.Create(path);
                 if (tag.Tag.Pictures.Length > 0)
                 {
-                    using var ms = new System.IO.MemoryStream(tag.Tag.Pictures[0].Data.Data);
+                    
+                    var ms = new System.IO.MemoryStream(tag.Tag.Pictures[0].Data.Data);
                     coverBox.Image = System.Drawing.Image.FromStream(ms);
                     return;
                 }
             }
             catch { }
+
             try
             {
                 string artist = grid.Rows[currentIndex].Cells["Artist"].Value?.ToString() ?? string.Empty;
@@ -896,10 +951,10 @@ namespace FileExplorerr
                 byte[]? imgData = await CoverSearchService.FetchFromITunesAsync(artist, title);
                 if (imgData is not null && imgData.Length > 0)
                 {
-                    using var ms = new System.IO.MemoryStream(imgData);
+                    
+                    var ms = new System.IO.MemoryStream(imgData);
                     coverBox.Image = System.Drawing.Image.FromStream(ms);
 
-                    // Save embedded art back to the file tag.
                     await Task.Run(() =>
                     {
                         try
@@ -907,11 +962,11 @@ namespace FileExplorerr
                             var mp3 = TagLib.File.Create(path);
                             mp3.Tag.Pictures = new TagLib.IPicture[]
                             {
-                                new TagLib.Picture(imgData)
-                                {
-                                    Type     = TagLib.PictureType.FrontCover,
-                                    MimeType = "image/png"
-                                }
+                        new TagLib.Picture(imgData)
+                        {
+                            Type     = TagLib.PictureType.FrontCover,
+                            MimeType = "image/png"
+                        }
                             };
                             mp3.Save();
                         }
@@ -925,7 +980,6 @@ namespace FileExplorerr
             }
             catch { }
         }
-
         private async Task SearchLyrics()
         {
             if (currentIndex < 0 || currentIndex >= grid.Rows.Count) return;
@@ -1002,10 +1056,14 @@ namespace FileExplorerr
             try
             {
                 var tag = TagFile.Create(path);
+                // Obtener la carátula actual del PictureBox para pasarla al diálogo
+                Image? coverActual = coverBox.Image;
+
                 using var dlg = new TagEditDialog(
                     tag.Tag.Title ?? "", tag.Tag.FirstPerformer ?? "",
                     tag.Tag.Album ?? "", tag.Tag.Year, tag.Tag.Track,
-                    tag.Tag.Genres?.Length > 0 ? tag.Tag.Genres[0] : "");
+                    tag.Tag.Genres?.Length > 0 ? tag.Tag.Genres[0] : "",
+                    coverActual);   // ← aquí
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
                     tag.Tag.Title = dlg.Titulo;

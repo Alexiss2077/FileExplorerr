@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace FileExplorerr
 {
     // ════════════════════════════════════════════════════════════════════════
-    //  DIÁLOGO DE EDICIÓN DE TAGS — Título, Artista, Álbum, Año, Pista, Género
+    //  DIÁLOGO DE EDICIÓN DE TAGS — Título, Artista, Álbum, Año, Pista, Género, Carátula
     //  Tema oscuro consistente con FileExplorerr
     // ════════════════════════════════════════════════════════════════════════
     public class TagEditDialog : Form
@@ -18,6 +19,10 @@ namespace FileExplorerr
         public uint NumPista { get; private set; }
         public string Genero { get; private set; } = "";
 
+        // Propiedades para la carátula
+        public byte[]? NewCoverData { get; private set; } = null;
+        public bool CoverRemoved { get; private set; } = false;
+
         // ── Controles ────────────────────────────────────────────────────────
         private TextBox txtTitulo = null!;
         private TextBox txtArtista = null!;
@@ -25,6 +30,7 @@ namespace FileExplorerr
         private TextBox txtAnio = null!;
         private TextBox txtPista = null!;
         private ComboBox cmbGenero = null!;
+        private PictureBox pbCover = null!;
 
         // ── Colores ──────────────────────────────────────────────────────────
         private static readonly Color BgForm = Color.FromArgb(14, 20, 30);
@@ -52,16 +58,16 @@ namespace FileExplorerr
         };
 
         public TagEditDialog(string titulo, string artista, string album,
-                             uint anio, uint pista, string genero)
+                             uint anio, uint pista, string genero, Image? currentCover = null)
         {
-            BuildUI(titulo, artista, album, anio, pista, genero);
+            BuildUI(titulo, artista, album, anio, pista, genero, currentCover);
         }
 
         private void BuildUI(string titulo, string artista, string album,
-                             uint anio, uint pista, string genero)
+                             uint anio, uint pista, string genero, Image? currentCover)
         {
             Text = "Editar Tags";
-            Size = new Size(460, 380);
+            Size = new Size(680, 390);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
             MaximizeBox = false;
@@ -91,33 +97,40 @@ namespace FileExplorerr
                 Padding = new Padding(14, 0, 0, 0)
             };
             header.Controls.Add(headerLabel);
+            Controls.Add(header);
 
-            // ── Campos ──────────────────────────────────────────────────────
+            // ── Medidas de layout ────────────────────────────────────────────
+            int leftX = 14;
+            int fieldX = 110;
+            int fieldW = 290;
+            int coverX = 430;
+            int coverW = 210;
+            int coverH = 210;
             int y = 58;
 
-            AddLabel("Título:", 14, y);
-            txtTitulo = AddTextBox(110, y, 320, titulo);
+            // ── Campos de texto ──────────────────────────────────────────────
+            AddLabel("Título:", leftX, y);
+            txtTitulo = AddTextBox(fieldX, y, fieldW, titulo);
 
             y += 36;
-            AddLabel("Artista:", 14, y);
-            txtArtista = AddTextBox(110, y, 320, artista);
+            AddLabel("Artista:", leftX, y);
+            txtArtista = AddTextBox(fieldX, y, fieldW, artista);
 
             y += 36;
-            AddLabel("Álbum:", 14, y);
-            txtAlbum = AddTextBox(110, y, 320, album);
+            AddLabel("Álbum:", leftX, y);
+            txtAlbum = AddTextBox(fieldX, y, fieldW, album);
 
             y += 36;
-            AddLabel("Año:", 14, y);
-            txtAnio = AddTextBox(110, y, 80, anio > 0 ? anio.ToString() : "");
-
-            AddLabel("Pista #:", 210, y);
-            txtPista = AddTextBox(280, y, 60, pista > 0 ? pista.ToString() : "");
+            AddLabel("Año:", leftX, y);
+            txtAnio = AddTextBox(fieldX, y, 80, anio > 0 ? anio.ToString() : "");
+            AddLabel("Pista #:", fieldX + 95, y);
+            txtPista = AddTextBox(fieldX + 165, y, 60, pista > 0 ? pista.ToString() : "");
 
             y += 36;
-            AddLabel("Género:", 14, y);
+            AddLabel("Género:", leftX, y);
             cmbGenero = new ComboBox
             {
-                Location = new Point(110, y),
+                Location = new Point(fieldX, y),
                 Size = new Size(200, 28),
                 BackColor = BgField,
                 ForeColor = TextPri,
@@ -129,14 +142,101 @@ namespace FileExplorerr
             cmbGenero.Text = genero;
             Controls.Add(cmbGenero);
 
-            // ── Botones ─────────────────────────────────────────────────────
-            y += 48;
+            // ── Carátula (columna derecha) ───────────────────────────────────
+            int coverY = 58;
+
+            pbCover = new PictureBox
+            {
+                Location = new Point(coverX, coverY),
+                Size = new Size(coverW, coverH),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = BgField,
+                BorderStyle = BorderStyle.FixedSingle,
+                Image = currentCover
+            };
+            Controls.Add(pbCover);
+
+            // Label "Sin carátula" visible cuando no hay imagen
+            var lblNoCover = new Label
+            {
+                Text = "Sin carátula",
+                Location = new Point(coverX, coverY),
+                Size = new Size(coverW, coverH),
+                ForeColor = TextSec,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 9F),
+                Visible = currentCover == null
+            };
+            Controls.Add(lblNoCover);
+
+            // Sincronizar visibilidad del label con el PictureBox
+            pbCover.Paint += (s, e) => lblNoCover.Visible = pbCover.Image == null;
+
+            // ── Botones Cambiar / Quitar — justo debajo del PictureBox ───────
+            int btnCoverY = coverY + coverH + 6;
+
+            var btnChangeCover = new Button
+            {
+                Text = "🖼 Cambiar",
+                Location = new Point(coverX, btnCoverY),
+                Size = new Size(100, 28),
+                BackColor = Color.FromArgb(30, 215, 96),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnChangeCover.FlatAppearance.BorderSize = 0;
+            btnChangeCover.Click += (s, e) =>
+            {
+                using var ofd = new OpenFileDialog
+                {
+                    Title = "Seleccionar nueva carátula",
+                    Filter = "Imágenes|*.jpg;*.jpeg;*.png;*.bmp",
+                    Multiselect = false
+                };
+                if (ofd.ShowDialog(this) == DialogResult.OK)
+                {
+                    NewCoverData = File.ReadAllBytes(ofd.FileName);
+                    CoverRemoved = false;
+                    pbCover.Image?.Dispose();
+                    pbCover.Image = Image.FromFile(ofd.FileName);
+                    lblNoCover.Visible = false;
+                }
+            };
+
+            var btnRemoveCover = new Button
+            {
+                Text = "✕ Quitar",
+                Location = new Point(coverX + 108, btnCoverY),
+                Size = new Size(100, 28),
+                BackColor = Color.FromArgb(248, 113, 113),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnRemoveCover.FlatAppearance.BorderSize = 0;
+            btnRemoveCover.Click += (s, e) =>
+            {
+                NewCoverData = null;
+                CoverRemoved = true;
+                pbCover.Image?.Dispose();
+                pbCover.Image = null;
+                lblNoCover.Visible = true;
+            };
+
+            Controls.Add(btnChangeCover);
+            Controls.Add(btnRemoveCover);
+
+            // ── Botones Guardar / Cancelar — posición fija en la parte baja ──
+            int bottomY = 320;
 
             var btnGuardar = new Button
             {
                 Text = "💾  Guardar",
-                Location = new Point(200, y),
-                Size = new Size(120, 36),
+                Location = new Point(430, bottomY),
+                Size = new Size(110, 36),
                 BackColor = Color.FromArgb(22, 100, 40),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -150,7 +250,7 @@ namespace FileExplorerr
             var btnCancelar = new Button
             {
                 Text = "Cancelar",
-                Location = new Point(330, y),
+                Location = new Point(548, bottomY),
                 Size = new Size(100, 36),
                 BackColor = BgField,
                 ForeColor = TextPri,
@@ -161,7 +261,6 @@ namespace FileExplorerr
             };
             btnCancelar.FlatAppearance.BorderColor = Border;
 
-            Controls.Add(header);
             Controls.Add(btnGuardar);
             Controls.Add(btnCancelar);
             AcceptButton = btnGuardar;
