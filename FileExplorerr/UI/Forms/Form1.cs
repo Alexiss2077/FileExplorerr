@@ -142,15 +142,15 @@ namespace FileExplorerr
             appLogoLabel = new Label
             {
                 Text = "  FileExplorerr",
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
                 ForeColor = Theme.Accent2,
                 AutoSize = true,
-                Location = new Point(12, 10),
+                Location = new Point(12, 24),
                 BackColor = Color.Transparent
             };
 
             // Separador
-            var sep = new Panel { Left = 190, Top = 10, Width = 1, Height = 34, BackColor = Theme.Border };
+            var sep = new Panel { Left = 205, Top = 24, Width = 1, Height = 40, BackColor = Theme.Border };
 
             // Pestañas
             navExplorer = MakeNavTabButton("📁", "Explorador", true);
@@ -176,9 +176,9 @@ namespace FileExplorerr
             // Flow para las pestañas
             var tabFlow = new FlowLayoutPanel
             {
-                Left = 200,
-                Top = 7,
-                Height = 40,
+                Left = 240,
+                Top = 16,
+                Height = 50,
                 AutoSize = true,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
@@ -189,7 +189,7 @@ namespace FileExplorerr
             // Botón de Cuenta
             _accountButton = new AccountButton
             {
-                Size = new Size(190, 34),
+                Size = new Size(280, 45),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
             _accountButton.SignOutRequested += OnSignOutRequested;
@@ -205,7 +205,7 @@ namespace FileExplorerr
 
             topNavBar.Resize += (s, e) =>
             {
-                _accountButton.Location = new Point(topNavBar.Width - 200, 10);
+                _accountButton.Location = new Point(topNavBar.Width - 288, 14);
             };
         }
 
@@ -214,13 +214,13 @@ namespace FileExplorerr
             var btn = new Button
             {
                 Text = $"{icon}  {label}",
-                Height = 36,
+                Height = 46,
                 AutoSize = true,
-                Padding = new Padding(12, 0, 12, 0),
+                Padding = new Padding(16, 0, 16, 0),
                 BackColor = active ? Theme.AccentBg : Color.Transparent,
                 ForeColor = active ? Theme.Accent2 : Theme.TextMuted,
                 FlatStyle = FlatStyle.Flat,
-                Font = Theme.FontNavTab,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
                 Cursor = Cursors.Hand
             };
             btn.FlatAppearance.BorderSize = active ? 1 : 0;

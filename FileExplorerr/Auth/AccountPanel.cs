@@ -75,10 +75,10 @@ namespace FileExplorerr
             ShowInTaskbar = false;
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
-            Size = new Size(300, 380);
+            Size = new Size(300, 400); // <-- CAMBIO: Más alto para que quepa la letra grande (era 380)
             BackColor = BgPanel;
             ForeColor = TextPri;
-            Font = new Font("Segoe UI", 9F);
+            Font = new Font("Segoe UI", 10F); // <-- CAMBIO: Base de fuente más grande
 
             // La posición ya viene calculada desde AccountButton
             Location = position;
@@ -104,9 +104,9 @@ namespace FileExplorerr
             g.DrawPath(borderPen, path);
 
             // Barra superior con gradiente
-            using var topPath = RoundedRectTop(new Rectangle(0, 0, Width - 1, 100), 10);
+            using var topPath = RoundedRectTop(new Rectangle(0, 0, Width - 1, 110), 10); // Ajustado a 110
             using var topBr = new LinearGradientBrush(
-                new Point(0, 0), new Point(0, 100),
+                new Point(0, 0), new Point(0, 110),
                 Color.FromArgb(40, Accent), Color.Transparent);
             g.FillPath(topBr, topPath);
         }
@@ -117,7 +117,7 @@ namespace FileExplorerr
             _avatarPanel = new Panel
             {
                 Left = 22,
-                Top = 22,
+                Top = 24, // Ajustado
                 Size = new Size(64, 64),
                 BackColor = Color.Transparent
             };
@@ -128,10 +128,10 @@ namespace FileExplorerr
             {
                 Text = _profile.DisplayName,
                 Left = 98,
-                Top = 28,
+                Top = 26,
                 Width = 188,
-                Height = 22,
-                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+                Height = 26, // <-- CAMBIO: Más alto
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold), // <-- CAMBIO: Letra mucho más grande (era 10.5F)
                 ForeColor = TextPri,
                 BackColor = Color.Transparent,
                 AutoEllipsis = true
@@ -143,8 +143,8 @@ namespace FileExplorerr
                 Left = 98,
                 Top = 52,
                 Width = 188,
-                Height = 18,
-                Font = new Font("Segoe UI", 8.5F),
+                Height = 20, // <-- CAMBIO: Más alto
+                Font = new Font("Segoe UI", 10F), // <-- CAMBIO: Letra más grande (era 8.5F)
                 ForeColor = TextSec,
                 BackColor = Color.Transparent,
                 AutoEllipsis = true
@@ -154,9 +154,9 @@ namespace FileExplorerr
             {
                 Text = GetProviderLabel(),
                 Left = 98,
-                Top = 72,
+                Top = 75,
                 AutoSize = true,
-                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold), // <-- CAMBIO: Letra más grande (era 7.5F)
                 ForeColor = GetProviderColor(),
                 BackColor = Color.FromArgb(30, GetProviderColor()),
                 Padding = new Padding(6, 2, 6, 2)
@@ -166,14 +166,14 @@ namespace FileExplorerr
             var divider1 = new Panel
             {
                 Left = 0,
-                Top = 106,
+                Top = 114, // <-- CAMBIO: Bajó un poco por las letras grandes
                 Width = 300,
                 Height = 1,
                 BackColor = Border
             };
 
             // ── Acciones de cuenta ─────────────────────────────────────
-            int y = 116;
+            int y = 124; // <-- CAMBIO: Bajó un poco
 
             var btnManage = MakeMenuItem("⚙  Configuración de cuenta", y, TextPri);
             btnManage.Click += (s, e) =>
@@ -190,7 +190,7 @@ namespace FileExplorerr
                     });
                 }
             };
-            y += 40;
+            y += 44; // <-- CAMBIO: Espaciado más grande (era 40)
 
             var btnSwitch = MakeMenuItem("🔄  Cambiar cuenta", y, Accent);
             btnSwitch.Click += (s, e) =>
@@ -198,7 +198,7 @@ namespace FileExplorerr
                 Close();
                 SwitchAccountRequested?.Invoke(this, EventArgs.Empty);
             };
-            y += 40;
+            y += 44;
 
             var divider2 = new Panel
             {
@@ -212,7 +212,7 @@ namespace FileExplorerr
 
             // ── Info de sesión ─────────────────────────────────────────
             var sessionSection = BuildSessionInfo(y);
-            y += 90;
+            y += 100; // <-- CAMBIO: Sección de sesión más alta (era 90)
 
             var divider3 = new Panel
             {
@@ -255,11 +255,11 @@ namespace FileExplorerr
                 Left = 0,
                 Top = top,
                 Width = 300,
-                Height = 38,
+                Height = 42, // <-- CAMBIO: Botones más altos (era 38)
                 BackColor = Color.Transparent,
                 ForeColor = fg,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9F),
+                Font = new Font("Segoe UI", 10.5F), // <-- CAMBIO: Letra del menú más grande (era 9F)
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(18, 0, 0, 0),
                 Cursor = Cursors.Hand
@@ -278,7 +278,7 @@ namespace FileExplorerr
                 Left = 0,
                 Top = top,
                 Width = 300,
-                Height = 86,
+                Height = 96, // <-- CAMBIO: Panel más alto (era 86)
                 BackColor = Color.Transparent,
                 Padding = new Padding(18, 8, 18, 8)
             };
@@ -289,7 +289,7 @@ namespace FileExplorerr
                 Left = 18,
                 Top = 8,
                 AutoSize = true,
-                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold), // <-- CAMBIO: Letra más grande (era 7.5F)
                 ForeColor = TextMuted,
                 BackColor = Color.Transparent
             };
@@ -301,7 +301,7 @@ namespace FileExplorerr
                 ("Estado",     _profile.IsGuest ? "No autenticado" : "Autenticado ✓"),
             };
 
-            int sy = 28;
+            int sy = 30; // <-- CAMBIO: Ajuste vertical
             panel.Controls.Add(lblSessionTitle);
 
             foreach (var (key, val) in stats)
@@ -312,8 +312,8 @@ namespace FileExplorerr
                     Left = 18,
                     Top = sy,
                     Width = 90,
-                    Height = 18,
-                    Font = new Font("Segoe UI", 8F),
+                    Height = 22, // <-- CAMBIO: Más alto
+                    Font = new Font("Segoe UI", 9.5F), // <-- CAMBIO: Letra más grande (era 8F)
                     ForeColor = TextMuted,
                     BackColor = Color.Transparent
                 });
@@ -323,12 +323,12 @@ namespace FileExplorerr
                     Left = 110,
                     Top = sy,
                     Width = 170,
-                    Height = 18,
-                    Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                    Height = 22, // <-- CAMBIO: Más alto
+                    Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), // <-- CAMBIO: Letra más grande (era 8F)
                     ForeColor = val.Contains("✓") ? Teal : TextSec,
                     BackColor = Color.Transparent
                 });
-                sy += 22;
+                sy += 26; // <-- CAMBIO: Renglones más separados (era 22)
             }
 
             return panel;
@@ -371,7 +371,7 @@ namespace FileExplorerr
                 g.DrawEllipse(borderPen, 1, 1, size - 3, size - 3);
 
                 using var textBr = new SolidBrush(TextPri);
-                using var font = new Font("Segoe UI", 20F, FontStyle.Bold);
+                using var font = new Font("Segoe UI", 24F, FontStyle.Bold); // <-- CAMBIO: Inicial más grande (era 20F)
                 using var sf = new StringFormat
                 {
                     Alignment = StringAlignment.Center,

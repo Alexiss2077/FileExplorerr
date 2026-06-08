@@ -150,6 +150,15 @@ namespace FileExplorerr
                     x -= b.Width + 6;
                     b.Location = new Point(x, 10);
                 }
+
+                // Calcular el espacio que queda libre entre la izquierda y el primer botón
+                int espacioDisponible = x - lblNowPlaying.Left - 20;
+
+                if (espacioDisponible < 50) espacioDisponible = 50; // Evitar anchos negativos o muy chicos
+
+                // Asignar el nuevo ancho dinámico a los labels
+                lblNowPlaying.Width = espacioDisponible;
+                lblAlbum.Width = espacioDisponible;
             };
 
             topBar.Controls.AddRange(new Control[] { logoLbl, lblNowPlaying, lblAlbum, btnOpen, btnAdd, btnLoadPlaylist, btnSavePlaylist });
