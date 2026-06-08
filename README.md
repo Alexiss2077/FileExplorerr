@@ -18,26 +18,7 @@ Un reemplazo funcional del Explorador de Windows con tema oscuro **Arctic Night*
 
 ---
 
-## 🖼️ Capturas de pantalla
 
-
-
-### Explorador principal
-![Explorador principal — tema Arctic Night](docs/screenshots/explorer.png)
-
-### Reproductor de música
-![Reproductor de música estilo Spotify](docs/screenshots/music-player.png)
-
-### Visor y analizador de datos
-![Visor de datos con análisis de calidad y gráficas](docs/screenshots/data-viewer.png)
-
-### Editor de imágenes con GPS
-![Editor de imágenes con panel GPS y mapa](docs/screenshots/image-editor.png)
-
-### Cliente SQL
-![Cliente SQL multi-motor con gráfica flotante](docs/screenshots/sql-viewer.png)
-
----
 
 ## ⚡ Inicio rápido
 
