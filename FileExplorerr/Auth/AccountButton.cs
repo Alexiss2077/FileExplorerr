@@ -40,7 +40,7 @@ namespace FileExplorerr
             BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
 
-            Size = new Size(310, 50);
+            Size = new Size(310, 62);
 
             Text = string.Empty;
             Click += OnClick;
@@ -125,7 +125,7 @@ namespace FileExplorerr
             g.DrawPath(borderPen, btnPath);
 
             // ── Avatar ───────────────────────────────────────────────────────
-            int sz = 36;
+            int sz = 42;
             int ax = 10;
             int ay = (Height - sz) / 2;
             var aRect = new Rectangle(ax, ay, sz, sz);
@@ -148,7 +148,7 @@ namespace FileExplorerr
 
                 using var iBr = new SolidBrush(TextPri);
                 // CAMBIO 3: inicial más grande en el avatar
-                using var iF = new Font("Segoe UI", 12F, FontStyle.Bold);
+                using var iF = new Font("Segoe UI", 14F, FontStyle.Bold);
                 using var sf = new StringFormat
                 {
                     Alignment = StringAlignment.Center,
@@ -185,15 +185,15 @@ namespace FileExplorerr
 
                 using var nBr = new SolidBrush(TextPri);
                 using var sBr = new SolidBrush(EmailColor);
-                using var nF = new Font("Segoe UI", 11F, FontStyle.Bold);
-                using var sF = new Font("Segoe UI", 9F);
+                using var nF = new Font("Segoe UI", 12F, FontStyle.Bold);
+                using var sF = new Font("Segoe UI", 9.5F);
 
                 // Centrar verticalmente el bloque nombre+correo
-                int blockH = 17 + 4 + 14;
+                int blockH = 19 + 5 + 15;
                 int startY = (Height - blockH) / 2;
 
                 g.DrawString(Trunc(g, l1, nF, tw), nF, nBr, tx, startY);
-                g.DrawString(Trunc(g, l2, sF, tw), sF, sBr, tx, startY + 20);
+                g.DrawString(Trunc(g, l2, sF, tw), sF, sBr, tx, startY + 22);
             }
 
             // Chevron

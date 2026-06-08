@@ -132,7 +132,7 @@ namespace FileExplorerr
         {
             topNavBar = new Panel
             {
-                Height = 54,
+                Height = 80,
                 Dock = DockStyle.Top,
                 BackColor = Theme.BgSurface,
                 Padding = new Padding(12, 8, 12, 8)
@@ -186,23 +186,6 @@ namespace FileExplorerr
             };
             tabFlow.Controls.AddRange(new Control[] { navExplorer, navMusic, navVideo, navSql });
 
-            // Botón SQL a la derecha
-            var sqlQuickBtn = new Button
-            {
-                Text = "🗄️  Abrir SQL",
-                Height = 32,
-                AutoSize = true,
-                Padding = new Padding(10, 0, 10, 0),
-                BackColor = Theme.SkyDim,
-                ForeColor = Theme.Sky,
-                FlatStyle = FlatStyle.Flat,
-                Font = Theme.FontSmallBold,
-                Cursor = Cursors.Hand,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            sqlQuickBtn.FlatAppearance.BorderColor = Color.FromArgb(96, 165, 250, 80);
-            sqlQuickBtn.Click += (s, e) => new SqlViewerForm().Show();
-
             // Botón de Cuenta
             _accountButton = new AccountButton
             {
@@ -218,13 +201,11 @@ namespace FileExplorerr
             topNavBar.Controls.Add(appLogoLabel);
             topNavBar.Controls.Add(sep);
             topNavBar.Controls.Add(tabFlow);
-            topNavBar.Controls.Add(sqlQuickBtn);
             topNavBar.Controls.Add(_accountButton);
 
             topNavBar.Resize += (s, e) =>
             {
-                _accountButton.Location = new Point(topNavBar.Width - 200, 8);
-                sqlQuickBtn.Location = new Point(_accountButton.Left - sqlQuickBtn.Width - 120, 11);
+                _accountButton.Location = new Point(topNavBar.Width - 200, 10);
             };
         }
 
