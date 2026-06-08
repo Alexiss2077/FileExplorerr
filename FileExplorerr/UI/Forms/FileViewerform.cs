@@ -37,16 +37,11 @@ namespace FileExplorerr
         private DataTable masterTable = new();
         private DataTable displayTable = new();
 
-        // Phase 5B: the seven list fields and expectedColumnCount have been
-        // replaced by a single QualityReport field.
         private QualityReport _report = new();
 
-        // Numeric/currency/phone column metadata used by Grid_CellFormatting
-        // and populated by ApplyDisplayTable — NOT migrated.
         private Dictionary<int, (bool IsNumeric, bool IsCurrency, bool IsPhone)>
             columnNumericInfo = new();
 
-        // Currency keyword heuristic — used by ApplyDisplayTable, NOT migrated.
         private static readonly string[] CurrencyKeywords =
         {
             "price", "precio", "cost", "costo", "amount", "monto", "total",
@@ -175,16 +170,15 @@ namespace FileExplorerr
             filterPanel.Controls.AddRange(new Control[]
                 { filterColumnCombo, filterBox, filterBtn, clearBtn });
 
-            // Grid
+            // Grid — sin scrollbars nativos; usamos scrollbars custom del tema
             grid = new DataGridView
             {
-                Dock = DockStyle.Fill,
                 ReadOnly = true,
                 RowHeadersVisible = true,
                 RowHeadersWidth = 48,
                 MultiSelect = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
-                ScrollBars = ScrollBars.Both
+                ScrollBars = ScrollBars.None   // ← ocultamos los nativos (blancos)
             };
             Theme.StyleGrid(grid);
             grid.RowHeadersDefaultCellStyle = new DataGridViewCellStyle
@@ -317,17 +311,70 @@ namespace FileExplorerr
 
             Controls.Add(loadingPanel);
 
-            // Pestañas (Datos y Gráfica)
-            var tabs = new TabControl
+            // ── Pestañas (Datos y Gráfica) — owner-drawn, tema Arctic Night ──
+            var tabs = new DarkTabControl
             {
                 Dock = DockStyle.Fill,
-                Font = Theme.FontBody
+                Font = Theme.FontBody,
+                DrawMode = TabDrawMode.OwnerDrawFixed,
+                ItemSize = new Size(110, 34),
+                SizeMode = TabSizeMode.Fixed,
+                Padding = new System.Drawing.Point(16, 6),
+                BackColor = Theme.BgBase
             };
+
+            // Dibujar cada pestaña con los colores del tema
+            tabs.DrawItem += (sender, e) =>
+            {
+                var tc = (TabControl)sender!;
+                bool selected = tc.SelectedIndex == e.Index;
+
+                // Fondo de la pestaña
+                Color bgColor = selected ? Theme.AccentBg : Theme.BgSurface;
+                using (var bgBrush = new SolidBrush(bgColor))
+                    e.Graphics.FillRectangle(bgBrush, e.Bounds);
+
+                // Línea de acento en la parte inferior de la pestaña activa
+                if (selected)
+                {
+                    using var accentPen = new Pen(Theme.Accent, 2f);
+                    e.Graphics.DrawLine(accentPen,
+                        e.Bounds.Left + 1, e.Bounds.Bottom - 2,
+                        e.Bounds.Right - 1, e.Bounds.Bottom - 2);
+                }
+                else
+                {
+                    // Separador sutil entre pestañas inactivas
+                    using var sepPen = new Pen(Color.FromArgb(35, 255, 255, 255), 1f);
+                    e.Graphics.DrawLine(sepPen,
+                        e.Bounds.Right - 1, e.Bounds.Top + 7,
+                        e.Bounds.Right - 1, e.Bounds.Bottom - 7);
+                }
+
+                // Texto de la pestaña
+                Color textColor = selected ? Theme.Accent2 : Theme.TextMuted;
+                FontStyle style = selected ? FontStyle.Bold : FontStyle.Regular;
+                using var font = new Font("Segoe UI", 9.5f, style);
+                using var textBrush = new SolidBrush(textColor);
+                using var sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center
+                };
+                e.Graphics.DrawString(
+                    tc.TabPages[e.Index].Text,
+                    font, textBrush,
+                    new RectangleF(e.Bounds.X, e.Bounds.Y, e.Bounds.Width, e.Bounds.Height),
+                    sf);
+            };
+
             var tabData = new TabPage("Datos") { BackColor = Theme.BgBase, UseVisualStyleBackColor = false };
             var tabChart = new TabPage("Gráfica") { BackColor = Theme.BgBase, UseVisualStyleBackColor = false };
 
-            grid.Dock = DockStyle.Fill;
-            tabData.Controls.Add(grid);
+            // ── Wrapper con scrollbars custom en color del tema ───────────────
+            var gridWrapper = BuildGridWrapper();
+            gridWrapper.Dock = DockStyle.Fill;
+            tabData.Controls.Add(gridWrapper);
 
             tabChart.Controls.Add(BuildChartTab());
 
@@ -338,6 +385,242 @@ namespace FileExplorerr
             Controls.Add(topPanel);
             Controls.Add(bottomPanel);
             loadingPanel.BringToFront();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  GRID WRAPPER — scrollbars custom con colores del tema Arctic Night
+        // ════════════════════════════════════════════════════════════════════
+        private Panel BuildGridWrapper()
+        {
+            const int SB_SIZE = 14; // grosor del scrollbar en px
+
+            // Colores del tema
+            var trackColor = Color.FromArgb(28, 32, 48);   // Theme.BgElevated
+            var thumbColor = Color.FromArgb(60, 66, 96);   // thumb en reposo
+            var thumbHover = Color.FromArgb(90, 96, 130);  // thumb hover
+            var thumbActive = Color.FromArgb(124, 111, 247); // Theme.Accent — al arrastrar
+
+            // ── Contenedor raíz ───────────────────────────────────────────
+            var wrapper = new Panel { BackColor = trackColor };
+
+            // ── Scrollbar vertical ────────────────────────────────────────
+            var vScroll = new Panel
+            {
+                Width = SB_SIZE,
+                Dock = DockStyle.Right,
+                BackColor = trackColor,
+                Cursor = Cursors.Default
+            };
+
+            // ── Scrollbar horizontal ──────────────────────────────────────
+            var hScroll = new Panel
+            {
+                Height = SB_SIZE,
+                Dock = DockStyle.Bottom,
+                BackColor = trackColor,
+                Cursor = Cursors.Default
+            };
+
+            // Cuadrito en la esquina inferior derecha
+            var corner = new Panel
+            {
+                Width = SB_SIZE,
+                Height = SB_SIZE,
+                Dock = DockStyle.Right,
+                BackColor = trackColor
+            };
+            hScroll.Controls.Add(corner);
+
+            // El grid ocupa el resto
+            grid.Dock = DockStyle.Fill;
+            wrapper.Controls.Add(grid);
+            wrapper.Controls.Add(vScroll);
+            wrapper.Controls.Add(hScroll);
+
+            // ── Thumbs (los rectángulos arrastrables) ─────────────────────
+            var vThumb = new Panel { BackColor = thumbColor, Cursor = Cursors.SizeNS };
+            var hThumb = new Panel { BackColor = thumbColor, Cursor = Cursors.SizeWE };
+            vScroll.Controls.Add(vThumb);
+            hScroll.Controls.Add(hThumb);
+
+            // ── Estado de arrastre ────────────────────────────────────────
+            bool vDragging = false, hDragging = false;
+            int vDragStart = 0, vScrollStart = 0;
+            int hDragStart = 0, hScrollStart = 0;
+
+            // ── Helpers de posicionamiento ────────────────────────────────
+            void LayoutV()
+            {
+                int totalRows = grid.RowCount;
+                if (totalRows == 0) { vThumb.Visible = false; return; }
+
+                int visibleRows = grid.DisplayedRowCount(false);
+                if (visibleRows >= totalRows) { vThumb.Visible = false; return; }
+
+                vThumb.Visible = true;
+                int trackH = vScroll.Height;
+                int thumbH = Math.Max(24, trackH * visibleRows / totalRows);
+                int firstRow = grid.FirstDisplayedScrollingRowIndex;
+                int maxFirst = totalRows - visibleRows;
+                int thumbY = maxFirst > 0
+                    ? (trackH - thumbH) * firstRow / maxFirst
+                    : 0;
+
+                vThumb.SetBounds(2, thumbY, SB_SIZE - 4, thumbH);
+            }
+
+            void LayoutH()
+            {
+                int totalCols = grid.ColumnCount;
+                if (totalCols == 0) { hThumb.Visible = false; return; }
+
+                // Ancho total de columnas
+                int totalW = 0;
+                foreach (DataGridViewColumn c in grid.Columns)
+                    if (c.Visible) totalW += c.Width;
+                totalW += grid.RowHeadersWidth;
+
+                int visibleW = grid.ClientSize.Width;
+                if (visibleW >= totalW) { hThumb.Visible = false; return; }
+
+                hThumb.Visible = true;
+                int trackW = hScroll.Width - SB_SIZE; // descontar corner
+                int thumbW = Math.Max(24, trackW * visibleW / totalW);
+
+                int firstCol = grid.FirstDisplayedScrollingColumnIndex;
+                int offsetX = 0;
+                for (int i = 0; i < firstCol && i < grid.ColumnCount; i++)
+                    if (grid.Columns[i].Visible) offsetX += grid.Columns[i].Width;
+
+                int maxOffset = totalW - visibleW;
+                int thumbX = maxOffset > 0
+                    ? (trackW - thumbW) * offsetX / maxOffset
+                    : 0;
+
+                hThumb.SetBounds(thumbX, 2, thumbW, SB_SIZE - 4);
+            }
+
+            // ── Scroll con rueda del ratón ────────────────────────────────
+            grid.MouseWheel += (s, e) =>
+            {
+                int delta = e.Delta > 0 ? -3 : 3;
+                int newFirst = Math.Max(0,
+                    Math.Min(grid.RowCount - 1,
+                        grid.FirstDisplayedScrollingRowIndex + delta));
+                if (grid.RowCount > 0)
+                    grid.FirstDisplayedScrollingRowIndex = newFirst;
+                LayoutV();
+            };
+
+            // ── Sincronizar thumbs cuando el grid se desplaza ─────────────
+            grid.Scroll += (s, e) => { LayoutV(); LayoutH(); };
+            grid.ColumnWidthChanged += (s, e) => LayoutH();
+            grid.RowHeightChanged += (s, e) => LayoutV();
+            wrapper.Resize += (s, e) => { LayoutV(); LayoutH(); };
+            vScroll.Resize += (s, e) => LayoutV();
+            hScroll.Resize += (s, e) => LayoutH();
+
+            // ── Arrastre scrollbar vertical ───────────────────────────────
+            vThumb.MouseEnter += (s, e) => { if (!vDragging) vThumb.BackColor = thumbHover; };
+            vThumb.MouseLeave += (s, e) => { if (!vDragging) vThumb.BackColor = thumbColor; };
+
+            vThumb.MouseDown += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                vDragging = true;
+                vDragStart = vThumb.PointToScreen(e.Location).Y;
+                vScrollStart = grid.FirstDisplayedScrollingRowIndex;
+                vThumb.BackColor = thumbActive;
+                vThumb.Capture = true;
+            };
+            vThumb.MouseMove += (s, e) =>
+            {
+                if (!vDragging) return;
+                int dy = vThumb.PointToScreen(e.Location).Y - vDragStart;
+                int trackH = vScroll.Height - vThumb.Height;
+                if (trackH <= 0) return;
+                int totalRows = grid.RowCount;
+                int visibleRows = grid.DisplayedRowCount(false);
+                int maxFirst = Math.Max(1, totalRows - visibleRows);
+                int newFirst = vScrollStart + dy * maxFirst / trackH;
+                newFirst = Math.Max(0, Math.Min(maxFirst, newFirst));
+                if (grid.RowCount > 0)
+                    grid.FirstDisplayedScrollingRowIndex = newFirst;
+                LayoutV();
+            };
+            vThumb.MouseUp += (s, e) =>
+            {
+                vDragging = false;
+                vThumb.BackColor = thumbHover;
+                vThumb.Capture = false;
+            };
+
+            // Clic en la pista vertical (saltar una página)
+            vScroll.MouseDown += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                int visibleRows = grid.DisplayedRowCount(false);
+                int delta = e.Y < vThumb.Top ? -visibleRows : visibleRows;
+                int newFirst = Math.Max(0,
+                    Math.Min(grid.RowCount - visibleRows,
+                        grid.FirstDisplayedScrollingRowIndex + delta));
+                if (grid.RowCount > 0)
+                    grid.FirstDisplayedScrollingRowIndex = newFirst;
+                LayoutV();
+            };
+
+            // ── Arrastre scrollbar horizontal ─────────────────────────────
+            hThumb.MouseEnter += (s, e) => { if (!hDragging) hThumb.BackColor = thumbHover; };
+            hThumb.MouseLeave += (s, e) => { if (!hDragging) hThumb.BackColor = thumbColor; };
+
+            hThumb.MouseDown += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                hDragging = true;
+                hDragStart = hThumb.PointToScreen(e.Location).X;
+                hScrollStart = grid.FirstDisplayedScrollingColumnIndex;
+                hThumb.BackColor = thumbActive;
+                hThumb.Capture = true;
+            };
+            hThumb.MouseMove += (s, e) =>
+            {
+                if (!hDragging) return;
+                int dx = hThumb.PointToScreen(e.Location).X - hDragStart;
+                int trackW = hScroll.Width - SB_SIZE - hThumb.Width;
+                if (trackW <= 0) return;
+                int maxCol = Math.Max(0,
+                    grid.ColumnCount - grid.DisplayedColumnCount(false));
+                int newCol = hScrollStart + dx * maxCol / trackW;
+                newCol = Math.Max(0, Math.Min(maxCol, newCol));
+                if (grid.ColumnCount > 0)
+                    grid.FirstDisplayedScrollingColumnIndex = newCol;
+                LayoutH();
+            };
+            hThumb.MouseUp += (s, e) =>
+            {
+                hDragging = false;
+                hThumb.BackColor = thumbHover;
+                hThumb.Capture = false;
+            };
+
+            // Clic en la pista horizontal
+            hScroll.MouseDown += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                int visibleCols = grid.DisplayedColumnCount(false);
+                int delta = e.X < hThumb.Left ? -visibleCols : visibleCols;
+                int newCol = Math.Max(0,
+                    Math.Min(grid.ColumnCount - visibleCols,
+                        grid.FirstDisplayedScrollingColumnIndex + delta));
+                if (grid.ColumnCount > 0)
+                    grid.FirstDisplayedScrollingColumnIndex = newCol;
+                LayoutH();
+            };
+
+            // Layout inicial
+            wrapper.HandleCreated += (s, e) => { LayoutV(); LayoutH(); };
+
+            return wrapper;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -439,7 +722,6 @@ namespace FileExplorerr
                 _cmbChartMetric is null || _cmbChartType is null)
                 return;
 
-            // Actualizar opciones de columnas cuando se tienen datos nuevos
             if (_cmbChartGroup.Items.Count == 0 && displayTable.Columns.Count > 0)
             {
                 var cats = ChartDataBuilder.GetCategoricalColumns(displayTable);
@@ -568,7 +850,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  ASYNC LOAD — Phase 5B: delegates to DataParsers + DataQualityAnalyzer
+        //  ASYNC LOAD
         // ════════════════════════════════════════════════════════════════════
         private async Task LoadFileAsync()
         {
@@ -630,7 +912,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  DISPLAY — unchanged from original (modified for Charts)
+        //  DISPLAY
         // ════════════════════════════════════════════════════════════════════
         private void ApplyDisplayTable(DataTable source)
         {
@@ -677,8 +959,6 @@ namespace FileExplorerr
                 col.Width = Math.Min(280, Math.Max(70, col.Width));
             }
 
-            // Resetear columnas del combo de gráfica para que se recarguen
-            // con las columnas del nuevo dataset
             if (_cmbChartGroup is not null)
             {
                 _cmbChartGroup.Items.Clear();
@@ -687,20 +967,15 @@ namespace FileExplorerr
             RefreshChart();
         }
 
-        // Phase 5B: all list references replaced with _report.<Property>
         private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
             bool isDup = _report.DuplicateRows.Contains(e.RowIndex);
-            bool isEmpty = _report.EmptyFields.Any(
-                x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
-            bool isDate = _report.DateIssues.Any(
-                x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
-            bool isPhone = _report.PhoneIssues.Any(
-                x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
-            bool isEmail = _report.EmailIssues.Any(
-                x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
+            bool isEmpty = _report.EmptyFields.Any(x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
+            bool isDate = _report.DateIssues.Any(x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
+            bool isPhone = _report.PhoneIssues.Any(x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
+            bool isEmail = _report.EmailIssues.Any(x => x.Row == e.RowIndex && x.Col == e.ColumnIndex);
             bool isColMismatch = _report.ColumnMismatchRows.Contains(e.RowIndex);
 
             if (columnNumericInfo.TryGetValue(e.ColumnIndex, out var ni) &&
@@ -726,44 +1001,18 @@ namespace FileExplorerr
                 }
             }
 
-            if (isDup)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(50, 25, 25);
-                e.CellStyle.ForeColor = Theme.Coral;
-            }
-            if (isEmpty)
-            {
-                e.CellStyle.BackColor = Theme.AmberDim;
-                e.CellStyle.ForeColor = Theme.Amber;
-                e.Value = "(vac\u00EDo)";
-                e.FormattingApplied = true;
-            }
-            if (isDate)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(20, 35, 50);
-                e.CellStyle.ForeColor = Theme.Accent2;
-            }
-            if (isPhone)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(50, 20, 50);
-                e.CellStyle.ForeColor = Theme.Pink;
-            }
-            if (isEmail)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(50, 35, 15);
-                e.CellStyle.ForeColor = Theme.Amber;
-            }
+            if (isDup) { e.CellStyle.BackColor = Color.FromArgb(50, 25, 25); e.CellStyle.ForeColor = Theme.Coral; }
+            if (isEmpty) { e.CellStyle.BackColor = Theme.AmberDim; e.CellStyle.ForeColor = Theme.Amber; e.Value = "(vac\u00EDo)"; e.FormattingApplied = true; }
+            if (isDate) { e.CellStyle.BackColor = Color.FromArgb(20, 35, 50); e.CellStyle.ForeColor = Theme.Accent2; }
+            if (isPhone) { e.CellStyle.BackColor = Color.FromArgb(50, 20, 50); e.CellStyle.ForeColor = Theme.Pink; }
+            if (isEmail) { e.CellStyle.BackColor = Color.FromArgb(50, 35, 15); e.CellStyle.ForeColor = Theme.Amber; }
             if (isColMismatch && !isDup && !isEmpty && !isDate && !isPhone && !isEmail)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(60, 20, 20);
-                e.CellStyle.ForeColor = Color.FromArgb(255, 120, 100);
-            }
+            { e.CellStyle.BackColor = Color.FromArgb(60, 20, 20); e.CellStyle.ForeColor = Color.FromArgb(255, 120, 100); }
 
             if (grid.RowHeadersVisible)
                 grid.Rows[e.RowIndex].HeaderCell.Value = (e.RowIndex + 1).ToString();
         }
 
-        // Phase 5B: reads from _report instead of individual list fields
         private void UpdateStatus()
         {
             int total = masterTable.Rows.Count;
@@ -782,13 +1031,11 @@ namespace FileExplorerr
             if (emails > 0) parts.Add($"{emails} emails");
             if (colMis > 0) parts.Add($"{colMis} col.desajustadas");
 
-            if (!_report.HasIssues)
-                parts.Add("Sin problemas \u2713");
+            if (!_report.HasIssues) parts.Add("Sin problemas \u2713");
 
             statusLabel.Text = "  " + string.Join("  \u00B7  ", parts);
         }
 
-        // Phase 5B: reads from _report
         private void ShowAnalysisPopup()
         {
             var sb = new StringBuilder();
@@ -796,60 +1043,37 @@ namespace FileExplorerr
 
             if (_report.DuplicateRows.Count > 0)
                 sb.AppendLine($"\u2022 {_report.DuplicateRows.Count} fila(s) duplicada(s)");
-
             if (_report.DateIssues.Count > 0)
                 sb.AppendLine($"\u2022 {_report.DateIssues.Count} fecha(s) a normalizar");
-
             if (_report.EmptyFields.Count > 0)
                 sb.AppendLine($"\u2022 {_report.EmptyFields.Count} campo(s) vac\u00EDo(s)");
-
             if (_report.PhoneIssues.Count > 0)
             {
-                sb.AppendLine(
-                    $"\u2022 {_report.PhoneIssues.Count} tel\u00E9fono(s) con problemas:");
+                sb.AppendLine($"\u2022 {_report.PhoneIssues.Count} tel\u00E9fono(s) con problemas:");
                 int shown = 0;
                 foreach (var (r, c, orig, fix) in _report.PhoneIssues)
                 {
-                    if (shown++ >= 5)
-                    {
-                        sb.AppendLine(
-                            $"    ... y {_report.PhoneIssues.Count - 5} m\u00E1s");
-                        break;
-                    }
+                    if (shown++ >= 5) { sb.AppendLine($"    ... y {_report.PhoneIssues.Count - 5} m\u00E1s"); break; }
                     sb.AppendLine($"    Fila {r + 1}: \"{orig}\" \u2192 \"{fix}\"");
                 }
             }
-
             if (_report.EmailIssues.Count > 0)
             {
-                sb.AppendLine(
-                    $"\u2022 {_report.EmailIssues.Count} email(s) inv\u00E1lido(s):");
+                sb.AppendLine($"\u2022 {_report.EmailIssues.Count} email(s) inv\u00E1lido(s):");
                 int shown = 0;
                 foreach (var (r, c, orig) in _report.EmailIssues)
                 {
-                    if (shown++ >= 5)
-                    {
-                        sb.AppendLine(
-                            $"    ... y {_report.EmailIssues.Count - 5} m\u00E1s");
-                        break;
-                    }
+                    if (shown++ >= 5) { sb.AppendLine($"    ... y {_report.EmailIssues.Count - 5} m\u00E1s"); break; }
                     sb.AppendLine($"    Fila {r + 1}: \"{orig}\"");
                 }
             }
-
             if (_report.ColumnMismatchRows.Count > 0)
             {
-                sb.AppendLine(
-                    $"\u2022 {_report.ColumnMismatchRows.Count} fila(s) con columnas incorrectas:");
+                sb.AppendLine($"\u2022 {_report.ColumnMismatchRows.Count} fila(s) con columnas incorrectas:");
                 int shown = 0;
                 foreach (var (row, exp, act) in _report.ColumnMismatchDetails)
                 {
-                    if (shown++ >= 5)
-                    {
-                        sb.AppendLine(
-                            $"    ... y {_report.ColumnMismatchDetails.Count - 5} m\u00E1s");
-                        break;
-                    }
+                    if (shown++ >= 5) { sb.AppendLine($"    ... y {_report.ColumnMismatchDetails.Count - 5} m\u00E1s"); break; }
                     sb.AppendLine($"    Fila {row + 1}: esperadas {exp}, tiene {act}");
                 }
             }
@@ -860,7 +1084,7 @@ namespace FileExplorerr
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  FILTER / SORT — unchanged
+        //  FILTER / SORT
         // ════════════════════════════════════════════════════════════════════
         private void PopulateFilterCombo()
         {
@@ -887,21 +1111,18 @@ namespace FileExplorerr
                 if (string.IsNullOrEmpty(colSel))
                 {
                     foreach (var item in row.ItemArray)
-                        if (item?.ToString()?.IndexOf(query,
-                                StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (item?.ToString()?.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
                         { match = true; break; }
                 }
                 else
                 {
-                    match = row[colSel]?.ToString()?.IndexOf(
-                        query, StringComparison.OrdinalIgnoreCase) >= 0;
+                    match = row[colSel]?.ToString()?.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
                 }
                 if (match) filtered.ImportRow(row);
             }
 
             ApplyDisplayTable(filtered);
-            statusLabel.Text =
-                $"  {filtered.Rows.Count} de {masterTable.Rows.Count} filas  \u00B7  \"{query}\"";
+            statusLabel.Text = $"  {filtered.Rows.Count} de {masterTable.Rows.Count} filas  \u00B7  \"{query}\"";
         }
 
         private void ClearFilter()
@@ -928,17 +1149,14 @@ namespace FileExplorerr
 
         // ════════════════════════════════════════════════════════════════════
         //  SAVE / EXPORT
-        //  Phase 5B: SerializeTable() calls replaced by DataSerializer.Serialize()
         // ════════════════════════════════════════════════════════════════════
         private void SaveFixedCopy()
         {
             var ft = masterTable.Copy();
 
-            // Apply date fixes
             foreach (var (r, c, _, f) in _report.DateIssues)
                 ft.Rows[r][c] = f;
 
-            // Apply phone fixes (only write back clean 10-digit numbers)
             foreach (var (r, c, orig, f) in _report.PhoneIssues)
             {
                 string digitsInFix = new string(f.Where(char.IsDigit).ToArray());
@@ -947,19 +1165,15 @@ namespace FileExplorerr
                     : f;
             }
 
-            // Mark invalid emails
             foreach (var (r, c, orig) in _report.EmailIssues)
                 ft.Rows[r][c] = $"\u26A0{orig}";
 
-            // Mark empty fields
             foreach (var (r, c) in _report.EmptyFields)
                 ft.Rows[r][c] = "(vac\u00EDo)";
 
-            // Remove duplicate rows (keep first occurrence)
             var toRemove = _report.DuplicateRows
                 .GroupBy(r => string.Join("\u2502",
-                    masterTable.Rows[r].ItemArray
-                        .Select(x => x?.ToString() ?? string.Empty)))
+                    masterTable.Rows[r].ItemArray.Select(x => x?.ToString() ?? string.Empty)))
                 .SelectMany(g => g.Skip(1))
                 .Distinct()
                 .OrderByDescending(x => x)
@@ -973,25 +1187,20 @@ namespace FileExplorerr
             {
                 Title = "Guardar corregida",
                 InitialDirectory = dir,
-                FileName = Path.GetFileNameWithoutExtension(filePath) +
-                           "_corregido" + ext,
+                FileName = Path.GetFileNameWithoutExtension(filePath) + "_corregido" + ext,
                 Filter = GetSaveFilter()
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
             try
             {
-                File.WriteAllText(
-                    dlg.FileName,
-                    DataSerializer.Serialize(ft, ext),
-                    Encoding.UTF8);
+                File.WriteAllText(dlg.FileName, DataSerializer.Serialize(ft, ext), Encoding.UTF8);
                 MessageBox.Show($"Guardado: {dlg.FileName}", "OK",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1002,24 +1211,19 @@ namespace FileExplorerr
             {
                 Title = $"Exportar como {extU}",
                 Filter = $"{extU} (*{targetExt})|*{targetExt}|Todos|*.*",
-                FileName = Path.GetFileNameWithoutExtension(filePath) +
-                           "_exportado" + targetExt
+                FileName = Path.GetFileNameWithoutExtension(filePath) + "_exportado" + targetExt
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
             try
             {
-                File.WriteAllText(
-                    dlg.FileName,
-                    DataSerializer.Serialize(displayTable, targetExt),
-                    Encoding.UTF8);
+                File.WriteAllText(dlg.FileName, DataSerializer.Serialize(displayTable, targetExt), Encoding.UTF8);
                 MessageBox.Show($"Exportado: {dlg.FileName}", "OK",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1037,5 +1241,60 @@ namespace FileExplorerr
             ".xml" => "XML|*.xml|Todos|*.*",
             _ => "Todos|*.*"
         };
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  DARK TAB CONTROL
+    //  Subclase de TabControl que intercepta WM_PAINT para eliminar el borde
+    //  blanco/gris que WinForms dibuja automáticamente alrededor del área
+    //  de las pestañas.  Sin este override, Application.EnableVisualStyles()
+    //  deja una franja blanca entre las tabs y el contenido.
+    // ════════════════════════════════════════════════════════════════════════
+    internal sealed class DarkTabControl : TabControl
+    {
+        private static readonly Color BgColor = Color.FromArgb(20, 23, 32);   // Theme.BgSurface
+        private static readonly Color LineColor = Color.FromArgb(36, 27, 82);  // sutil — como Theme.AccentBg
+
+        public DarkTabControl()
+        {
+            // Activar doble buffer vía reflexión (no hay propiedad pública en TabControl)
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer,
+                true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            // 1. Fondo completo del control en el color del tema
+            e.Graphics.Clear(BgColor);
+
+            // 2. Pintar las pestañas individualmente (dispara DrawItem en el padre)
+            for (int i = 0; i < TabCount; i++)
+                OnDrawItem(new DrawItemEventArgs(
+                    e.Graphics,
+                    Font,
+                    GetTabRect(i),
+                    i,
+                    i == SelectedIndex
+                        ? DrawItemState.Selected
+                        : DrawItemState.Default));
+
+            // 3. Línea separadora fina entre la barra de tabs y el contenido
+            if (TabCount > 0)
+            {
+                var lastTab = GetTabRect(TabCount - 1);
+                int lineY = lastTab.Bottom;
+                using var pen = new Pen(LineColor, 1f);
+                e.Graphics.DrawLine(pen, 0, lineY, Width, lineY);
+            }
+        }
+
+        // Necesario para que OnPaint reciba eventos correctamente con UserPaint
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            e.Graphics.Clear(BgColor);
+        }
     }
 }
