@@ -182,6 +182,40 @@ namespace FileExplorerr
             listaTablas = new ListBox { Dock = DockStyle.Fill, BackColor = Theme.BgSurface, ForeColor = Theme.TextPrimary, Font = Theme.FontBody, BorderStyle = BorderStyle.None, IntegralHeight = false };
             listaTablas.HandleCreated += (s, e) => ApplyDarkScrollBars(listaTablas); // Aplicar tema oscuro a lista
             listaTablas.DoubleClick += ListaTablas_DoubleClick;
+
+            // --- INICIO DE LA MODIFICACIÓN: Separadores en el ListBox ---
+            listaTablas.DrawMode = DrawMode.OwnerDrawFixed;
+            listaTablas.ItemHeight = 26;
+
+            listaTablas.DrawItem += (s, e) =>
+            {
+                if (e.Index < 0) return;
+
+                bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+                Color bgColor = isSelected ? Color.FromArgb(0, 120, 215) : Theme.BgSurface;
+                Color fgColor = isSelected ? Color.White : Theme.TextPrimary;
+                Color lineColor = Color.FromArgb(45, 45, 55);
+
+                using (var bgBrush = new SolidBrush(bgColor))
+                {
+                    e.Graphics.FillRectangle(bgBrush, e.Bounds);
+                }
+
+                string text = listaTablas.Items[e.Index].ToString()!;
+                using (var textBrush = new SolidBrush(fgColor))
+                {
+                    e.Graphics.DrawString(text, listaTablas.Font, textBrush, e.Bounds.X + 6, e.Bounds.Y + 4);
+                }
+
+                using (var linePen = new Pen(lineColor))
+                {
+                    e.Graphics.DrawLine(linePen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+                }
+
+                e.DrawFocusRectangle();
+            };
+            // --- FIN DE LA MODIFICACIÓN ---
+
             leftPanel.Controls.Add(listaTablas);
             leftPanel.Controls.Add(lblTablas);
 
