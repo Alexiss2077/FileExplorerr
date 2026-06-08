@@ -20,12 +20,7 @@ Un reemplazo funcional del Explorador de Windows con tema oscuro **Arctic Night*
 
 ## 🖼️ Capturas de pantalla
 
-<!-- 
-  📸 INSTRUCCIONES:
-  1. Crea la carpeta docs/screenshots/ en la raíz del repositorio
-  2. Toma las capturas y guárdalas con los nombres indicados
-  3. Elimina estos comentarios una vez que hayas agregado las imágenes
--->
+
 
 ### Explorador principal
 ![Explorador principal — tema Arctic Night](docs/screenshots/explorer.png)

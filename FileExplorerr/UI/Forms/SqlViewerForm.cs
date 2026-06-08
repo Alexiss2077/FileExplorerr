@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
+using System.Runtime.InteropServices;
 using FileExplorerr.Charts;
 
 namespace FileExplorerr
@@ -40,6 +41,34 @@ namespace FileExplorerr
         private DataTable? resultadoActual;
         private IDbConnector? _connector;
         private Form? _chartWindow;
+
+        // ── P/Invokes para Scrollbars Oscuros ────────────────────────────────
+        [DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string? pszSubIdList);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr hwnd, EnumChildProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        private delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
+
+        private void ApplyDarkScrollBars(Control control)
+        {
+            // Aplica al control principal
+            SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+
+            // Busca barras de desplazamiento internas
+            EnumChildWindows(control.Handle, (hwnd, lParam) =>
+            {
+                var className = new System.Text.StringBuilder(256);
+                GetClassName(hwnd, className, 256);
+                if (className.ToString() == "ScrollBar")
+                    SetWindowTheme(hwnd, "DarkMode_Explorer", null);
+                return true;
+            }, IntPtr.Zero);
+        }
 
         // ════════════════════════════════════════════════════════════════════
         //  CONSTRUCTOR
@@ -151,12 +180,14 @@ namespace FileExplorerr
             var leftPanel = new Panel { Width = 200, Dock = DockStyle.Left, BackColor = Theme.BgSurface };
             var lblTablas = new Label { Text = "Tablas", Height = 32, Dock = DockStyle.Top, Font = Theme.FontBodyBold, ForeColor = Theme.Accent, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 0, 0), BackColor = Theme.BgElevated };
             listaTablas = new ListBox { Dock = DockStyle.Fill, BackColor = Theme.BgSurface, ForeColor = Theme.TextPrimary, Font = Theme.FontBody, BorderStyle = BorderStyle.None, IntegralHeight = false };
+            listaTablas.HandleCreated += (s, e) => ApplyDarkScrollBars(listaTablas); // Aplicar tema oscuro a lista
             listaTablas.DoubleClick += ListaTablas_DoubleClick;
             leftPanel.Controls.Add(listaTablas);
             leftPanel.Controls.Add(lblTablas);
 
             // ── Editor SQL ───────────────────────────────────────────────────
             editorSql = new TextBox { Dock = DockStyle.Fill, Multiline = true, ScrollBars = ScrollBars.Both, Font = new Font("Cascadia Code", 10F), BackColor = Color.FromArgb(14, 14, 20), ForeColor = Color.FromArgb(220, 220, 230), BorderStyle = BorderStyle.None, AcceptsReturn = true, AcceptsTab = true, WordWrap = false };
+            editorSql.HandleCreated += (s, e) => ApplyDarkScrollBars(editorSql); // Aplicar tema oscuro al editor
             editorSql.KeyDown += (s, e) =>
             {
                 if ((e.KeyCode == Keys.F5) || (e.KeyCode == Keys.Enter && e.Control))
@@ -171,6 +202,25 @@ namespace FileExplorerr
 
             // ── Grid resultados ──────────────────────────────────────────────
             grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, RowHeadersVisible = true, RowHeadersWidth = 44, MultiSelect = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, ScrollBars = ScrollBars.Both, BorderStyle = BorderStyle.None };
+
+            // Aplicar tema oscuro al grid y sus barras dinámicas
+            grid.HandleCreated += (s, e) =>
+            {
+                ApplyDarkScrollBars(grid);
+                foreach (Control c in grid.Controls)
+                {
+                    if (c is ScrollBar) ApplyDarkScrollBars(c);
+                }
+            };
+            grid.ControlAdded += (s, e) =>
+            {
+                if (e.Control is ScrollBar)
+                {
+                    e.Control.HandleCreated += (ss, ee) => ApplyDarkScrollBars(e.Control);
+                    if (e.Control.IsHandleCreated) ApplyDarkScrollBars(e.Control);
+                }
+            };
+
             Theme.StyleGrid(grid);
             grid.RowHeadersDefaultCellStyle = new DataGridViewCellStyle { BackColor = Theme.BgSurface, ForeColor = Theme.TextMuted, Font = Theme.FontSmall };
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
